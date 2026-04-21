@@ -23,6 +23,7 @@ import { renderMessagesToPlainText } from '../utils/exportRenderer.js';
 import { openFileInExternalEditor } from '../utils/editor.js';
 import { writeFile } from 'fs/promises';
 import {
+  type TabStatusKind,
   Box,
   Text,
   useStdin,
@@ -117,6 +118,7 @@ import {
   type CommandResultDisplay,
   type ResumeEntrypoint,
   getCommandName,
+  isCommandEnabled,
 } from '../commands.js';
 import type { PromptInputMode, QueuedCommand, VimMode } from '../types/textInputTypes.js';
 import {
@@ -245,15 +247,6 @@ import {
 import { generateSessionTitle } from '../utils/sessionTitle.js';
 import { BASH_INPUT_TAG, COMMAND_MESSAGE_TAG, COMMAND_NAME_TAG, LOCAL_COMMAND_STDOUT_TAG } from '../constants/xml.js';
 import { escapeXml } from '../utils/xml.js';
-import { createImmediateLocalJsxFeedback } from '../hosts/terminal/immediateCommandFeedback.js';
-import {
-  getTerminalSessionShellState,
-  hasSuppressedTerminalDialogs,
-  resolveTerminalFocusedInputDialog,
-  shouldShowTerminalSpinner,
-  type TerminalFocusedInputDialog,
-} from '../hosts/terminal/sessionShell.js';
-import { useTerminalToolOverlayState } from '../hosts/terminal/useToolOverlayState.js';
 import type { ThinkingConfig } from '../utils/thinking.js';
 import { gracefulShutdownSync } from '../utils/gracefulShutdown.js';
 import { handlePromptSubmit, type PromptInputHelpers } from '../utils/handlePromptSubmit.js';
@@ -395,10 +388,6 @@ import {
   removeByFilter,
 } from '../utils/messageQueueManager.js';
 import { useCommandQueue } from '../hooks/useCommandQueue.js';
-import {
-  parseRuntimeCommandInvocation,
-  resolveRuntimeCommandInteraction,
-} from '../runtime/capabilities/commands/replInteraction.js';
 import { SessionBackgroundHint } from '../components/SessionBackgroundHint.js';
 import { startBackgroundSession } from '../tasks/LocalMainSessionTask.js';
 import { useSessionBackgrounding } from '../hooks/useSessionBackgrounding.js';
@@ -1226,7 +1215,7 @@ export function REPL({
 
   // Ref to track current focusedInputDialog for use in callbacks
   // This avoids stale closures when checking dialog state in timer callbacks
-  const focusedInputDialogRef = React.useRef<TerminalFocusedInputDialog>(undefined);
+  const focusedInputDialogRef = React.useRef<ReturnType<typeof getFocusedInputDialog>>(undefined);
 
   // How long after the last keystroke before deferred dialogs are shown
   const PROMPT_SUPPRESSION_MS = 1500;
@@ -1282,8 +1271,74 @@ export function REPL({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const { toolJSX, setToolJSX, isShowingLocalJSXCommand } =
-    useTerminalToolOverlayState();
+  const [toolJSX, setToolJSXInternal] = useState<{
+    jsx: React.ReactNode | null;
+    shouldHidePromptInput: boolean;
+    shouldContinueAnimation?: true;
+    showSpinner?: boolean;
+    isLocalJSXCommand?: boolean;
+    isImmediate?: boolean;
+  } | null>(null);
+
+  // Track local JSX commands separately so tools can't overwrite them.
+  // This enables "immediate" commands (like /btw) to persist while Claude is processing.
+  const localJSXCommandRef = useRef<{
+    jsx: React.ReactNode | null;
+    shouldHidePromptInput: boolean;
+    shouldContinueAnimation?: true;
+    showSpinner?: boolean;
+    isLocalJSXCommand: true;
+  } | null>(null);
+
+  // Wrapper for setToolJSX that preserves local JSX commands (like /btw).
+  // When a local JSX command is active, we ignore updates from tools
+  // unless they explicitly set clearLocalJSX: true (from onDone callbacks).
+  //
+  // TO ADD A NEW IMMEDIATE COMMAND:
+  // 1. Set `immediate: true` in the command definition
+  // 2. Set `isLocalJSXCommand: true` when calling setToolJSX in the command's JSX
+  // 3. In the onDone callback, use `setToolJSX({ jsx: null, shouldHidePromptInput: false, clearLocalJSX: true })`
+  //    to explicitly clear the overlay when the user dismisses it
+  const setToolJSX = useCallback(
+    (
+      args: {
+        jsx: React.ReactNode | null;
+        shouldHidePromptInput: boolean;
+        shouldContinueAnimation?: true;
+        showSpinner?: boolean;
+        isLocalJSXCommand?: boolean;
+        clearLocalJSX?: boolean;
+      } | null,
+    ) => {
+      // If setting a local JSX command, store it in the ref
+      if (args?.isLocalJSXCommand) {
+        const { clearLocalJSX: _, ...rest } = args;
+        localJSXCommandRef.current = { ...rest, isLocalJSXCommand: true };
+        setToolJSXInternal(rest);
+        return;
+      }
+
+      // If there's an active local JSX command in the ref
+      if (localJSXCommandRef.current) {
+        // Allow clearing only if explicitly requested (from onDone callbacks)
+        if (args?.clearLocalJSX) {
+          localJSXCommandRef.current = null;
+          setToolJSXInternal(null);
+          return;
+        }
+        // Otherwise, keep the local JSX command visible - ignore tool updates
+        return;
+      }
+
+      // No active local JSX command, allow any update
+      if (args?.clearLocalJSX) {
+        setToolJSXInternal(null);
+        return;
+      }
+      setToolJSXInternal(args);
+    },
+    [],
+  );
   const [toolUseConfirmQueue, setToolUseConfirmQueue] = useState<ToolUseConfirm[]>([]);
   // Sticky footer JSX registered by permission request components (currently
   // only ExitPlanModePermissionRequest). Renders in FullscreenLayout's `bottom`
@@ -1323,31 +1378,14 @@ export function REPL({
   const haikuTitleAttemptedRef = useRef((initialMessages?.length ?? 0) > 0);
   const agentTitle = mainThreadAgentDefinition?.agentType;
   const terminalTitle = sessionTitle ?? agentTitle ?? haikuTitle ?? 'Claude Code';
-  const hasToolPermissionRequest = toolUseConfirmQueue.length > 0;
-  const hasPromptRequest = promptQueue.length > 0;
-  const hasSandboxPermissionRequest = sandboxPermissionRequestQueue.length > 0;
-  const hasWorkerSandboxRequest = workerSandboxPermissions.queue.length > 0;
-  const hasElicitationRequest = elicitation.queue.length > 0;
-  const hasPendingWorkerRequest = !!pendingWorkerRequest;
-  const hasPendingSandboxRequest = !!pendingSandboxRequest;
-  const {
-    hasActivePrompt,
-    isWaitingForApproval,
-    titleIsAnimating,
-    sessionStatus,
-    waitingFor,
-  } = getTerminalSessionShellState({
-    isLoading,
-    activeToolName: toolUseConfirmQueue[0]?.tool.name,
-    hasToolPermissionRequest,
-    hasPromptRequest,
-    hasSandboxPermissionRequest,
-    hasWorkerSandboxRequest,
-    hasElicitationRequest,
-    hasPendingWorkerRequest,
-    hasPendingSandboxRequest,
-    isShowingLocalJSXCommand,
-  });
+  const isWaitingForApproval =
+    toolUseConfirmQueue.length > 0 || promptQueue.length > 0 || pendingWorkerRequest || pendingSandboxRequest;
+  // Local-jsx commands (like /plugin, /config) show user-facing dialogs that
+  // wait for input. Require jsx != null — if the flag is stuck true but jsx
+  // is null, treat as not-showing so TextInput focus and queue processor
+  // aren't deadlocked by a phantom overlay.
+  const isShowingLocalJSXCommand = toolJSX?.isLocalJSXCommand === true && toolJSX?.jsx != null;
+  const titleIsAnimating = isLoading && !isWaitingForApproval && !isShowingLocalJSXCommand;
   // Title animation state lives in <AnimatedTerminalTitle> so the 960ms tick
   // doesn't re-render REPL. titleDisabled/terminalTitle are still computed
   // here because onQueryImpl reads them (background session description,
@@ -1360,6 +1398,22 @@ export function REPL({
       return () => stopPreventSleep();
     }
   }, [isLoading, isWaitingForApproval, isShowingLocalJSXCommand]);
+
+  const sessionStatus: TabStatusKind =
+    isWaitingForApproval || isShowingLocalJSXCommand ? 'waiting' : isLoading ? 'busy' : 'idle';
+
+  const waitingFor =
+    sessionStatus !== 'waiting'
+      ? undefined
+      : toolUseConfirmQueue.length > 0
+        ? `approve ${toolUseConfirmQueue[0]!.tool.name}`
+        : pendingWorkerRequest
+          ? 'worker request'
+          : pendingSandboxRequest
+            ? 'sandbox request'
+            : isShowingLocalJSXCommand
+              ? 'dialog open'
+              : 'input needed';
 
   // Push status to the PID file for `claude ps`. Fire-and-forget; ps falls
   // back to transcript-tail derivation when this is missing/stale.
@@ -1921,19 +1975,36 @@ export function REPL({
     setInputValue,
     setToolJSX,
   });
-  const showSpinner = shouldShowTerminalSpinner({
-    toolOverlayShowsSpinner: !toolJSX || toolJSX.showSpinner === true,
-    hasToolPermissionRequest,
-    hasPromptRequest,
-    isLoading,
-    hasUserInputInFlight: !!userInputOnProcessing,
-    hasRunningTeammates,
-    queuedCommandCount: getCommandQueueLength(),
-    hasPendingWorkerRequest,
-    hasOnlySleepToolActive: onlySleepToolActive,
-    hasVisibleStreamingText: !!visibleStreamingText,
-    isBriefOnly,
-  });
+
+  const showSpinner =
+    (!toolJSX || toolJSX.showSpinner === true) &&
+    toolUseConfirmQueue.length === 0 &&
+    promptQueue.length === 0 &&
+    // Show spinner during input processing, API call, while teammates are running,
+    // or while pending task notifications are queued (prevents spinner bounce between consecutive notifications)
+    (isLoading ||
+      userInputOnProcessing ||
+      hasRunningTeammates ||
+      // Keep spinner visible while task notifications are queued for processing.
+      // Without this, the spinner briefly disappears between consecutive notifications
+      // (e.g., multiple background agents completing in rapid succession) because
+      // isLoading goes false momentarily between processing each one.
+      getCommandQueueLength() > 0) &&
+    // Hide spinner when waiting for leader to approve permission request
+    !pendingWorkerRequest &&
+    !onlySleepToolActive &&
+    // Hide spinner when streaming text is visible (the text IS the feedback),
+    // but keep it when isBriefOnly suppresses the streaming text display
+    (!visibleStreamingText || isBriefOnly);
+
+  // Check if any permission or ask question prompt is currently visible
+  // This is used to prevent the survey from opening while prompts are active
+  const hasActivePrompt =
+    toolUseConfirmQueue.length > 0 ||
+    promptQueue.length > 0 ||
+    sandboxPermissionRequestQueue.length > 0 ||
+    elicitation.queue.length > 0 ||
+    workerSandboxPermissions.queue.length > 0;
 
   const feedbackSurveyOriginal = useFeedbackSurvey(messages, isLoading, submitCount, 'session', hasActivePrompt);
 
@@ -2269,45 +2340,99 @@ export function REPL({
 
   // Calculate if cost dialog should be shown
   const showingCostDialog = !isLoading && showCostDialog;
-  const allowDialogsWithAnimation = !toolJSX || toolJSX.shouldContinueAnimation === true;
-  const focusedInputDialog = resolveTerminalFocusedInputDialog({
-    isExiting,
-    hasExitFlow: !!exitFlow,
-    isMessageSelectorVisible,
-    isPromptInputActive,
-    allowDialogsWithAnimation,
-    hasSandboxPermissionRequest,
-    hasToolPermissionRequest,
-    hasPromptRequest,
-    hasWorkerSandboxRequest,
-    hasElicitationRequest,
-    showingCostDialog,
-    hasIdleReturnDialog: !!idleReturnPending,
-    isUltraplanEnabled: feature('ULTRAPLAN'),
-    hasUltraplanChoice: !!ultraplanPendingChoice,
-    hasUltraplanLaunch: !!ultraplanLaunchPending,
-    isLoading,
-    showIdeOnboarding,
-    showModelSwitchCallout,
-    showUndercoverCallout,
-    showEffortCallout,
-    showRemoteCallout,
-    hasLspRecommendation: !!lspRecommendation,
-    hasPluginHint: !!hintRecommendation,
-    showDesktopUpsellStartup,
-    isAntUser: process.env.USER_TYPE === 'ant',
-  });
+
+  // Determine which dialog should have focus (if any)
+  // Permission and interactive dialogs can show even when toolJSX is set,
+  // as long as shouldContinueAnimation is true. This prevents deadlocks when
+  // agents set background hints while waiting for user interaction.
+  function getFocusedInputDialog():
+    | 'message-selector'
+    | 'sandbox-permission'
+    | 'tool-permission'
+    | 'prompt'
+    | 'worker-sandbox-permission'
+    | 'elicitation'
+    | 'cost'
+    | 'idle-return'
+    | 'init-onboarding'
+    | 'ide-onboarding'
+    | 'model-switch'
+    | 'undercover-callout'
+    | 'effort-callout'
+    | 'remote-callout'
+    | 'lsp-recommendation'
+    | 'plugin-hint'
+    | 'desktop-upsell'
+    | 'ultraplan-choice'
+    | 'ultraplan-launch'
+    | undefined {
+    // Exit states always take precedence
+    if (isExiting || exitFlow) return undefined;
+
+    // High priority dialogs (always show regardless of typing)
+    if (isMessageSelectorVisible) return 'message-selector';
+
+    // Suppress interrupt dialogs while user is actively typing
+    if (isPromptInputActive) return undefined;
+
+    if (sandboxPermissionRequestQueue[0]) return 'sandbox-permission';
+
+    // Permission/interactive dialogs (show unless blocked by toolJSX)
+    const allowDialogsWithAnimation = !toolJSX || toolJSX.shouldContinueAnimation;
+
+    if (allowDialogsWithAnimation && toolUseConfirmQueue[0]) return 'tool-permission';
+    if (allowDialogsWithAnimation && promptQueue[0]) return 'prompt';
+    // Worker sandbox permission prompts (network access) from swarm workers
+    if (allowDialogsWithAnimation && workerSandboxPermissions.queue[0]) return 'worker-sandbox-permission';
+    if (allowDialogsWithAnimation && elicitation.queue[0]) return 'elicitation';
+    if (allowDialogsWithAnimation && showingCostDialog) return 'cost';
+    if (allowDialogsWithAnimation && idleReturnPending) return 'idle-return';
+
+    if (feature('ULTRAPLAN') && allowDialogsWithAnimation && !isLoading && ultraplanPendingChoice)
+      return 'ultraplan-choice';
+
+    if (feature('ULTRAPLAN') && allowDialogsWithAnimation && !isLoading && ultraplanLaunchPending)
+      return 'ultraplan-launch';
+
+    // Onboarding dialogs (special conditions)
+    if (allowDialogsWithAnimation && showIdeOnboarding) return 'ide-onboarding';
+
+    // Model switch callout (ant-only, eliminated from external builds)
+    if (process.env.USER_TYPE === 'ant' && allowDialogsWithAnimation && showModelSwitchCallout) return 'model-switch';
+
+    // Undercover auto-enable explainer (ant-only, eliminated from external builds)
+    if (process.env.USER_TYPE === 'ant' && allowDialogsWithAnimation && showUndercoverCallout)
+      return 'undercover-callout';
+
+    // Effort callout (shown once for Opus 4.6 users when effort is enabled)
+    if (allowDialogsWithAnimation && showEffortCallout) return 'effort-callout';
+
+    // Remote callout (shown once before first bridge enable)
+    if (allowDialogsWithAnimation && showRemoteCallout) return 'remote-callout';
+
+    // LSP plugin recommendation (lowest priority - non-blocking suggestion)
+    if (allowDialogsWithAnimation && lspRecommendation) return 'lsp-recommendation';
+
+    // Plugin hint from CLI/SDK stderr (same priority band as LSP rec)
+    if (allowDialogsWithAnimation && hintRecommendation) return 'plugin-hint';
+
+    // Desktop app upsell (max 3 launches, lowest priority)
+    if (allowDialogsWithAnimation && showDesktopUpsellStartup) return 'desktop-upsell';
+
+    return undefined;
+  }
+
+  const focusedInputDialog = getFocusedInputDialog();
 
   // True when permission prompts exist but are hidden because the user is typing
-  const hasSuppressedDialogs = hasSuppressedTerminalDialogs({
-    isPromptInputActive,
-    hasSandboxPermissionRequest,
-    hasToolPermissionRequest,
-    hasPromptRequest,
-    hasWorkerSandboxRequest,
-    hasElicitationRequest,
-    showingCostDialog,
-  });
+  const hasSuppressedDialogs =
+    isPromptInputActive &&
+    (sandboxPermissionRequestQueue[0] ||
+      toolUseConfirmQueue[0] ||
+      promptQueue[0] ||
+      workerSandboxPermissions.queue[0] ||
+      elicitation.queue[0] ||
+      showingCostDialog);
 
   // Keep ref in sync so timer callbacks can read the current value
   focusedInputDialogRef.current = focusedInputDialog;
@@ -3720,21 +3845,26 @@ export function REPL({
         return;
       }
 
-      const resolvedSlashCommand =
-        !speculationAccept && input.trim().startsWith('/')
-          ? resolveRuntimeCommandInteraction({
-              input,
-              commands,
-              queryIsActive: queryGuard.isActive,
-              fromKeybinding: options?.fromKeybinding,
-            })
-          : undefined;
-
       // Handle immediate commands - these bypass the queue and execute right away
       // even while Claude is processing. Commands opt-in via `immediate: true`.
       // Commands triggered via keybindings are always treated as immediate.
-      if (resolvedSlashCommand) {
-        const matchingCommand = resolvedSlashCommand.matchingCommand;
+      if (!speculationAccept && input.trim().startsWith('/')) {
+        // Expand [Pasted text #N] refs so immediate commands (e.g. /btw) receive
+        // the pasted content, not the placeholder. The non-immediate path gets
+        // this expansion later in handlePromptSubmit.
+        const trimmedInput = expandPastedTextRefs(input, pastedContents).trim();
+        const spaceIndex = trimmedInput.indexOf(' ');
+        const commandName = spaceIndex === -1 ? trimmedInput.slice(1) : trimmedInput.slice(1, spaceIndex);
+        const commandArgs = spaceIndex === -1 ? '' : trimmedInput.slice(spaceIndex + 1).trim();
+
+        // Find matching command - treat as immediate if:
+        // 1. Command has `immediate: true`, OR
+        // 2. Command was triggered via keybinding (fromKeybinding option)
+        const matchingCommand = commands.find(
+          cmd =>
+            isCommandEnabled(cmd) &&
+            (cmd.name === commandName || cmd.aliases?.includes(commandName) || getCommandName(cmd) === commandName),
+        );
         if (matchingCommand?.name === 'clear' && idleHintShownRef.current) {
           logEvent('tengu_idle_return_action', {
             action: 'hint_converted' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
@@ -3746,11 +3876,9 @@ export function REPL({
           idleHintShownRef.current = false;
         }
 
-        if (
-          matchingCommand &&
-          resolvedSlashCommand.shouldTreatAsImmediate &&
-          matchingCommand.type === 'local-jsx'
-        ) {
+        const shouldTreatAsImmediate = queryGuard.isActive && (matchingCommand?.immediate || options?.fromKeybinding);
+
+        if (matchingCommand && shouldTreatAsImmediate && matchingCommand.type === 'local-jsx') {
           // Only clear input if the submitted text matches what's in the prompt.
           // When a command keybinding fires, input is "/<command>" but the actual
           // input value is the user's existing text - don't clear it in that case.
@@ -3772,12 +3900,6 @@ export function REPL({
             commandName: matchingCommand.name as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
             fromKeybinding: options?.fromKeybinding ?? false,
           });
-          // Expand [Pasted text #N] refs so immediate commands (e.g. /btw) receive
-          // the pasted content, not the placeholder. The non-immediate path gets
-          // this expansion later in handlePromptSubmit.
-          const commandInvocation =
-            parseRuntimeCommandInvocation(expandPastedTextRefs(input, pastedContents), 'repl') ??
-            resolvedSlashCommand.invocation;
 
           // Execute the command directly
           const executeImmediateCommand = async (): Promise<void> => {
@@ -3795,23 +3917,37 @@ export function REPL({
                 shouldHidePromptInput: false,
                 clearLocalJSX: true,
               });
-              const feedback = createImmediateLocalJsxFeedback({
-                commandName: getCommandName(matchingCommand),
-                commandArgs: commandInvocation.args,
-                result,
-                display: doneOptions?.display,
-                metaMessages: doneOptions?.metaMessages,
-                isFullscreen: isFullscreenEnvEnabled(),
-              });
-              if (feedback.notificationText) {
+              const newMessages: MessageType[] = [];
+              if (result && doneOptions?.display !== 'skip') {
                 addNotification({
                   key: `immediate-${matchingCommand.name}`,
-                  text: feedback.notificationText,
+                  text: result,
                   priority: 'immediate',
                 });
+                // In fullscreen the command just showed as a centered modal
+                // pane — the notification above is enough feedback. Adding
+                // "❯ /config" + "⎿ dismissed" to the transcript is clutter
+                // (those messages are type:system subtype:local_command —
+                // user-visible but NOT sent to the model, so skipping them
+                // doesn't change model context). Outside fullscreen the
+                // transcript entry stays so scrollback shows what ran.
+                if (!isFullscreenEnvEnabled()) {
+                  newMessages.push(
+                    createCommandInputMessage(formatCommandInputTags(getCommandName(matchingCommand), commandArgs)),
+                    createCommandInputMessage(
+                      `<${LOCAL_COMMAND_STDOUT_TAG}>${escapeXml(result)}</${LOCAL_COMMAND_STDOUT_TAG}>`,
+                    ),
+                  );
+                }
               }
-              if (feedback.transcriptMessages.length) {
-                setMessages(prev => [...prev, ...feedback.transcriptMessages]);
+              // Inject meta messages (model-visible, user-hidden) into the transcript
+              if (doneOptions?.metaMessages?.length) {
+                newMessages.push(
+                  ...doneOptions.metaMessages.map(content => createUserMessage({ content, isMeta: true })),
+                );
+              }
+              if (newMessages.length) {
+                setMessages(prev => [...prev, ...newMessages]);
               }
               // Restore stashed prompt after local-jsx command completes.
               // The normal stash restoration path (below) is skipped because
@@ -3831,7 +3967,7 @@ export function REPL({
             const context = getToolUseContext(messagesRef.current, [], createAbortController(), mainLoopModel);
 
             const mod = await matchingCommand.load();
-            const jsx = await mod.call(onDone, context, commandInvocation.args);
+            const jsx = await mod.call(onDone, context, commandArgs);
 
             // Skip if onDone already fired — prevents stuck isLocalJSXCommand
             // (see processSlashCommand.tsx local-jsx case for full mechanism).
@@ -3994,7 +4130,13 @@ export function REPL({
       // plain text go to the remote.
       if (
         activeRemote.isRemoteMode &&
-        !(isSlashCommand && resolvedSlashCommand?.matchingCommand?.type === 'local-jsx')
+        !(
+          isSlashCommand &&
+          commands.find(c => {
+            const name = input.trim().slice(1).split(/\s/)[0];
+            return isCommandEnabled(c) && (c.name === name || c.aliases?.includes(name!) || getCommandName(c) === name);
+          })?.type === 'local-jsx'
+        )
       ) {
         // Build content blocks when there are pasted attachments (images)
         const pastedValues = Object.values(pastedContents);
@@ -4419,10 +4561,7 @@ export function REPL({
     const memoryFiles = await getMemoryFiles();
     if (memoryFiles.length > 0) {
       const fileList = memoryFiles
-        .map(
-          (f: (typeof memoryFiles)[number]) =>
-            `  [${f.type}] ${f.path} (${f.content.length} chars)${f.parent ? ` (included by ${f.parent})` : ''}`,
-        )
+        .map(f => `  [${f.type}] ${f.path} (${f.content.length} chars)${f.parent ? ` (included by ${f.parent})` : ''}`)
         .join('\n');
       logForDebugging(`Loaded ${memoryFiles.length} CLAUDE.md/rules files:\n${fileList}`);
     } else {
