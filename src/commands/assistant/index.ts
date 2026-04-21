@@ -1,13 +1,13 @@
 import type { Command } from '../../commands.js'
-import { isAssistantEnabled } from './gate.js'
+import { isAssistantCommandEnabled } from './gate.js'
 
 const assistant = {
   type: 'local-jsx',
   name: 'assistant',
   description: 'Open the Kairos assistant panel',
-  isEnabled: isAssistantEnabled,
+  isEnabled: isAssistantCommandEnabled,
   get isHidden() {
-    return !isAssistantEnabled()
+    return !isAssistantCommandEnabled()
   },
   immediate: true,
   load: () => import('./assistant.js'),

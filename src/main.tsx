@@ -1808,9 +1808,9 @@ async function run(): Promise<CommanderCommand> {
 					// cache is false/missing, lazily inits GrowthBook and fetches fresh
 					// (max ~5s). --assistant skips the gate entirely (daemon is
 					// pre-entitled).
-					kairosEnabled =
-						assistantModule.isAssistantForced() ||
-						(await kairosGate.isKairosEnabled());
+						kairosEnabled =
+							assistantModule.isAssistantForced() ||
+							(await kairosGate.isKairosRuntimeEnabled());
 					if (kairosEnabled) {
 						const opts = options as { brief?: boolean };
 						opts.brief = true;

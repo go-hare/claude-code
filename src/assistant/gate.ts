@@ -27,3 +27,13 @@ export async function isKairosEnabled(): Promise<boolean> {
   logForDebugging(`[assistant] ${KAIROS_GATE} -> ${enabled}`)
   return enabled
 }
+
+/**
+ * Runtime activation gate for assistant mode.
+ *
+ * Use this when deciding whether KAIROS should actually become active for the
+ * current session (main.tsx startup path).
+ */
+export async function isKairosRuntimeEnabled(): Promise<boolean> {
+  return isKairosEnabled()
+}

@@ -19,3 +19,14 @@ export function isAssistantEnabled(): boolean {
   }
   return true
 }
+
+/**
+ * Command-level visibility gate for `/assistant`.
+ *
+ * This is intentionally narrower than assistant runtime activation:
+ * - it controls whether the command is exposed in the CLI
+ * - it does not imply kairosActive is already enabled for the session
+ */
+export function isAssistantCommandEnabled(): boolean {
+  return isAssistantEnabled()
+}
