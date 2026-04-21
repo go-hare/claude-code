@@ -3,8 +3,11 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 
+const reactPlugin = react as unknown as () => any;
+const tailwindPlugin = tailwindcss as unknown as () => any;
+
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [reactPlugin(), tailwindPlugin()],
   base: "/code/",
   resolve: {
     alias: {

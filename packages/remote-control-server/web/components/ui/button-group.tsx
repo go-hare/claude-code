@@ -1,3 +1,4 @@
+import * as React from "react"
 import { Slot } from "@radix-ui/react-slot"
 import { cva, type VariantProps } from "class-variance-authority"
 
@@ -44,7 +45,7 @@ function ButtonGroupText({
 }: React.ComponentProps<"div"> & {
   asChild?: boolean
 }) {
-  const Comp = asChild ? Slot : "div"
+  const Comp = (asChild ? Slot : "div") as React.ElementType
 
   return (
     <Comp
@@ -52,7 +53,7 @@ function ButtonGroupText({
         "bg-muted flex items-center gap-2 rounded-md border px-4 text-sm font-medium shadow-xs [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4",
         className
       )}
-      {...props}
+      {...(props as React.ComponentPropsWithoutRef<"div">)}
     />
   )
 }
@@ -81,4 +82,3 @@ export {
   ButtonGroupText,
   buttonGroupVariants,
 }
-
