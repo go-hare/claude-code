@@ -48,6 +48,10 @@ import {
 	resolveCommandAssembly,
 } from './main/commandAssembly.js'
 import { determineMainLaunchMode } from './main/modeDispatch.js'
+import {
+	determineSetupTrigger,
+	runVersionedPluginStartup,
+} from './main/startupAssembly.js'
 import { launchRepl } from './replLauncher.js'
 import {
 	hasGrowthBookEnvOverride,
@@ -3760,27 +3764,24 @@ async function run(): Promise<CommanderCommand> {
 			// are install/upgrade bookkeeping that scripted calls don't need —
 			// the next interactive session will reconcile. The await here was
 			// blocking -p on a marketplace round-trip.
-			if (isBareMode()) {
-				// skip — no-op
-			} else if (isNonInteractiveSession) {
-				// In headless mode, await to ensure plugin sync completes before CLI exits
-				await initializeVersionedPlugins();
-				profileCheckpoint("action_after_plugins_init");
-				void cleanupOrphanedPluginVersionsInBackground().then(() =>
-					getGlobExclusionsForPluginCache(),
-				);
-			} else {
-				// In interactive mode, fire-and-forget — this is purely bookkeeping
-				// that doesn't affect runtime behavior of the current session
-				void initializeVersionedPlugins().then(async () => {
-					profileCheckpoint("action_after_plugins_init");
-					await cleanupOrphanedPluginVersionsInBackground();
+			await runVersionedPluginStartup({
+				bareMode: isBareMode(),
+				isNonInteractiveSession,
+				initializeVersionedPlugins,
+				cleanupOrphanedPluginVersionsInBackground,
+				warmGlobExclusions: () => {
 					void getGlobExclusionsForPluginCache();
-				});
-			}
+				},
+				onPluginsInitComplete: () => {
+					profileCheckpoint("action_after_plugins_init");
+				},
+			});
 
-			const setupTrigger =
-				initOnly || init ? "init" : maintenance ? "maintenance" : null;
+			const setupTrigger = determineSetupTrigger({
+				initOnly,
+				init,
+				maintenance,
+			});
 			if (initOnly) {
 				applyConfigEnvironmentVariables();
 				await processSetupHooks("init", { forceSyncExecution: true });
