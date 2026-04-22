@@ -362,9 +362,59 @@ export function toolMatchesName(
 
 /**
  * Finds a tool by name or alias from a list of tools.
+ *
+ * Exact primary-name matches always win over aliases so an older alias cannot
+ * shadow a different tool that is actually named that identifier.
  */
 export function findToolByName(tools: Tools, name: string): Tool | undefined {
-  return tools.find(t => toolMatchesName(t, name))
+  return tools.find(t => t.name === name) ?? tools.find(t => toolMatchesName(t, name))
+}
+
+function hasSameMcpToolIdentity(a: Tool, b: Tool): boolean {
+  return (
+    a.mcpInfo !== undefined &&
+    b.mcpInfo !== undefined &&
+    a.mcpInfo.serverName === b.mcpInfo.serverName &&
+    a.mcpInfo.toolName === b.mcpInfo.toolName
+  )
+}
+
+function describeToolIdentity(tool: Tool): string {
+  if (tool.mcpInfo) {
+    return `MCP(${tool.mcpInfo.serverName}/${tool.mcpInfo.toolName})`
+  }
+  return `built-in(${tool.name})`
+}
+
+/**
+ * Deduplicates tools by primary name while rejecting conflicting implementations.
+ *
+ * Duplicate entries are only tolerated when they point at the same tool object,
+ * or when they are the same MCP logical tool surfaced through multiple merge
+ * paths (same serverName + toolName).
+ */
+export function dedupeToolsByName(tools: Tools): Tool[] {
+  const deduped: Tool[] = []
+  const seen = new Map<string, Tool>()
+
+  for (const tool of tools) {
+    const existing = seen.get(tool.name)
+    if (!existing) {
+      seen.set(tool.name, tool)
+      deduped.push(tool)
+      continue
+    }
+
+    if (existing === tool || hasSameMcpToolIdentity(existing, tool)) {
+      continue
+    }
+
+    throw new Error(
+      `Conflicting tools share primary name "${tool.name}": ${describeToolIdentity(existing)} vs ${describeToolIdentity(tool)}`,
+    )
+  }
+
+  return deduped
 }
 
 export type Tool<

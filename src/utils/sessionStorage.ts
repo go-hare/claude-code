@@ -533,6 +533,7 @@ class Project {
   // Minimal cache for current session only (not all sessions)
   currentSessionTag: string | undefined
   currentSessionTitle: string | undefined
+  currentSessionStartupTitle: string | undefined
   currentSessionAgentName: string | undefined
   currentSessionAgentColor: string | undefined
   currentSessionLastPrompt: string | undefined
@@ -2630,7 +2631,9 @@ export async function saveCustomTitle(
   })
   // Cache for current session only (for immediate visibility)
   if (sessionId === getSessionId()) {
-    getProject().currentSessionTitle = customTitle
+    const project = getProject()
+    project.currentSessionTitle = customTitle
+    project.currentSessionStartupTitle = undefined
   }
   logEvent('tengu_session_renamed', {
     source:
@@ -2793,6 +2796,7 @@ export function restoreSessionMetadata(meta: {
 export function clearSessionMetadata(): void {
   const project = getProject()
   project.currentSessionTitle = undefined
+  project.currentSessionStartupTitle = undefined
   project.currentSessionTag = undefined
   project.currentSessionAgentName = undefined
   project.currentSessionAgentColor = undefined
@@ -2803,6 +2807,21 @@ export function clearSessionMetadata(): void {
   project.currentSessionPrNumber = undefined
   project.currentSessionPrUrl = undefined
   project.currentSessionPrRepository = undefined
+}
+
+/**
+ * Clear cached resume metadata before loading another session, but preserve an
+ * explicit startup title cached via --name so it can still override the
+ * resumed session's title.
+ */
+export function resetSessionMetadataForResume(): void {
+  const project = getProject()
+  const preservedStartupTitle = project.currentSessionStartupTitle
+  clearSessionMetadata()
+  if (preservedStartupTitle) {
+    project.currentSessionStartupTitle = preservedStartupTitle
+    project.currentSessionTitle = preservedStartupTitle
+  }
 }
 
 /**
@@ -2869,7 +2888,9 @@ export function saveAgentSetting(agentSetting: string): void {
  * orphan metadata-only file is created before the session ID is finalized.
  */
 export function cacheSessionTitle(customTitle: string): void {
-  getProject().currentSessionTitle = customTitle
+  const project = getProject()
+  project.currentSessionTitle = customTitle
+  project.currentSessionStartupTitle = customTitle
 }
 
 /**

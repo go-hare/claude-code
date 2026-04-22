@@ -1,9 +1,13 @@
 import { feature } from 'bun:bundle'
 import partition from 'lodash-es/partition.js'
-import uniqBy from 'lodash-es/uniqBy.js'
 import { COORDINATOR_MODE_ALLOWED_TOOLS } from '../constants/tools.js'
 import { isMcpTool } from '../services/mcp/utils.js'
-import type { Tool, ToolPermissionContext, Tools } from '../Tool.js'
+import {
+  dedupeToolsByName,
+  type Tool,
+  type ToolPermissionContext,
+  type Tools,
+} from '../Tool.js'
 
 // MCP tool name suffixes for PR activity subscription. These are lightweight
 // orchestration actions the coordinator calls directly rather than delegating
@@ -59,11 +63,12 @@ export function mergeAndFilterTools(
 ): Tools {
   // Merge initialTools on top - they take precedence in deduplication.
   // initialTools may include built-in tools (from getTools() in REPL.tsx) which
-  // overlap with assembled tools. uniqBy handles this deduplication.
+  // overlap with assembled tools. We allow those exact duplicates but reject
+  // conflicting implementations that share the same primary name.
   // Partition-sort for prompt-cache stability (same as assembleToolPool):
   // built-ins must stay a contiguous prefix for the server's cache policy.
   const [mcp, builtIn] = partition(
-    uniqBy([...initialTools, ...assembled], 'name'),
+    dedupeToolsByName([...initialTools, ...assembled]),
     isMcpTool,
   )
   const byName = (a: Tool, b: Tool) => a.name.localeCompare(b.name)

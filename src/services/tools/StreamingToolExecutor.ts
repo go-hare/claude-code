@@ -48,6 +48,8 @@ export class StreamingToolExecutor {
   private discarded = false
   private progressAvailableResolve?: () => void
   private turnSpan: LangfuseSpan | null = null
+  private nextContextModifierIndex = 0
+  private hasPendingContextUpdate = false
 
   constructor(
     private readonly toolDefinitions: Tools,
@@ -147,6 +149,8 @@ export class StreamingToolExecutor {
    * Process the queue, starting tools when concurrency conditions allow
    */
   private async processQueue(): Promise<void> {
+    this.applyContextModifiers()
+
     for (const tool of this.tools) {
       if (tool.status !== 'queued') continue
 
@@ -413,6 +417,72 @@ export class StreamingToolExecutor {
     })
   }
 
+  private applyToolContextModifiers(tool: TrackedTool): void {
+    if (!tool.contextModifiers?.length) {
+      return
+    }
+
+    for (const modifier of tool.contextModifiers) {
+      this.toolUseContext = modifier(this.toolUseContext)
+    }
+    this.hasPendingContextUpdate = true
+  }
+
+  private applyContextModifiers(forceTrailingConcurrencySafe = false): void {
+    while (this.nextContextModifierIndex < this.tools.length) {
+      const tool = this.tools[this.nextContextModifierIndex]
+      if (!tool) {
+        return
+      }
+
+      if (tool.status !== 'completed' && tool.status !== 'yielded') {
+        return
+      }
+
+      if (!tool.isConcurrencySafe) {
+        this.applyToolContextModifiers(tool)
+        this.nextContextModifierIndex += 1
+        continue
+      }
+
+      let batchEnd = this.nextContextModifierIndex
+      while (
+        batchEnd < this.tools.length &&
+        this.tools[batchEnd]?.isConcurrencySafe
+      ) {
+        const batchTool = this.tools[batchEnd]
+        if (
+          !batchTool ||
+          (batchTool.status !== 'completed' && batchTool.status !== 'yielded')
+        ) {
+          return
+        }
+        batchEnd += 1
+      }
+
+      if (batchEnd === this.tools.length && !forceTrailingConcurrencySafe) {
+        return
+      }
+
+      for (let i = this.nextContextModifierIndex; i < batchEnd; i += 1) {
+        const batchTool = this.tools[i]
+        if (batchTool) {
+          this.applyToolContextModifiers(batchTool)
+        }
+      }
+      this.nextContextModifierIndex = batchEnd
+    }
+  }
+
+  private *yieldPendingContextUpdate(): Generator<MessageUpdate, void> {
+    if (!this.hasPendingContextUpdate) {
+      return
+    }
+
+    this.hasPendingContextUpdate = false
+    yield { newContext: this.toolUseContext }
+  }
+
   /**
    * Get any completed results that haven't been yielded yet (non-blocking)
    * Maintains order where necessary
@@ -422,6 +492,8 @@ export class StreamingToolExecutor {
     if (this.discarded) {
       return
     }
+
+    this.applyContextModifiers()
 
     for (const tool of this.tools) {
       // Always yield pending progress messages immediately, regardless of tool status
@@ -446,6 +518,8 @@ export class StreamingToolExecutor {
         break
       }
     }
+
+    yield* this.yieldPendingContextUpdate()
   }
 
   /**
@@ -493,6 +567,8 @@ export class StreamingToolExecutor {
       }
     }
 
+    this.applyContextModifiers(true)
+
     for (const result of this.getCompletedResults()) {
       yield result
     }
@@ -526,6 +602,7 @@ export class StreamingToolExecutor {
    * Get the current tool use context (may have been modified by context modifiers)
    */
   getUpdatedContext(): ToolUseContext {
+    this.applyContextModifiers(true)
     return this.toolUseContext
   }
 }

@@ -34,7 +34,6 @@ import chalk from 'chalk'
 import { readFileSync } from 'fs'
 import mapValues from 'lodash-es/mapValues.js'
 import pickBy from 'lodash-es/pickBy.js'
-import uniqBy from 'lodash-es/uniqBy.js'
 import React from 'react'
 import { getOauthConfig } from './constants/oauth.js'
 import { getRemoteSessionUrl } from './constants/product.js'
@@ -50,6 +49,7 @@ import {
 import { determineMainLaunchMode } from './main/modeDispatch.js'
 import {
 	determineSetupTrigger,
+	mergeStartupMcpState,
 	runSessionStartupSideEffects,
 	runStartupPrefetches,
 	runVersionedPluginStartup,
@@ -3579,14 +3579,7 @@ async function run(): Promise<CommanderCommand> {
 			const mcpPromise = Promise.all([
 				localMcpPromise,
 				claudeaiMcpPromise,
-			]).then(([local, claudeai]) => ({
-				clients: [...local.clients, ...claudeai.clients],
-				tools: uniqBy([...local.tools, ...claudeai.tools], "name"),
-				commands: uniqBy(
-					[...local.commands, ...claudeai.commands],
-					"name",
-				),
-			}));
+			]).then(([local, claudeai]) => mergeStartupMcpState(local, claudeai));
 
 			// Start hooks early so they run in parallel with MCP connections.
 			// Skip for initOnly/init/maintenance (handled separately), non-interactive

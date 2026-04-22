@@ -1,5 +1,5 @@
 import { type ChildProcess, spawn } from 'child_process'
-import { createWriteStream, type WriteStream } from 'fs'
+import { createWriteStream, mkdirSync, type WriteStream } from 'fs'
 import { tmpdir } from 'os'
 import { dirname, join } from 'path'
 import { createInterface } from 'readline'
@@ -269,9 +269,10 @@ export function createSessionSpawner(deps: SessionSpawnerDeps): SessionSpawner {
       // Placed alongside the debug file when one is configured.
       let transcriptStream: WriteStream | null = null
       let transcriptPath: string | undefined
-      if (deps.debugFile) {
+      if (debugFile) {
+        mkdirSync(dirname(debugFile), { recursive: true })
         transcriptPath = join(
-          dirname(deps.debugFile),
+          dirname(debugFile),
           `bridge-transcript-${safeId}.jsonl`,
         )
         transcriptStream = createWriteStream(transcriptPath, { flags: 'a' })

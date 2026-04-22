@@ -736,11 +736,16 @@ export type TeamContextAttachment = {
   taskListPath: string
 }
 
+export type AttachmentBatchResult = {
+  attachments: Attachment[]
+  attachedQueuedCommands: QueuedCommand[]
+}
+
 /**
  * This is janky
  * TODO: Generate attachments when we create messages
  */
-export async function getAttachments(
+export async function getAttachmentBatch(
   input: string | null,
   toolUseContext: ToolUseContext,
   ideSelection: IDESelection | null,
@@ -748,16 +753,12 @@ export async function getAttachments(
   messages?: Message[],
   querySource?: QuerySource,
   options?: { skipSkillDiscovery?: boolean },
-): Promise<Attachment[]> {
+): Promise<AttachmentBatchResult> {
   if (
     isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_ATTACHMENTS) ||
     isEnvTruthy(process.env.CLAUDE_CODE_SIMPLE)
   ) {
-    // query.ts:removeFromQueue dequeues these unconditionally after
-    // getAttachmentMessages runs — returning [] here silently drops them.
-    // Coworker runs with --bare and depends on task-notification for
-    // mid-tool-call notifications from Local*Task/Remote*Task.
-    return getQueuedCommandAttachments(queuedCommands)
+    return getQueuedCommandAttachmentBatch(queuedCommands)
   }
 
   // This will slow down submissions
@@ -818,16 +819,13 @@ export async function getAttachments(
   // Process user input attachments first (includes @mentioned files)
   // This ensures files are added to nestedMemoryAttachmentTriggers before nested_memory processes them
   const userAttachmentResults = await Promise.all(userInputAttachments)
+  const queuedCommandBatch =
+    await getQueuedCommandAttachmentBatch(queuedCommands)
 
   // Thread-safe attachments available in sub-agents
   // NOTE: These must be created AFTER userInputAttachments completes to ensure
   // nestedMemoryAttachmentTriggers is populated before getNestedMemoryAttachments runs
   const allThreadAttachments = [
-    // queuedCommands is already agent-scoped by the drain gate in query.ts —
-    // main thread gets agentId===undefined, subagents get their own agentId.
-    // Must run for all threads or subagent notifications drain into the void
-    // (removed from queue by removeFromQueue but never attached).
-    maybe('queued_commands', () => getQueuedCommandAttachments(queuedCommands)),
     maybe('date_change', () =>
       Promise.resolve(getDateChangeAttachments(messages)),
     ),
@@ -996,11 +994,37 @@ export async function getAttachments(
 
   clearTimeout(timeoutId)
   // Defensive: a getter leaking [undefined] crashes .map(a => a.type) below.
-  return ([
-    ...userAttachmentResults.flat(),
-    ...threadAttachmentResults.flat(),
-    ...mainThreadAttachmentResults.flat(),
-  ] as Attachment[]).filter(a => a !== undefined && a !== null)
+  return {
+    attachments: ([
+      ...userAttachmentResults.flat(),
+      ...queuedCommandBatch.attachments,
+      ...threadAttachmentResults.flat(),
+      ...mainThreadAttachmentResults.flat(),
+    ] as Attachment[]).filter(a => a !== undefined && a !== null),
+    attachedQueuedCommands: queuedCommandBatch.attachedQueuedCommands,
+  }
+}
+
+export async function getAttachments(
+  input: string | null,
+  toolUseContext: ToolUseContext,
+  ideSelection: IDESelection | null,
+  queuedCommands: QueuedCommand[],
+  messages?: Message[],
+  querySource?: QuerySource,
+  options?: { skipSkillDiscovery?: boolean },
+): Promise<Attachment[]> {
+  return (
+    await getAttachmentBatch(
+      input,
+      toolUseContext,
+      ideSelection,
+      queuedCommands,
+      messages,
+      querySource,
+      options,
+    )
+  ).attachments
 }
 
 async function maybe<A>(label: string, f: () => Promise<A[]>): Promise<A[]> {
@@ -1044,11 +1068,35 @@ async function maybe<A>(label: string, f: () => Promise<A[]>): Promise<A[]> {
 
 const INLINE_NOTIFICATION_MODES = new Set(['prompt', 'task-notification'])
 
-export async function getQueuedCommandAttachments(
+async function buildQueuedCommandAttachment(
+  queuedCommand: QueuedCommand,
+): Promise<Attachment> {
+  const imageBlocks = await buildImageContentBlocks(queuedCommand.pastedContents)
+  let prompt: string | Array<ContentBlockParam> = queuedCommand.value
+  if (imageBlocks.length > 0) {
+    // Build content block array with text + images so the model sees them
+    const textValue =
+      typeof queuedCommand.value === 'string'
+        ? queuedCommand.value
+        : extractTextContent(queuedCommand.value, '\n')
+    prompt = [{ type: 'text' as const, text: textValue }, ...imageBlocks]
+  }
+  return {
+    type: 'queued_command' as const,
+    prompt,
+    source_uuid: queuedCommand.uuid,
+    imagePasteIds: getImagePasteIds(queuedCommand.pastedContents),
+    commandMode: queuedCommand.mode,
+    origin: queuedCommand.origin,
+    isMeta: queuedCommand.isMeta,
+  }
+}
+
+export async function getQueuedCommandAttachmentBatch(
   queuedCommands: QueuedCommand[],
-): Promise<Attachment[]> {
+): Promise<AttachmentBatchResult> {
   if (!queuedCommands) {
-    return []
+    return { attachments: [], attachedQueuedCommands: [] }
   }
   // Include both 'prompt' and 'task-notification' commands as attachments.
   // During proactive agentic loops, task-notification commands would otherwise
@@ -1058,29 +1106,32 @@ export async function getQueuedCommandAttachments(
   const filtered = queuedCommands.filter(_ =>
     INLINE_NOTIFICATION_MODES.has(_.mode),
   )
-  return Promise.all(
-    filtered.map(async _ => {
-      const imageBlocks = await buildImageContentBlocks(_.pastedContents)
-      let prompt: string | Array<ContentBlockParam> = _.value
-      if (imageBlocks.length > 0) {
-        // Build content block array with text + images so the model sees them
-        const textValue =
-          typeof _.value === 'string'
-            ? _.value
-            : extractTextContent(_.value, '\n')
-        prompt = [{ type: 'text' as const, text: textValue }, ...imageBlocks]
-      }
-      return {
-        type: 'queued_command' as const,
-        prompt,
-        source_uuid: _.uuid,
-        imagePasteIds: getImagePasteIds(_.pastedContents),
-        commandMode: _.mode,
-        origin: _.origin,
-        isMeta: _.isMeta,
-      }
-    }),
+  const settled = await Promise.allSettled(
+    filtered.map(async queuedCommand => ({
+      queuedCommand,
+      attachment: await buildQueuedCommandAttachment(queuedCommand),
+    })),
   )
+  const attachments: Attachment[] = []
+  const attachedQueuedCommands: QueuedCommand[] = []
+  for (const result of settled) {
+    if (result.status === 'fulfilled') {
+      attachments.push(result.value.attachment)
+      attachedQueuedCommands.push(result.value.queuedCommand)
+      continue
+    }
+
+    logError(result.reason)
+    logAntError('Attachment error in queued_commands', result.reason)
+  }
+
+  return { attachments, attachedQueuedCommands }
+}
+
+export async function getQueuedCommandAttachments(
+  queuedCommands: QueuedCommand[],
+): Promise<Attachment[]> {
+  return (await getQueuedCommandAttachmentBatch(queuedCommands)).attachments
 }
 
 export function getAgentPendingMessageAttachments(
@@ -2954,7 +3005,7 @@ export async function* getAttachmentMessages(
   options?: { skipSkillDiscovery?: boolean },
 ): AsyncGenerator<AttachmentMessage, void> {
   // TODO: Compute this upstream
-  const attachments = await getAttachments(
+  const { attachments } = await getAttachmentBatch(
     input,
     toolUseContext,
     ideSelection,

@@ -14,6 +14,7 @@ import {
   excludeCommandsByServer,
   excludeResourcesByServer,
 } from '../services/mcp/utils.js'
+import { dedupeToolsByName } from '../Tool.js'
 import { logForDebugging } from '../utils/debug.js'
 import type { KernelHeadlessStore } from './headless.js'
 
@@ -57,7 +58,7 @@ function connectHeadlessMcpBatch(
           clients: prev.mcp.clients.some(c => c.name === client.name)
             ? prev.mcp.clients.map(c => (c.name === client.name ? client : c))
             : [...prev.mcp.clients, client],
-          tools: uniqBy([...prev.mcp.tools, ...tools], 'name'),
+          tools: dedupeToolsByName([...prev.mcp.tools, ...tools]),
           commands: uniqBy([...prev.mcp.commands, ...commands], 'name'),
         },
       }))

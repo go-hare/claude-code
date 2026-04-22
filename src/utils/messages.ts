@@ -2241,7 +2241,7 @@ export function normalizeMessagesForAPI(
                 if (typeof block === 'string') return block
                 if (block.type === 'tool_use') {
                   const toolUseBlk = block as ToolUseBlock
-                  const tool = tools.find(t => toolMatchesName(t, toolUseBlk.name))
+                  const tool = findToolByName(tools, toolUseBlk.name)
                   const normalizedInput = tool
                     ? normalizeToolInputForAPI(
                         tool,

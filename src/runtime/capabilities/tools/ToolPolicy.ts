@@ -1,5 +1,5 @@
-import uniqBy from 'lodash-es/uniqBy.js'
 import {
+  dedupeToolsByName,
   type Tool,
   toolMatchesName,
   type ToolPermissionContext,
@@ -106,9 +106,8 @@ export function assembleToolPool(
   const allowedMcpTools = filterToolsByDenyRules(mcpTools, permissionContext)
 
   const byName = (a: Tool, b: Tool) => a.name.localeCompare(b.name)
-  return uniqBy(
+  return dedupeToolsByName(
     [...builtInTools].sort(byName).concat(allowedMcpTools.sort(byName)),
-    'name',
   )
 }
 

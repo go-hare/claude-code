@@ -59,7 +59,7 @@ import { prependUserContext, appendSystemContext } from './utils/api.js'
 import {
   createAttachmentMessage,
   filterDuplicateMemoryAttachments,
-  getAttachmentMessages,
+  getAttachmentBatch,
   startRelevantMemoryPrefetch,
 } from './utils/attachments.js'
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -319,12 +319,13 @@ async function* queryLoop(
     // Skill discovery prefetch — per-iteration (uses findWritePivot guard
     // that returns early on non-write iterations). Discovery runs while the
     // model streams and tools execute; awaited post-tools alongside the
-    // memory prefetch consume. Replaces the blocking assistant_turn path
-    // that ran inside getAttachmentMessages (97% of those calls found
-    // nothing in prod). Turn-0 user-input discovery still blocks in
-    // userInputAttachments — that's the one signal where there's no prior
-    // work to hide under.
-    const pendingSkillPrefetch = skillPrefetch?.startSkillDiscoveryPrefetch(
+    // memory prefetch consume. Bound with `using` so early returns/retries
+    // abort any uncollected prefetch instead of leaving detached work behind.
+    // Replaces the blocking assistant_turn path that ran inside
+    // getAttachmentMessages (97% of those calls found nothing in prod).
+    // Turn-0 user-input discovery still blocks in userInputAttachments —
+    // that's the one signal where there's no prior work to hide under.
+    using pendingSkillPrefetch = skillPrefetch?.startSkillDiscoveryPrefetch(
       null,
       messages,
       toolUseContext,
@@ -1261,7 +1262,7 @@ async function* queryLoop(
       // error → hook blocking → retry → error → …
       if (lastMessage?.isApiErrorMessage) {
         void executeStopFailureHooks(lastMessage, toolUseContext)
-        return { reason: 'completed' }
+        return { reason: 'api_error' }
       }
 
       const stopHookResult = yield* handleStopHooks(
@@ -1408,6 +1409,8 @@ async function* queryLoop(
     }
     queryCheckpoint('query_tool_execution_end')
 
+    const postToolContext = updatedToolUseContext
+
     // Generate tool use summary after tool batch completes — passed to next recursive call
     let nextPendingToolUseSummary:
       | Promise<ToolUseSummaryMessage | null>
@@ -1415,8 +1418,8 @@ async function* queryLoop(
     if (
       config.gates.emitToolUseSummaries &&
       toolUseBlocks.length > 0 &&
-      !toolUseContext.abortController.signal.aborted &&
-      !toolUseContext.agentId // subagents don't surface in mobile UI — skip the Haiku call
+      !postToolContext.abortController.signal.aborted &&
+      !postToolContext.agentId // subagents don't surface in mobile UI — skip the Haiku call
     ) {
       // Extract the last assistant text block for context
       const lastAssistantMessage = assistantMessages.at(-1)
@@ -1468,8 +1471,8 @@ async function* queryLoop(
       // Fire off summary generation without blocking the next API call
       nextPendingToolUseSummary = generateToolUseSummary({
         tools: toolInfoForSummary,
-        signal: toolUseContext.abortController.signal,
-        isNonInteractiveSession: toolUseContext.options.isNonInteractiveSession,
+        signal: postToolContext.abortController.signal,
+        isNonInteractiveSession: postToolContext.options.isNonInteractiveSession,
         lastAssistantText,
       })
         .then(summary => {
@@ -1482,23 +1485,23 @@ async function* queryLoop(
     }
 
     // We were aborted during tool calls
-    if (toolUseContext.abortController.signal.aborted) {
+    if (postToolContext.abortController.signal.aborted) {
       // chicago MCP: auto-unhide + lock release when aborted mid-tool-call.
       // This is the most likely Ctrl+C path for CU (e.g. slow screenshot).
       // Main thread only — see stopHooks.ts for the subagent rationale.
-      if (feature('CHICAGO_MCP') && !toolUseContext.agentId) {
+      if (feature('CHICAGO_MCP') && !postToolContext.agentId) {
         try {
           const { cleanupComputerUseAfterTurn } = await import(
             './utils/computerUse/cleanup.js'
           )
-          await cleanupComputerUseAfterTurn(toolUseContext)
+          await cleanupComputerUseAfterTurn(postToolContext)
         } catch {
           // Failures are silent — this is dogfooding cleanup, not critical path
         }
       }
       // Skip the interruption message for submit-interrupts — the queued
       // user message that follows provides sufficient context.
-      if (toolUseContext.abortController.signal.reason !== 'interrupt') {
+      if (postToolContext.abortController.signal.reason !== 'interrupt') {
         yield createUserInterruptionMessage({
           toolUse: true,
         })
@@ -1566,7 +1569,7 @@ async function* queryLoop(
     const sleepRan = toolUseBlocks.some(b => b.name === SLEEP_TOOL_NAME)
     const isMainThread =
       querySource.startsWith('repl_main_thread') || querySource === 'sdk'
-    const currentAgentId = toolUseContext.agentId
+    const currentAgentId = postToolContext.agentId
     const queuedCommandsSnapshot = getCommandsByMaxPriority(
       sleepRan ? 'later' : 'next',
     ).filter(cmd => {
@@ -1577,16 +1580,19 @@ async function* queryLoop(
       return cmd.mode === 'task-notification' && cmd.agentId === currentAgentId
     })
 
-    for await (const attachment of getAttachmentMessages(
+    const { attachments, attachedQueuedCommands } = await getAttachmentBatch(
       null,
       updatedToolUseContext,
       null,
       queuedCommandsSnapshot,
       [...messagesForQuery, ...assistantMessages, ...toolResults],
       querySource,
-    )) {
-      yield attachment
-      toolResults.push(attachment)
+    )
+
+    for (const attachment of attachments) {
+      const msg = createAttachmentMessage(attachment)
+      yield msg
+      toolResults.push(msg)
     }
 
     // Memory prefetch consume: only if settled and not already consumed on
@@ -1603,7 +1609,7 @@ async function* queryLoop(
     ) {
       const memoryAttachments = filterDuplicateMemoryAttachments(
         await pendingMemoryPrefetch.promise,
-        toolUseContext.readFileState,
+        postToolContext.readFileState,
       )
       for (const memAttachment of memoryAttachments) {
         const msg = createAttachmentMessage(memAttachment)
@@ -1627,11 +1633,10 @@ async function* queryLoop(
       }
     }
 
-    // Remove only commands that were actually consumed as attachments.
-    // Prompt and task-notification commands are converted to attachments above.
-    const consumedCommands = queuedCommandsSnapshot.filter(
-      cmd => cmd.mode === 'prompt' || cmd.mode === 'task-notification',
-    )
+    // Remove only commands that were actually emitted as queued_command
+    // attachments. Attachment generation can partially fail (e.g. one bad
+    // pasted image), and the failed items must stay queued for retry/debugging.
+    const consumedCommands = attachedQueuedCommands
     if (consumedCommands.length > 0) {
       for (const cmd of consumedCommands) {
         if (cmd.uuid) {
@@ -1684,14 +1689,14 @@ async function* queryLoop(
     // remote) generates summaries; subagents/forks don't.
     if (feature('BG_SESSIONS')) {
       if (
-        !toolUseContext.agentId &&
+        !postToolContext.agentId &&
         taskSummaryModule!.shouldGenerateTaskSummary()
       ) {
         taskSummaryModule!.maybeGenerateTaskSummary({
           systemPrompt,
           userContext,
           systemContext,
-          toolUseContext,
+          toolUseContext: postToolContext,
           forkContextMessages: [
             ...messagesForQuery,
             ...assistantMessages,

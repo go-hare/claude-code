@@ -46,6 +46,7 @@ import { getPlansDirectory } from './plans.js'
 import { setCwd } from './Shell.js'
 import {
   adoptResumedSessionFile,
+  resetSessionMetadataForResume,
   recordContentReplacement,
   resetSessionFilePointer,
   restoreSessionMetadata,
@@ -467,6 +468,7 @@ export async function processResumedConversation(
   // original session's worktree — a "Remove" on the fork's exit dialog
   // would delete a worktree the original session still references — so
   // strip worktreeSession from the fork path so the cache stays unset.
+  resetSessionMetadataForResume()
   restoreSessionMetadata(
     opts.forkSession ? { ...result, worktreeSession: undefined } : result,
   )

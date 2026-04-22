@@ -1,4 +1,13 @@
+import uniqBy from "lodash-es/uniqBy.js";
+import { dedupeToolsByName, type Tools } from "../Tool.js";
+
 export type SetupTrigger = "init" | "maintenance" | null;
+
+export type StartupMcpState = {
+	clients: unknown[];
+	tools: Tools;
+	commands: Array<{ name: string }>;
+};
 
 export function determineSetupTrigger(options: {
 	initOnly: boolean;
@@ -89,6 +98,17 @@ export function runSessionStartupSideEffects(options: {
 			}
 		});
 	});
+}
+
+export function mergeStartupMcpState(
+	local: StartupMcpState,
+	claudeai: StartupMcpState,
+): StartupMcpState {
+	return {
+		clients: [...local.clients, ...claudeai.clients],
+		tools: dedupeToolsByName([...local.tools, ...claudeai.tools]),
+		commands: uniqBy([...local.commands, ...claudeai.commands], "name"),
+	};
 }
 
 export function runStartupPrefetches(options: {

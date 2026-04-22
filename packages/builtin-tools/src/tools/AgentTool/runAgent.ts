@@ -1,7 +1,6 @@
 import { feature } from 'bun:bundle'
 import type { UUID } from 'crypto'
 import { randomUUID } from 'crypto'
-import uniqBy from 'lodash-es/uniqBy.js'
 import { logForDebugging } from 'src/utils/debug.js'
 import { getProjectRoot, getSessionId } from 'src/bootstrap/state.js'
 import { getCommand, getSkillToolCommands, hasCommand } from 'src/commands.js'
@@ -25,7 +24,12 @@ import type {
   MCPServerConnection,
   ScopedMcpServerConfig,
 } from 'src/services/mcp/types.js'
-import type { Tool, Tools, ToolUseContext } from 'src/Tool.js'
+import {
+  dedupeToolsByName,
+  type Tool,
+  type Tools,
+  type ToolUseContext,
+} from 'src/Tool.js'
 import { killShellTasksForAgent } from 'src/tasks/LocalShellTask/killShellTasks.js'
 import type { Command } from 'src/types/command.js'
 import type { AgentId } from 'src/types/ids.js'
@@ -663,10 +667,10 @@ export async function* runAgent({
 
   // Merge agent MCP tools with resolved agent tools, deduplicating by name.
   // resolvedTools is already deduplicated (see resolveAgentTools), so skip
-  // the spread + uniqBy overhead when there are no agent-specific MCP tools.
+  // the spread + merge overhead when there are no agent-specific MCP tools.
   const allTools =
     agentMcpTools.length > 0
-      ? uniqBy([...resolvedTools, ...agentMcpTools], 'name')
+      ? dedupeToolsByName([...resolvedTools, ...agentMcpTools])
       : resolvedTools
 
   // Build agent-specific options

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   buildTool,
+  dedupeToolsByName,
   toolMatchesName,
   findToolByName,
   getEmptyToolPermissionContext,
@@ -149,6 +150,58 @@ describe('findToolByName', () => {
     ]
     const tool = findToolByName(dupeTools, 'Bash')
     expect(tool!.maxResultSizeChars).toBe(100)
+  })
+
+  test('prefers exact name over earlier alias match', () => {
+    const collisionTools = [
+      buildTool(makeMinimalToolDef({ name: 'Read', aliases: ['FileRead'] })),
+      buildTool(
+        makeMinimalToolDef({ name: 'FileRead', maxResultSizeChars: 200 }),
+      ),
+    ]
+    const tool = findToolByName(collisionTools, 'FileRead')
+    expect(tool).toBeDefined()
+    expect(tool!.name).toBe('FileRead')
+    expect(tool!.maxResultSizeChars).toBe(200)
+  })
+})
+
+describe('dedupeToolsByName', () => {
+  test('deduplicates repeated references to the same tool', () => {
+    const tool = buildTool(makeMinimalToolDef({ name: 'Bash' }))
+    expect(dedupeToolsByName([tool, tool])).toEqual([tool])
+  })
+
+  test('deduplicates the same MCP tool surfaced through multiple paths', () => {
+    const first = buildTool(
+      makeMinimalToolDef({
+        name: 'mcp__docs__search',
+        mcpInfo: { serverName: 'docs', toolName: 'search' },
+      }),
+    )
+    const second = buildTool(
+      makeMinimalToolDef({
+        name: 'mcp__docs__search',
+        maxResultSizeChars: 200,
+        mcpInfo: { serverName: 'docs', toolName: 'search' },
+      }),
+    )
+
+    expect(dedupeToolsByName([first, second])).toEqual([first])
+  })
+
+  test('throws when distinct tools share the same primary name', () => {
+    const first = buildTool(makeMinimalToolDef({ name: 'FileRead' }))
+    const second = buildTool(
+      makeMinimalToolDef({
+        name: 'FileRead',
+        mcpInfo: { serverName: 'docs', toolName: 'search' },
+      }),
+    )
+
+    expect(() => dedupeToolsByName([first, second])).toThrow(
+      'Conflicting tools share primary name "FileRead"',
+    )
   })
 })
 

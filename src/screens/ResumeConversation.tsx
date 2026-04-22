@@ -45,6 +45,7 @@ import {
   loadAllProjectsMessageLogsProgressive,
   loadSameRepoMessageLogsProgressive,
   recordContentReplacement,
+  resetSessionMetadataForResume,
   resetSessionFilePointer,
   restoreSessionMetadata,
   type SessionLogResult,
@@ -304,6 +305,7 @@ export function ResumeConversation({
       }
       void updateSessionName(result.agentName)
 
+      resetSessionMetadataForResume()
       restoreSessionMetadata(
         forkSession ? { ...result, worktreeSession: undefined } : result,
       )

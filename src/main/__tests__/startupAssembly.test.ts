@@ -2,10 +2,12 @@ import { describe, expect, mock, test } from "bun:test";
 
 import {
 	determineSetupTrigger,
+	mergeStartupMcpState,
 	runSessionStartupSideEffects,
 	runStartupPrefetches,
 	runVersionedPluginStartup,
 } from "../startupAssembly.js";
+import { buildTool } from "../../Tool.js";
 
 describe("determineSetupTrigger", () => {
 	test("prefers init for initOnly and init", () => {
@@ -175,6 +177,70 @@ describe("runSessionStartupSideEffects", () => {
 		expect(updateSessionName).toHaveBeenCalledTimes(0);
 		expect(countConcurrentSessions).toHaveBeenCalledTimes(0);
 		expect(onConcurrentSessions).toHaveBeenCalledTimes(0);
+	});
+});
+
+describe("mergeStartupMcpState", () => {
+	test("throws when startup MCP prefetches surface different tools with the same name", () => {
+		const localTool = buildTool({
+			name: "duplicate_tool",
+			inputSchema: { type: "object" } as any,
+			call: async () => ({ data: "local" }),
+			description: async () => "local",
+			prompt: async () => "local",
+		});
+		const claudeaiTool = buildTool({
+			name: "duplicate_tool",
+			inputSchema: { type: "object" } as any,
+			call: async () => ({ data: "claudeai" }),
+			description: async () => "claudeai",
+			prompt: async () => "claudeai",
+		});
+
+		expect(() =>
+			mergeStartupMcpState(
+				{ clients: [], tools: [localTool], commands: [] },
+				{ clients: [], tools: [claudeaiTool], commands: [] },
+			),
+		).toThrow('Conflicting tools share primary name "duplicate_tool"');
+	});
+
+	test("deduplicates the same MCP logical tool across startup sources", () => {
+		const localTool = buildTool({
+			name: "shared_tool",
+			inputSchema: { type: "object" } as any,
+			call: async () => ({ data: "shared" }),
+			description: async () => "shared",
+			prompt: async () => "shared",
+			mcpInfo: {
+				serverName: "demo",
+				toolName: "shared_tool",
+			},
+		});
+		const claudeaiTool = buildTool({
+			name: "shared_tool",
+			inputSchema: { type: "object" } as any,
+			call: async () => ({ data: "shared" }),
+			description: async () => "shared",
+			prompt: async () => "shared",
+			mcpInfo: {
+				serverName: "demo",
+				toolName: "shared_tool",
+			},
+		});
+
+		const merged = mergeStartupMcpState(
+			{ clients: ["local"], tools: [localTool], commands: [{ name: "a" }] },
+			{
+				clients: ["claudeai"],
+				tools: [claudeaiTool],
+				commands: [{ name: "a" }, { name: "b" }],
+			},
+		);
+
+		expect(merged.clients).toEqual(["local", "claudeai"]);
+		expect(merged.tools).toEqual([localTool]);
+		expect(merged.commands).toEqual([{ name: "a" }, { name: "b" }]);
 	});
 });
 

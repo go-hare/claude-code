@@ -32,7 +32,12 @@ import {
   logForDiagnosticsNoPII,
   withDiagnosticsTiming,
 } from 'src/utils/diagLogs.js'
-import { toolMatchesName, type Tool, type Tools } from 'src/Tool.js'
+import {
+  dedupeToolsByName,
+  toolMatchesName,
+  type Tool,
+  type Tools,
+} from 'src/Tool.js'
 import {
   type AgentDefinition,
   isBuiltInAgent,
@@ -209,6 +214,7 @@ import {
   doesMessageExistInSession,
   findUnresolvedToolUse,
   recordAttributionSnapshot,
+  resetSessionMetadataForResume,
   saveAgentSetting,
   saveMode,
   saveAiGeneratedTitle,
@@ -1488,13 +1494,12 @@ function runHeadlessStreaming(
       appState.toolPermissionContext,
       appState.mcp.tools,
     )
-    let allTools = uniqBy(
+    let allTools = dedupeToolsByName(
       mergeAndFilterTools(
         [...tools, ...sdkTools, ...dynamicMcpState.tools],
         assembledTools,
         appState.toolPermissionContext.mode,
       ),
-      'name',
     )
     if (options.permissionPromptToolName) {
       allTools = allTools.filter(
@@ -5122,6 +5127,7 @@ async function loadInitialMessages(
         restoreSessionStateFromLog(result, setAppState)
 
         // Restore session metadata so it's re-appended on exit via reAppendSessionMetadata
+        resetSessionMetadataForResume()
         restoreSessionMetadata(
           options.forkSession
             ? { ...result, worktreeSession: undefined }
@@ -5322,6 +5328,7 @@ async function loadInitialMessages(
       restoreSessionStateFromLog(result, setAppState)
 
       // Restore session metadata so it's re-appended on exit via reAppendSessionMetadata
+      resetSessionMetadataForResume()
       restoreSessionMetadata(
         options.forkSession
           ? { ...result, worktreeSession: undefined }
