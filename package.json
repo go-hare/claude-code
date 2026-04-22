@@ -1,16 +1,16 @@
 {
-  "name": "claude-code-best",
+  "name": "@go-hare/claude-code",
   "version": "1.7.1",
   "description": "Reverse-engineered Anthropic Claude Code CLI — interactive AI coding assistant in the terminal",
   "type": "module",
-  "author": "claude-code-best <claude-code-best@proton.me>",
+  "author": "go-hare",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/claude-code-best/claude-code.git"
+    "url": "git+https://github.com/go-hare/claude-code.git"
   },
-  "homepage": "https://github.com/claude-code-best/claude-code#readme",
+  "homepage": "https://github.com/go-hare/claude-code#readme",
   "bugs": {
-    "url": "https://github.com/claude-code-best/claude-code/issues"
+    "url": "https://github.com/go-hare/claude-code/issues"
   },
   "keywords": [
     "claude",
@@ -66,7 +66,7 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.19.0",
-    "@claude-code-best/mcp-chrome-bridge": "^2.0.8",
+    "@go-hare/mcp-chrome-bridge": "^2.0.8",
     "ws": "^8.20.0"
   },
   "devDependencies": {
@@ -91,10 +91,10 @@
     "@aws-sdk/credential-providers": "^3.1032.0",
     "@azure/identity": "^4.13.1",
     "@biomejs/biome": "^2.4.12",
-    "@claude-code-best/agent-tools": "workspace:*",
-    "@claude-code-best/builtin-tools": "workspace:*",
-    "@claude-code-best/mcp-client": "workspace:*",
-    "@claude-code-best/weixin": "workspace:*",
+    "@go-hare/agent-tools": "workspace:*",
+    "@go-hare/builtin-tools": "workspace:*",
+    "@go-hare/mcp-client": "workspace:*",
+    "@go-hare/weixin": "workspace:*",
     "@commander-js/extra-typings": "^14.0.0",
     "@growthbook/growthbook": "^1.6.5",
     "@langfuse/otel": "^5.1.0",

@@ -1,10 +1,10 @@
 # Claude Code Best V5 (CCB)
 
-[![GitHub Stars](https://img.shields.io/github/stars/claude-code-best/claude-code?style=flat-square&logo=github&color=yellow)](https://github.com/claude-code-best/claude-code/stargazers)
-[![GitHub Contributors](https://img.shields.io/github/contributors/claude-code-best/claude-code?style=flat-square&color=green)](https://github.com/claude-code-best/claude-code/graphs/contributors)
-[![GitHub Issues](https://img.shields.io/github/issues/claude-code-best/claude-code?style=flat-square&color=orange)](https://github.com/claude-code-best/claude-code/issues)
-[![GitHub License](https://img.shields.io/github/license/claude-code-best/claude-code?style=flat-square)](https://github.com/claude-code-best/claude-code/blob/main/LICENSE)
-[![Last Commit](https://img.shields.io/github/last-commit/claude-code-best/claude-code?style=flat-square&color=blue)](https://github.com/claude-code-best/claude-code/commits/main)
+[![GitHub Stars](https://img.shields.io/github/stars/go-hare/claude-code?style=flat-square&logo=github&color=yellow)](https://github.com/go-hare/claude-code/stargazers)
+[![GitHub Contributors](https://img.shields.io/github/contributors/go-hare/claude-code?style=flat-square&color=green)](https://github.com/go-hare/claude-code/graphs/contributors)
+[![GitHub Issues](https://img.shields.io/github/issues/go-hare/claude-code?style=flat-square&color=orange)](https://github.com/go-hare/claude-code/issues)
+[![GitHub License](https://img.shields.io/github/license/go-hare/claude-code?style=flat-square)](https://github.com/go-hare/claude-code/blob/main/LICENSE)
+[![Last Commit](https://img.shields.io/github/last-commit/go-hare/claude-code?style=flat-square&color=blue)](https://github.com/go-hare/claude-code/commits/main)
 [![Bun](https://img.shields.io/badge/runtime-Bun-black?style=flat-square&logo=bun)](https://bun.sh/)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?style=flat-square&logo=discord)](https://discord.gg/uApuzJWGKX)
 
@@ -41,16 +41,15 @@
 不用克隆仓库, 从 NPM 下载后, 直接使用
 
 ```sh
-npm i -g claude-code-best
+npm i -g @go-hare/claude-code
 
 # bun 安装比较多问题, 推荐 npm 装
-# bun  i -g claude-code-best
-# bun pm -g trust claude-code-best
+# bun i -g @go-hare/claude-code
+# bun pm -g trust @go-hare/claude-code
 
-ccb # 以 nodejs 打开 claude code
-ccb-bun # 以 bun 形态打开
-ccb update # 更新到最新版本
-CLAUDE_BRIDGE_BASE_URL=https://remote-control.claude-code-best.win/ CLAUDE_BRIDGE_OAUTH_TOKEN=test-my-key ccb --remote-control # 我们有自部署的远程控制
+hare # 启动 CLI
+hare update # 更新到最新版本
+CLAUDE_BRIDGE_BASE_URL=https://remote-control.example.com/ CLAUDE_BRIDGE_OAUTH_TOKEN=test-my-key hare --remote-control # 自部署的远程控制
 ```
 
 ## ⚡ 快速开始(源码版)
@@ -157,21 +156,21 @@ TUI (REPL) 模式需要真实终端，无法直接通过 VS Code launch 启动�
 ## 相关文档及网站
 
 - **在线文档（Mintlify）**: [ccb.agent-aura.top](https://ccb.agent-aura.top/) — 文档源码位于 [`docs/`](docs/) 目录，欢迎投稿 PR
-- **DeepWiki**: <https://deepwiki.com/claude-code-best/claude-code>
+- **DeepWiki**: <https://deepwiki.com/go-hare/claude-code>
 
 ## Contributors
 
-<a href="https://github.com/claude-code-best/claude-code/graphs/contributors">
+<a href="https://github.com/go-hare/claude-code/graphs/contributors">
   <img src="contributors.svg" alt="Contributors" />
 </a>
 
 ## Star History
 
-<a href="https://www.star-history.com/?repos=claude-code-best%2Fclaude-code&type=date&legend=top-left">
+<a href="https://www.star-history.com/?repos=go-hare%2Fclaude-code&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/image?repos=claude-code-best/claude-code&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/image?repos=claude-code-best/claude-code&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/image?repos=claude-code-best/claude-code&type=date&legend=top-left" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/image?repos=go-hare/claude-code&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/image?repos=go-hare/claude-code&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/image?repos=go-hare/claude-code&type=date&legend=top-left" />
  </picture>
 </a>
 

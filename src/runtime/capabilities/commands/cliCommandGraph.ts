@@ -442,7 +442,7 @@ export const cliCommandGraph = [
   command(
     'update',
     ['update'],
-    'Update claude-code-best (ccb) to the latest version',
+    'Update hare to the latest version',
     {
       ownership: 'product-operation',
       reuse: 'reuse-as-is',

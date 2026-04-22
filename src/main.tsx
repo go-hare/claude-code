@@ -88,7 +88,7 @@ import type { ToolInputJSONSchema } from "./Tool.js";
 import {
 	createSyntheticOutputTool,
 	isSyntheticOutputToolEnabled,
-} from "@claude-code-best/builtin-tools/tools/SyntheticOutputTool/SyntheticOutputTool.js";
+} from "@go-hare/builtin-tools/tools/SyntheticOutputTool/SyntheticOutputTool.js";
 import { getTools } from "./tools.js";
 import {
 	canUserConfigureAdvisor,
@@ -196,13 +196,13 @@ import {
 /* eslint-enable @typescript-eslint/no-require-imports */
 import { checkQuotaStatus } from "./services/claudeAiLimits.js";
 import { prefetchAllMcpResources } from "./services/mcp/client.js";
-import type { AgentColorName } from "@claude-code-best/builtin-tools/tools/AgentTool/agentColorManager.js";
+import type { AgentColorName } from "@go-hare/builtin-tools/tools/AgentTool/agentColorManager.js";
 import {
 	getActiveAgentsFromList,
 	isBuiltInAgent,
 	isCustomAgent,
 	parseAgentsFromJson,
-} from "@claude-code-best/builtin-tools/tools/AgentTool/loadAgentsDir.js";
+} from "@go-hare/builtin-tools/tools/AgentTool/loadAgentsDir.js";
 import type { LogOption } from "./types/logs.js";
 import type { Message as MessageType } from "./types/message.js";
 import {
@@ -2667,9 +2667,9 @@ async function run(): Promise<CommanderCommand> {
 			) {
 				/* eslint-disable @typescript-eslint/no-require-imports */
 				const { BRIEF_TOOL_NAME, LEGACY_BRIEF_TOOL_NAME } =
-					require("@claude-code-best/builtin-tools/tools/BriefTool/prompt.js") as typeof import("@claude-code-best/builtin-tools/tools/BriefTool/prompt.js");
+					require("@go-hare/builtin-tools/tools/BriefTool/prompt.js") as typeof import("@go-hare/builtin-tools/tools/BriefTool/prompt.js");
 				const { isBriefEntitled } =
-					require("@claude-code-best/builtin-tools/tools/BriefTool/BriefTool.js") as typeof import("@claude-code-best/builtin-tools/tools/BriefTool/BriefTool.js");
+					require("@go-hare/builtin-tools/tools/BriefTool/BriefTool.js") as typeof import("@go-hare/builtin-tools/tools/BriefTool/BriefTool.js");
 				/* eslint-enable @typescript-eslint/no-require-imports */
 				const parsed = parseToolListFromCLI(baseTools);
 				if (
@@ -3298,7 +3298,7 @@ async function run(): Promise<CommanderCommand> {
 			) {
 				/* eslint-disable @typescript-eslint/no-require-imports */
 				const { isBriefEntitled } =
-					require("@claude-code-best/builtin-tools/tools/BriefTool/BriefTool.js") as typeof import("@claude-code-best/builtin-tools/tools/BriefTool/BriefTool.js");
+					require("@go-hare/builtin-tools/tools/BriefTool/BriefTool.js") as typeof import("@go-hare/builtin-tools/tools/BriefTool/BriefTool.js");
 				/* eslint-enable @typescript-eslint/no-require-imports */
 				if (isBriefEntitled()) {
 					setUserMsgOptIn(true);
@@ -3317,7 +3317,7 @@ async function run(): Promise<CommanderCommand> {
 				const briefVisibility =
 					feature("KAIROS") || feature("KAIROS_BRIEF")
 						? (
-								require("@claude-code-best/builtin-tools/tools/BriefTool/BriefTool.js") as typeof import("@claude-code-best/builtin-tools/tools/BriefTool/BriefTool.js")
+								require("@go-hare/builtin-tools/tools/BriefTool/BriefTool.js") as typeof import("@go-hare/builtin-tools/tools/BriefTool/BriefTool.js")
 							).isBriefEnabled()
 							? "Call SendUserMessage at checkpoints to mark where things stand."
 							: "The user will see any text you output."
@@ -5639,7 +5639,7 @@ function maybeActivateBrief(options: unknown): void {
 	// into external builds via BriefTool.ts → prompt.ts.
 	/* eslint-disable @typescript-eslint/no-require-imports */
 	const { isBriefEntitled } =
-		require("@claude-code-best/builtin-tools/tools/BriefTool/BriefTool.js") as typeof import("@claude-code-best/builtin-tools/tools/BriefTool/BriefTool.js");
+		require("@go-hare/builtin-tools/tools/BriefTool/BriefTool.js") as typeof import("@go-hare/builtin-tools/tools/BriefTool/BriefTool.js");
 	/* eslint-enable @typescript-eslint/no-require-imports */
 	const entitled = isBriefEntitled();
 	if (entitled) {

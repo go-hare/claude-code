@@ -1,6 +1,6 @@
 // Host image processor adapter — bridges maybeResizeAndDownsampleImageBuffer to mcp-client's ImageProcessor interface
 
-import type { ImageProcessor } from '@claude-code-best/mcp-client'
+import type { ImageProcessor } from '@go-hare/mcp-client'
 import { maybeResizeAndDownsampleImageBuffer } from '../../../utils/imageResizer.js'
 
 /**

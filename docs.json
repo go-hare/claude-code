@@ -160,7 +160,7 @@
   "navbar": {
     "primary": {
       "type": "github",
-      "href": "https://github.com/claude-code-best/claude-code"
+      "href": "https://github.com/go-hare/claude-code"
     }
   },
   "search": {

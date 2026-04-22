@@ -1,6 +1,6 @@
 // Host logger adapter — bridges logMCPDebug/logMCPError to mcp-client's Logger interface
 
-import type { Logger } from '@claude-code-best/mcp-client'
+import type { Logger } from '@go-hare/mcp-client'
 import { logMCPDebug, logMCPError } from '../../../utils/log.js'
 
 /**

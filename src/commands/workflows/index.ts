@@ -1,5 +1,5 @@
 import type { Command, LocalCommandCall } from '../../types/command.js'
-import { getWorkflowCommands } from '@claude-code-best/builtin-tools/tools/WorkflowTool/createWorkflowCommand.js'
+import { getWorkflowCommands } from '@go-hare/builtin-tools/tools/WorkflowTool/createWorkflowCommand.js'
 import { getProjectConfigDirDisplayPath } from '../../utils/configPaths.js'
 import { getCwd } from '../../utils/cwd.js'
 

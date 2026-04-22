@@ -4,7 +4,7 @@ export {
   ASYNC_AGENT_ALLOWED_TOOLS,
   COORDINATOR_MODE_ALLOWED_TOOLS,
 } from './constants/tools.js'
-export { REPL_ONLY_TOOLS } from '@claude-code-best/builtin-tools/tools/REPLTool/constants.js'
+export { REPL_ONLY_TOOLS } from '@go-hare/builtin-tools/tools/REPLTool/constants.js'
 export {
   TOOL_PRESETS,
   type ToolPreset,

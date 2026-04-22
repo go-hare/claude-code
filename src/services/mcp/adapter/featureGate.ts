@@ -1,6 +1,6 @@
 // Host feature gate adapter — bridges feature() to mcp-client's FeatureGate interface
 
-import type { FeatureGate } from '@claude-code-best/mcp-client'
+import type { FeatureGate } from '@go-hare/mcp-client'
 import { feature } from 'bun:bundle'
 
 /**

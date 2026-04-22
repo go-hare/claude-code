@@ -42,7 +42,7 @@ import {
 import {
   isDeferredTool,
   TOOL_SEARCH_TOOL_NAME,
-} from '@claude-code-best/builtin-tools/tools/ToolSearchTool/prompt.js'
+} from '@go-hare/builtin-tools/tools/ToolSearchTool/prompt.js'
 
 /**
  * Assemble the final AssistantMessage (and optional max_tokens error) from

@@ -100,8 +100,8 @@ import {
   AGENT_COLOR_TO_THEME_COLOR,
   AGENT_COLORS,
   type AgentColorName,
-} from '@claude-code-best/builtin-tools/tools/AgentTool/agentColorManager.js'
-import type { AgentDefinition } from '@claude-code-best/builtin-tools/tools/AgentTool/loadAgentsDir.js'
+} from '@go-hare/builtin-tools/tools/AgentTool/agentColorManager.js'
+import type { AgentDefinition } from '@go-hare/builtin-tools/tools/AgentTool/loadAgentsDir.js'
 import type { Message } from '../../types/message.js'
 import type { PermissionMode } from '../../types/permissions.js'
 import type {

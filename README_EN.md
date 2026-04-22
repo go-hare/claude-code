@@ -1,10 +1,10 @@
 # Claude Code Best V5 (CCB)
 
-[![GitHub Stars](https://img.shields.io/github/stars/claude-code-best/claude-code?style=flat-square&logo=github&color=yellow)](https://github.com/claude-code-best/claude-code/stargazers)
-[![GitHub Contributors](https://img.shields.io/github/contributors/claude-code-best/claude-code?style=flat-square&color=green)](https://github.com/claude-code-best/claude-code/graphs/contributors)
-[![GitHub Issues](https://img.shields.io/github/issues/claude-code-best/claude-code?style=flat-square&color=orange)](https://github.com/claude-code-best/claude-code/issues)
-[![GitHub License](https://img.shields.io/github/license/claude-code-best/claude-code?style=flat-square)](https://github.com/claude-code-best/claude-code/blob/main/LICENSE)
-[![Last Commit](https://img.shields.io/github/last-commit/claude-code-best/claude-code?style=flat-square&color=blue)](https://github.com/claude-code-best/claude-code/commits/main)
+[![GitHub Stars](https://img.shields.io/github/stars/go-hare/claude-code?style=flat-square&logo=github&color=yellow)](https://github.com/go-hare/claude-code/stargazers)
+[![GitHub Contributors](https://img.shields.io/github/contributors/go-hare/claude-code?style=flat-square&color=green)](https://github.com/go-hare/claude-code/graphs/contributors)
+[![GitHub Issues](https://img.shields.io/github/issues/go-hare/claude-code?style=flat-square&color=orange)](https://github.com/go-hare/claude-code/issues)
+[![GitHub License](https://img.shields.io/github/license/go-hare/claude-code?style=flat-square)](https://github.com/go-hare/claude-code/blob/main/LICENSE)
+[![Last Commit](https://img.shields.io/github/last-commit/go-hare/claude-code?style=flat-square&color=blue)](https://github.com/go-hare/claude-code/commits/main)
 [![Bun](https://img.shields.io/badge/runtime-Bun-black?style=flat-square&logo=bun)](https://bun.sh/)
 
 > Which Claude do you like? The open source one is the best.
@@ -135,21 +135,21 @@ The TUI (REPL) mode requires a real terminal and cannot be launched directly via
 ## Documentation & Links
 
 - **Online docs (Mintlify)**: [ccb.agent-aura.top](https://ccb.agent-aura.top/) — source in [`docs/`](docs/), PR contributions welcome
-- **DeepWiki**: <https://deepwiki.com/claude-code-best/claude-code>
+- **DeepWiki**: <https://deepwiki.com/go-hare/claude-code>
 
 ## Contributors
 
-<a href="https://github.com/claude-code-best/claude-code/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=claude-code-best/claude-code" />
+<a href="https://github.com/go-hare/claude-code/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=go-hare/claude-code" />
 </a>
 
 ## Star History
 
-<a href="https://www.star-history.com/?repos=claude-code-best%2Fclaude-code&type=date&legend=top-left">
+<a href="https://www.star-history.com/?repos=go-hare%2Fclaude-code&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/image?repos=claude-code-best%2Fclaude-code&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/image?repos=claude-code-best%2Fclaude-code&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/image?repos=claude-code-best%2Fclaude-code&type=date&legend=top-left" />
+ <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/image?repos=go-hare%2Fclaude-code&type=date&theme=dark&legend=top-left" />
+ <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/image?repos=go-hare%2Fclaude-code&type=date&legend=top-left" />
+ <img alt="Star History Chart" src="https://api.star-history.com/image?repos=go-hare%2Fclaude-code&type=date&legend=top-left" />
  </picture>
 </a>
 

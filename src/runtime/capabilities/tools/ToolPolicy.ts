@@ -5,14 +5,14 @@ import {
   type ToolPermissionContext,
   type Tools,
 } from '../../../Tool.js'
-import { ListMcpResourcesTool } from '@claude-code-best/builtin-tools/tools/ListMcpResourcesTool/ListMcpResourcesTool.js'
-import { ReadMcpResourceTool } from '@claude-code-best/builtin-tools/tools/ReadMcpResourceTool/ReadMcpResourceTool.js'
-import { SYNTHETIC_OUTPUT_TOOL_NAME } from '@claude-code-best/builtin-tools/tools/SyntheticOutputTool/SyntheticOutputTool.js'
+import { ListMcpResourcesTool } from '@go-hare/builtin-tools/tools/ListMcpResourcesTool/ListMcpResourcesTool.js'
+import { ReadMcpResourceTool } from '@go-hare/builtin-tools/tools/ReadMcpResourceTool/ReadMcpResourceTool.js'
+import { SYNTHETIC_OUTPUT_TOOL_NAME } from '@go-hare/builtin-tools/tools/SyntheticOutputTool/SyntheticOutputTool.js'
 import {
   REPL_TOOL_NAME,
   REPL_ONLY_TOOLS,
   isReplModeEnabled,
-} from '@claude-code-best/builtin-tools/tools/REPLTool/constants.js'
+} from '@go-hare/builtin-tools/tools/REPLTool/constants.js'
 import { getDenyRuleForTool } from '../../../utils/permissions/permissions.js'
 import { isEnvTruthy } from '../../../utils/envUtils.js'
 import { getAllBaseTools, getSimpleModeTools } from './ToolCatalog.js'

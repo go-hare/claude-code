@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { getAgentDefinitionsWithOverrides } from '@claude-code-best/builtin-tools/tools/AgentTool/loadAgentsDir.js'
+import { getAgentDefinitionsWithOverrides } from '@go-hare/builtin-tools/tools/AgentTool/loadAgentsDir.js'
 import { getCommands } from '../src/commands.js'
 import {
   createDefaultKernelHeadlessEnvironment,

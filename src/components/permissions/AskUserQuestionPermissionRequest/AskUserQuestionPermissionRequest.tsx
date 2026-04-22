@@ -19,8 +19,8 @@ import {
   logEvent,
 } from '../../../services/analytics/index.js'
 import { useAppState } from '../../../state/AppState.js'
-import type { Question } from '@claude-code-best/builtin-tools/tools/AskUserQuestionTool/AskUserQuestionTool.js'
-import { AskUserQuestionTool } from '@claude-code-best/builtin-tools/tools/AskUserQuestionTool/AskUserQuestionTool.js'
+import type { Question } from '@go-hare/builtin-tools/tools/AskUserQuestionTool/AskUserQuestionTool.js'
+import { AskUserQuestionTool } from '@go-hare/builtin-tools/tools/AskUserQuestionTool/AskUserQuestionTool.js'
 import {
   type CliHighlight,
   getCliHighlightPromise,

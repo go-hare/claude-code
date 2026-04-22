@@ -16,7 +16,7 @@ import {
   type ToolPermissionContext,
   type Tools,
 } from '../Tool.js'
-import type { AgentDefinition } from '@claude-code-best/builtin-tools/tools/AgentTool/loadAgentsDir.js'
+import type { AgentDefinition } from '@go-hare/builtin-tools/tools/AgentTool/loadAgentsDir.js'
 import { getInitialEffortSetting, parseEffortValue } from '../utils/effort.js'
 import {
   getInitialFastModeSetting,

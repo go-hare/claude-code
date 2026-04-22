@@ -2,7 +2,7 @@ import type { Command } from '../commands.js'
 import { getCommands } from '../commands.js'
 import { initBuiltinPlugins } from '../plugins/bundled/index.js'
 import { initBundledSkills } from '../skills/bundled/index.js'
-import { getAgentDefinitionsWithOverrides } from '@claude-code-best/builtin-tools/tools/AgentTool/loadAgentsDir.js'
+import { getAgentDefinitionsWithOverrides } from '@go-hare/builtin-tools/tools/AgentTool/loadAgentsDir.js'
 
 type AgentDefinitionsResult = Awaited<
   ReturnType<typeof getAgentDefinitionsWithOverrides>

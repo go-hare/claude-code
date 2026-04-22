@@ -6,7 +6,7 @@ import { sanitizeToolNameForAnalytics } from '../../../services/analytics/metada
 import type { ToolPermissionContext } from '../../../Tool.js'
 import {
   FILE_EDIT_TOOL_NAME,
-} from '@claude-code-best/builtin-tools/tools/FileEditTool/constants.js'
+} from '@go-hare/builtin-tools/tools/FileEditTool/constants.js'
 import { env } from '../../../utils/env.js'
 import {
   generateSuggestions,

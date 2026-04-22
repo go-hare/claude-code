@@ -1,6 +1,6 @@
 // Host proxy config adapter — bridges proxy/MTLS to mcp-client's ProxyConfig interface
 
-import type { ProxyConfig } from '@claude-code-best/mcp-client'
+import type { ProxyConfig } from '@go-hare/mcp-client'
 import {
   getProxyFetchOptions,
   getWebSocketProxyAgent,

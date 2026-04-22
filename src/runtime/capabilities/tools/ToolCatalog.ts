@@ -1,102 +1,102 @@
 // biome-ignore-all assist/source/organizeImports: runtime tool catalog keeps conditional import order stable
 import type { Tool, Tools } from '../../../Tool.js'
-import { AgentTool } from '@claude-code-best/builtin-tools/tools/AgentTool/AgentTool.js'
-import { SkillTool } from '@claude-code-best/builtin-tools/tools/SkillTool/SkillTool.js'
-import { BashTool } from '@claude-code-best/builtin-tools/tools/BashTool/BashTool.js'
-import { FileEditTool } from '@claude-code-best/builtin-tools/tools/FileEditTool/FileEditTool.js'
-import { FileReadTool } from '@claude-code-best/builtin-tools/tools/FileReadTool/FileReadTool.js'
-import { FileWriteTool } from '@claude-code-best/builtin-tools/tools/FileWriteTool/FileWriteTool.js'
-import { GlobTool } from '@claude-code-best/builtin-tools/tools/GlobTool/GlobTool.js'
-import { NotebookEditTool } from '@claude-code-best/builtin-tools/tools/NotebookEditTool/NotebookEditTool.js'
-import { WebFetchTool } from '@claude-code-best/builtin-tools/tools/WebFetchTool/WebFetchTool.js'
-import { TaskStopTool } from '@claude-code-best/builtin-tools/tools/TaskStopTool/TaskStopTool.js'
-import { BriefTool } from '@claude-code-best/builtin-tools/tools/BriefTool/BriefTool.js'
+import { AgentTool } from '@go-hare/builtin-tools/tools/AgentTool/AgentTool.js'
+import { SkillTool } from '@go-hare/builtin-tools/tools/SkillTool/SkillTool.js'
+import { BashTool } from '@go-hare/builtin-tools/tools/BashTool/BashTool.js'
+import { FileEditTool } from '@go-hare/builtin-tools/tools/FileEditTool/FileEditTool.js'
+import { FileReadTool } from '@go-hare/builtin-tools/tools/FileReadTool/FileReadTool.js'
+import { FileWriteTool } from '@go-hare/builtin-tools/tools/FileWriteTool/FileWriteTool.js'
+import { GlobTool } from '@go-hare/builtin-tools/tools/GlobTool/GlobTool.js'
+import { NotebookEditTool } from '@go-hare/builtin-tools/tools/NotebookEditTool/NotebookEditTool.js'
+import { WebFetchTool } from '@go-hare/builtin-tools/tools/WebFetchTool/WebFetchTool.js'
+import { TaskStopTool } from '@go-hare/builtin-tools/tools/TaskStopTool/TaskStopTool.js'
+import { BriefTool } from '@go-hare/builtin-tools/tools/BriefTool/BriefTool.js'
 // Dead code elimination: conditional import for ant-only tools
 /* eslint-disable custom-rules/no-process-env-top-level, @typescript-eslint/no-require-imports */
 const REPLTool =
   process.env.USER_TYPE === 'ant'
-    ? require('@claude-code-best/builtin-tools/tools/REPLTool/REPLTool.js')
+    ? require('@go-hare/builtin-tools/tools/REPLTool/REPLTool.js')
         .REPLTool
     : null
 const SuggestBackgroundPRTool =
   process.env.USER_TYPE === 'ant'
-    ? require('@claude-code-best/builtin-tools/tools/SuggestBackgroundPRTool/SuggestBackgroundPRTool.js')
+    ? require('@go-hare/builtin-tools/tools/SuggestBackgroundPRTool/SuggestBackgroundPRTool.js')
         .SuggestBackgroundPRTool
     : null
 const SleepTool =
   feature('PROACTIVE') || feature('KAIROS')
-    ? require('@claude-code-best/builtin-tools/tools/SleepTool/SleepTool.js')
+    ? require('@go-hare/builtin-tools/tools/SleepTool/SleepTool.js')
         .SleepTool
     : null
 const cronTools = [
-  require('@claude-code-best/builtin-tools/tools/ScheduleCronTool/CronCreateTool.js')
+  require('@go-hare/builtin-tools/tools/ScheduleCronTool/CronCreateTool.js')
     .CronCreateTool,
-  require('@claude-code-best/builtin-tools/tools/ScheduleCronTool/CronDeleteTool.js')
+  require('@go-hare/builtin-tools/tools/ScheduleCronTool/CronDeleteTool.js')
     .CronDeleteTool,
-  require('@claude-code-best/builtin-tools/tools/ScheduleCronTool/CronListTool.js')
+  require('@go-hare/builtin-tools/tools/ScheduleCronTool/CronListTool.js')
     .CronListTool,
 ]
 const RemoteTriggerTool = feature('AGENT_TRIGGERS_REMOTE')
-  ? require('@claude-code-best/builtin-tools/tools/RemoteTriggerTool/RemoteTriggerTool.js')
+  ? require('@go-hare/builtin-tools/tools/RemoteTriggerTool/RemoteTriggerTool.js')
       .RemoteTriggerTool
   : null
 const MonitorTool = feature('MONITOR_TOOL')
-  ? require('@claude-code-best/builtin-tools/tools/MonitorTool/MonitorTool.js')
+  ? require('@go-hare/builtin-tools/tools/MonitorTool/MonitorTool.js')
       .MonitorTool
   : null
 const SendUserFileTool = feature('KAIROS')
-  ? require('@claude-code-best/builtin-tools/tools/SendUserFileTool/SendUserFileTool.js')
+  ? require('@go-hare/builtin-tools/tools/SendUserFileTool/SendUserFileTool.js')
       .SendUserFileTool
   : null
 const PushNotificationTool =
   feature('KAIROS') || feature('KAIROS_PUSH_NOTIFICATION')
-    ? require('@claude-code-best/builtin-tools/tools/PushNotificationTool/PushNotificationTool.js')
+    ? require('@go-hare/builtin-tools/tools/PushNotificationTool/PushNotificationTool.js')
         .PushNotificationTool
     : null
 const SubscribePRTool = feature('KAIROS_GITHUB_WEBHOOKS')
-  ? require('@claude-code-best/builtin-tools/tools/SubscribePRTool/SubscribePRTool.js')
+  ? require('@go-hare/builtin-tools/tools/SubscribePRTool/SubscribePRTool.js')
       .SubscribePRTool
   : null
 /* eslint-enable custom-rules/no-process-env-top-level, @typescript-eslint/no-require-imports */
-import { TaskOutputTool } from '@claude-code-best/builtin-tools/tools/TaskOutputTool/TaskOutputTool.js'
-import { WebSearchTool } from '@claude-code-best/builtin-tools/tools/WebSearchTool/WebSearchTool.js'
-import { TodoWriteTool } from '@claude-code-best/builtin-tools/tools/TodoWriteTool/TodoWriteTool.js'
-import { ExitPlanModeV2Tool } from '@claude-code-best/builtin-tools/tools/ExitPlanModeTool/ExitPlanModeV2Tool.js'
-import { TestingPermissionTool } from '@claude-code-best/builtin-tools/tools/testing/TestingPermissionTool.js'
-import { GrepTool } from '@claude-code-best/builtin-tools/tools/GrepTool/GrepTool.js'
-import { TungstenTool } from '@claude-code-best/builtin-tools/tools/TungstenTool/TungstenTool.js'
+import { TaskOutputTool } from '@go-hare/builtin-tools/tools/TaskOutputTool/TaskOutputTool.js'
+import { WebSearchTool } from '@go-hare/builtin-tools/tools/WebSearchTool/WebSearchTool.js'
+import { TodoWriteTool } from '@go-hare/builtin-tools/tools/TodoWriteTool/TodoWriteTool.js'
+import { ExitPlanModeV2Tool } from '@go-hare/builtin-tools/tools/ExitPlanModeTool/ExitPlanModeV2Tool.js'
+import { TestingPermissionTool } from '@go-hare/builtin-tools/tools/testing/TestingPermissionTool.js'
+import { GrepTool } from '@go-hare/builtin-tools/tools/GrepTool/GrepTool.js'
+import { TungstenTool } from '@go-hare/builtin-tools/tools/TungstenTool/TungstenTool.js'
 // Lazy require to break circular dependency: tools.ts -> TeamCreateTool/TeamDeleteTool -> ... -> tools.ts
 /* eslint-disable @typescript-eslint/no-require-imports */
 const getTeamCreateTool = () =>
-  require('@claude-code-best/builtin-tools/tools/TeamCreateTool/TeamCreateTool.js')
-    .TeamCreateTool as typeof import('@claude-code-best/builtin-tools/tools/TeamCreateTool/TeamCreateTool.js').TeamCreateTool
+  require('@go-hare/builtin-tools/tools/TeamCreateTool/TeamCreateTool.js')
+    .TeamCreateTool as typeof import('@go-hare/builtin-tools/tools/TeamCreateTool/TeamCreateTool.js').TeamCreateTool
 const getTeamDeleteTool = () =>
-  require('@claude-code-best/builtin-tools/tools/TeamDeleteTool/TeamDeleteTool.js')
-    .TeamDeleteTool as typeof import('@claude-code-best/builtin-tools/tools/TeamDeleteTool/TeamDeleteTool.js').TeamDeleteTool
+  require('@go-hare/builtin-tools/tools/TeamDeleteTool/TeamDeleteTool.js')
+    .TeamDeleteTool as typeof import('@go-hare/builtin-tools/tools/TeamDeleteTool/TeamDeleteTool.js').TeamDeleteTool
 const getSendMessageTool = () =>
-  require('@claude-code-best/builtin-tools/tools/SendMessageTool/SendMessageTool.js')
-    .SendMessageTool as typeof import('@claude-code-best/builtin-tools/tools/SendMessageTool/SendMessageTool.js').SendMessageTool
+  require('@go-hare/builtin-tools/tools/SendMessageTool/SendMessageTool.js')
+    .SendMessageTool as typeof import('@go-hare/builtin-tools/tools/SendMessageTool/SendMessageTool.js').SendMessageTool
 /* eslint-enable @typescript-eslint/no-require-imports */
-import { AskUserQuestionTool } from '@claude-code-best/builtin-tools/tools/AskUserQuestionTool/AskUserQuestionTool.js'
-import { LSPTool } from '@claude-code-best/builtin-tools/tools/LSPTool/LSPTool.js'
-import { ListMcpResourcesTool } from '@claude-code-best/builtin-tools/tools/ListMcpResourcesTool/ListMcpResourcesTool.js'
-import { ReadMcpResourceTool } from '@claude-code-best/builtin-tools/tools/ReadMcpResourceTool/ReadMcpResourceTool.js'
-import { ToolSearchTool } from '@claude-code-best/builtin-tools/tools/ToolSearchTool/ToolSearchTool.js'
-import { EnterPlanModeTool } from '@claude-code-best/builtin-tools/tools/EnterPlanModeTool/EnterPlanModeTool.js'
-import { EnterWorktreeTool } from '@claude-code-best/builtin-tools/tools/EnterWorktreeTool/EnterWorktreeTool.js'
-import { ExitWorktreeTool } from '@claude-code-best/builtin-tools/tools/ExitWorktreeTool/ExitWorktreeTool.js'
-import { ConfigTool } from '@claude-code-best/builtin-tools/tools/ConfigTool/ConfigTool.js'
-import { TaskCreateTool } from '@claude-code-best/builtin-tools/tools/TaskCreateTool/TaskCreateTool.js'
-import { TaskGetTool } from '@claude-code-best/builtin-tools/tools/TaskGetTool/TaskGetTool.js'
-import { TaskUpdateTool } from '@claude-code-best/builtin-tools/tools/TaskUpdateTool/TaskUpdateTool.js'
-import { TaskListTool } from '@claude-code-best/builtin-tools/tools/TaskListTool/TaskListTool.js'
+import { AskUserQuestionTool } from '@go-hare/builtin-tools/tools/AskUserQuestionTool/AskUserQuestionTool.js'
+import { LSPTool } from '@go-hare/builtin-tools/tools/LSPTool/LSPTool.js'
+import { ListMcpResourcesTool } from '@go-hare/builtin-tools/tools/ListMcpResourcesTool/ListMcpResourcesTool.js'
+import { ReadMcpResourceTool } from '@go-hare/builtin-tools/tools/ReadMcpResourceTool/ReadMcpResourceTool.js'
+import { ToolSearchTool } from '@go-hare/builtin-tools/tools/ToolSearchTool/ToolSearchTool.js'
+import { EnterPlanModeTool } from '@go-hare/builtin-tools/tools/EnterPlanModeTool/EnterPlanModeTool.js'
+import { EnterWorktreeTool } from '@go-hare/builtin-tools/tools/EnterWorktreeTool/EnterWorktreeTool.js'
+import { ExitWorktreeTool } from '@go-hare/builtin-tools/tools/ExitWorktreeTool/ExitWorktreeTool.js'
+import { ConfigTool } from '@go-hare/builtin-tools/tools/ConfigTool/ConfigTool.js'
+import { TaskCreateTool } from '@go-hare/builtin-tools/tools/TaskCreateTool/TaskCreateTool.js'
+import { TaskGetTool } from '@go-hare/builtin-tools/tools/TaskGetTool/TaskGetTool.js'
+import { TaskUpdateTool } from '@go-hare/builtin-tools/tools/TaskUpdateTool/TaskUpdateTool.js'
+import { TaskListTool } from '@go-hare/builtin-tools/tools/TaskListTool/TaskListTool.js'
 import { isToolSearchEnabledOptimistic } from '../../../utils/toolSearch.js'
 import { isTodoV2Enabled } from '../../../utils/tasks.js'
 // Dead code elimination: conditional import for CLAUDE_CODE_VERIFY_PLAN
 /* eslint-disable custom-rules/no-process-env-top-level, @typescript-eslint/no-require-imports */
 const VerifyPlanExecutionTool =
   process.env.CLAUDE_CODE_VERIFY_PLAN === 'true'
-    ? require('@claude-code-best/builtin-tools/tools/VerifyPlanExecutionTool/VerifyPlanExecutionTool.js')
+    ? require('@go-hare/builtin-tools/tools/VerifyPlanExecutionTool/VerifyPlanExecutionTool.js')
         .VerifyPlanExecutionTool
     : null
 /* eslint-enable custom-rules/no-process-env-top-level, @typescript-eslint/no-require-imports */
@@ -104,39 +104,39 @@ import { feature } from 'bun:bundle'
 // Dead code elimination: conditional import for OVERFLOW_TEST_TOOL
 /* eslint-disable custom-rules/no-process-env-top-level, @typescript-eslint/no-require-imports */
 const OverflowTestTool = feature('OVERFLOW_TEST_TOOL')
-  ? require('@claude-code-best/builtin-tools/tools/OverflowTestTool/OverflowTestTool.js')
+  ? require('@go-hare/builtin-tools/tools/OverflowTestTool/OverflowTestTool.js')
       .OverflowTestTool
   : null
 const CtxInspectTool = feature('CONTEXT_COLLAPSE')
-  ? require('@claude-code-best/builtin-tools/tools/CtxInspectTool/CtxInspectTool.js')
+  ? require('@go-hare/builtin-tools/tools/CtxInspectTool/CtxInspectTool.js')
       .CtxInspectTool
   : null
 const TerminalCaptureTool = feature('TERMINAL_PANEL')
-  ? require('@claude-code-best/builtin-tools/tools/TerminalCaptureTool/TerminalCaptureTool.js')
+  ? require('@go-hare/builtin-tools/tools/TerminalCaptureTool/TerminalCaptureTool.js')
       .TerminalCaptureTool
   : null
 const WebBrowserTool = feature('WEB_BROWSER_TOOL')
-  ? require('@claude-code-best/builtin-tools/tools/WebBrowserTool/WebBrowserTool.js')
+  ? require('@go-hare/builtin-tools/tools/WebBrowserTool/WebBrowserTool.js')
       .WebBrowserTool
   : null
 const coordinatorModeModule = feature('COORDINATOR_MODE')
   ? (require('../../../coordinator/coordinatorMode.js') as typeof import('../../../coordinator/coordinatorMode.js'))
   : null
 const SnipTool = feature('HISTORY_SNIP')
-  ? require('@claude-code-best/builtin-tools/tools/SnipTool/SnipTool.js').SnipTool
+  ? require('@go-hare/builtin-tools/tools/SnipTool/SnipTool.js').SnipTool
   : null
 const ReviewArtifactTool = feature('REVIEW_ARTIFACT')
-  ? require('@claude-code-best/builtin-tools/tools/ReviewArtifactTool/ReviewArtifactTool.js')
+  ? require('@go-hare/builtin-tools/tools/ReviewArtifactTool/ReviewArtifactTool.js')
       .ReviewArtifactTool
   : null
 const ListPeersTool = feature('UDS_INBOX')
-  ? require('@claude-code-best/builtin-tools/tools/ListPeersTool/ListPeersTool.js')
+  ? require('@go-hare/builtin-tools/tools/ListPeersTool/ListPeersTool.js')
       .ListPeersTool
   : null
 const WorkflowTool = feature('WORKFLOW_SCRIPTS')
   ? (() => {
-      require('@claude-code-best/builtin-tools/tools/WorkflowTool/bundled/index.js').initBundledWorkflows()
-      return require('@claude-code-best/builtin-tools/tools/WorkflowTool/WorkflowTool.js')
+      require('@go-hare/builtin-tools/tools/WorkflowTool/bundled/index.js').initBundledWorkflows()
+      return require('@go-hare/builtin-tools/tools/WorkflowTool/WorkflowTool.js')
         .WorkflowTool
     })()
   : null
@@ -146,12 +146,12 @@ import { isEnvTruthy } from '../../../utils/envUtils.js'
 import { isPowerShellToolEnabled } from '../../../utils/shell/shellToolUtils.js'
 import { isAgentSwarmsEnabled } from '../../../utils/agentSwarmsEnabled.js'
 import { isWorktreeModeEnabled } from '../../../utils/worktreeModeEnabled.js'
-import { isReplModeEnabled } from '@claude-code-best/builtin-tools/tools/REPLTool/constants.js'
+import { isReplModeEnabled } from '@go-hare/builtin-tools/tools/REPLTool/constants.js'
 /* eslint-disable @typescript-eslint/no-require-imports */
 const getPowerShellTool = () => {
   if (!isPowerShellToolEnabled()) return null
   return (
-    require('@claude-code-best/builtin-tools/tools/PowerShellTool/PowerShellTool.js') as typeof import('@claude-code-best/builtin-tools/tools/PowerShellTool/PowerShellTool.js')
+    require('@go-hare/builtin-tools/tools/PowerShellTool/PowerShellTool.js') as typeof import('@go-hare/builtin-tools/tools/PowerShellTool/PowerShellTool.js')
   ).PowerShellTool
 }
 /* eslint-enable @typescript-eslint/no-require-imports */
