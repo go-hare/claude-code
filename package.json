@@ -24,10 +24,9 @@
   "engines": {
     "bun": ">=1.2.0"
   },
+  "binaryName": "hare",
   "bin": {
-    "ccb": "dist/cli-node.js",
-    "ccb-bun": "dist/cli-bun.js",
-    "claude-code-best": "dist/cli-node.js"
+    "hare": "bin/hare.cjs"
   },
   "workspaces": [
     "packages/*",
@@ -35,13 +34,17 @@
     "packages/@anthropic-ai/*"
   ],
   "files": [
+    "bin",
     "dist",
     "scripts/postinstall.cjs",
+    "scripts/postinstall-binary.cjs",
+    "scripts/release-assets.cjs",
     "scripts/run-parallel.mjs",
     "scripts/setup-chrome-mcp.mjs"
   ],
   "scripts": {
     "build": "bun run build.ts",
+    "build:release": "bun run scripts/build-release.ts",
     "build:vite": "vite build && bun run scripts/post-build.ts",
     "build:vite:only": "vite build",
     "build:bun": "bun run build.ts",
@@ -55,7 +58,7 @@
     "test": "bun test",
     "check:unused": "knip-bun",
     "health": "bun run scripts/health-check.ts",
-    "postinstall": "node scripts/run-parallel.mjs scripts/postinstall.cjs scripts/setup-chrome-mcp.mjs",
+    "postinstall": "node scripts/run-parallel.mjs scripts/postinstall.cjs scripts/setup-chrome-mcp.mjs scripts/postinstall-binary.cjs",
     "docs:dev": "npx mintlify dev",
     "typecheck": "tsc --noEmit",
     "test:all": "bun run typecheck && bun test",
