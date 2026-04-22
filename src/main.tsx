@@ -51,6 +51,7 @@ import { determineMainLaunchMode } from './main/modeDispatch.js'
 import {
 	determineSetupTrigger,
 	runSessionStartupSideEffects,
+	runStartupPrefetches,
 	runVersionedPluginStartup,
 } from './main/startupAssembly.js'
 import { launchRepl } from './replLauncher.js'
@@ -3503,57 +3504,30 @@ async function run(): Promise<CommanderCommand> {
 				0,
 			);
 			const lastPrefetched = getGlobalConfig().startupPrefetchedAt ?? 0;
-			const skipStartupPrefetches =
-				isBareMode() ||
-				(bgRefreshThrottleMs > 0 &&
-					Date.now() - lastPrefetched < bgRefreshThrottleMs);
-
-			if (!skipStartupPrefetches) {
-				const lastPrefetchedInfo =
-					lastPrefetched > 0
-						? ` last ran ${Math.round((Date.now() - lastPrefetched) / 1000)}s ago`
-						: "";
-				logForDebugging(
-					`Starting background startup prefetches${lastPrefetchedInfo}`,
-				);
-
-				checkQuotaStatus().catch((error) => logError(error));
-
-				// Fetch bootstrap data from the server and update all cache values.
-				void fetchBootstrapData();
-
-				// TODO: Consolidate other prefetches into a single bootstrap request.
-				void prefetchPassesEligibility();
-				if (
-					!getFeatureValue_CACHED_MAY_BE_STALE(
-						"tengu_miraculo_the_bard",
-						false,
-					)
-				) {
-					void prefetchFastModeStatus();
-				} else {
-					// Kill switch skips the network call, not org-policy enforcement.
-					// Resolve from cache so orgStatus doesn't stay 'pending' (which
-					// getFastModeUnavailableReason treats as permissive).
-					resolveFastModeStatusFromCache();
-				}
-				if (bgRefreshThrottleMs > 0) {
+			runStartupPrefetches({
+				bareMode: isBareMode(),
+				isNonInteractiveSession,
+				bgRefreshThrottleMs,
+				lastPrefetched,
+				fastModeKillSwitchEnabled: getFeatureValue_CACHED_MAY_BE_STALE(
+					"tengu_miraculo_the_bard",
+					false,
+				),
+				logForDebugging,
+				checkQuotaStatus,
+				onQuotaError: logError,
+				fetchBootstrapData,
+				prefetchPassesEligibility,
+				prefetchFastModeStatus,
+				resolveFastModeStatusFromCache,
+				saveStartupPrefetchedAt: (timestamp) => {
 					saveGlobalConfig((current) => ({
 						...current,
-						startupPrefetchedAt: Date.now(),
+						startupPrefetchedAt: timestamp,
 					}));
-				}
-			} else {
-				logForDebugging(
-					`Skipping startup prefetches, last ran ${Math.round((Date.now() - lastPrefetched) / 1000)}s ago`,
-				);
-				// Resolve fast mode org status from cache (no network)
-				resolveFastModeStatusFromCache();
-			}
-
-			if (!isNonInteractiveSession) {
-				void refreshExampleCommands(); // Pre-fetch example commands (runs git log, no API call)
-			}
+				},
+				refreshExampleCommands,
+			});
 
 			// Resolve MCP configs (started early, overlaps with setup/trust dialog work)
 			const { servers: existingMcpConfigs } = await mcpConfigPromise;

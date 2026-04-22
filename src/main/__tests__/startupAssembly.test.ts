@@ -3,6 +3,7 @@ import { describe, expect, mock, test } from "bun:test";
 import {
 	determineSetupTrigger,
 	runSessionStartupSideEffects,
+	runStartupPrefetches,
 	runVersionedPluginStartup,
 } from "../startupAssembly.js";
 
@@ -174,5 +175,123 @@ describe("runSessionStartupSideEffects", () => {
 		expect(updateSessionName).toHaveBeenCalledTimes(0);
 		expect(countConcurrentSessions).toHaveBeenCalledTimes(0);
 		expect(onConcurrentSessions).toHaveBeenCalledTimes(0);
+	});
+});
+
+describe("runStartupPrefetches", () => {
+	test("runs startup prefetches and saves timestamp when not throttled", async () => {
+		const calls: string[] = [];
+		const checkQuotaStatus = mock(async () => {
+			calls.push("quota");
+		});
+		const fetchBootstrapData = mock(() => {
+			calls.push("bootstrap");
+		});
+		const prefetchPassesEligibility = mock(() => {
+			calls.push("passes");
+		});
+		const prefetchFastModeStatus = mock(async () => {
+			calls.push("fast");
+		});
+		const resolveFastModeStatusFromCache = mock(() => {
+			calls.push("cache");
+		});
+		const saveStartupPrefetchedAt = mock((timestamp: number) => {
+			calls.push(`save:${timestamp}`);
+		});
+		const refreshExampleCommands = mock(() => {
+			calls.push("examples");
+		});
+		const logForDebugging = mock((message: string) => {
+			calls.push(`log:${message}`);
+		});
+		const onQuotaError = mock((_error: unknown) => {
+			calls.push("quota-error");
+		});
+
+		runStartupPrefetches({
+			bareMode: false,
+			isNonInteractiveSession: false,
+			bgRefreshThrottleMs: 10_000,
+			lastPrefetched: 0,
+			fastModeKillSwitchEnabled: false,
+			logForDebugging,
+			checkQuotaStatus,
+			onQuotaError,
+			fetchBootstrapData,
+			prefetchPassesEligibility,
+			prefetchFastModeStatus,
+			resolveFastModeStatusFromCache,
+			saveStartupPrefetchedAt,
+			refreshExampleCommands,
+			now: () => 12_345,
+		});
+
+		await Promise.resolve();
+
+		expect(calls).toContain("quota");
+		expect(calls).toContain("bootstrap");
+		expect(calls).toContain("passes");
+		expect(calls).toContain("fast");
+		expect(calls).toContain("save:12345");
+		expect(calls).toContain("examples");
+		expect(calls.some((entry) => entry.startsWith("log:Starting background startup prefetches"))).toBeTrue();
+		expect(resolveFastModeStatusFromCache).toHaveBeenCalledTimes(0);
+		expect(onQuotaError).toHaveBeenCalledTimes(0);
+	});
+
+	test("skips throttled prefetches and only resolves cached fast mode", async () => {
+		const calls: string[] = [];
+		const resolveFastModeStatusFromCache = mock(() => {
+			calls.push("cache");
+		});
+		const refreshExampleCommands = mock(() => {
+			calls.push("examples");
+		});
+
+		runStartupPrefetches({
+			bareMode: false,
+			isNonInteractiveSession: true,
+			bgRefreshThrottleMs: 60_000,
+			lastPrefetched: 70_000,
+			fastModeKillSwitchEnabled: false,
+			logForDebugging: (message) => {
+				calls.push(`log:${message}`);
+			},
+			checkQuotaStatus: async () => {
+				calls.push("quota");
+			},
+			onQuotaError: (_error) => {
+				calls.push("quota-error");
+			},
+			fetchBootstrapData: () => {
+				calls.push("bootstrap");
+			},
+			prefetchPassesEligibility: () => {
+				calls.push("passes");
+			},
+			prefetchFastModeStatus: async () => {
+				calls.push("fast");
+			},
+			resolveFastModeStatusFromCache,
+			saveStartupPrefetchedAt: (timestamp) => {
+				calls.push(`save:${timestamp}`);
+			},
+			refreshExampleCommands,
+			now: () => 100_000,
+		});
+
+		await Promise.resolve();
+
+		expect(calls).toContain("cache");
+		expect(calls.some((entry) => entry.startsWith("log:Skipping startup prefetches"))).toBeTrue();
+		expect(calls).not.toContain("quota");
+		expect(calls).not.toContain("bootstrap");
+		expect(calls).not.toContain("passes");
+		expect(calls).not.toContain("fast");
+		expect(calls).not.toContain("examples");
+		expect(calls.some((entry) => entry.startsWith("save:"))).toBeFalse();
+		expect(resolveFastModeStatusFromCache).toHaveBeenCalledTimes(1);
+		expect(refreshExampleCommands).toHaveBeenCalledTimes(0);
 	});
 });

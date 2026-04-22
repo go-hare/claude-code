@@ -90,3 +90,76 @@ export function runSessionStartupSideEffects(options: {
 		});
 	});
 }
+
+export function runStartupPrefetches(options: {
+	bareMode: boolean;
+	isNonInteractiveSession: boolean;
+	bgRefreshThrottleMs: number;
+	lastPrefetched: number;
+	fastModeKillSwitchEnabled: boolean;
+	logForDebugging: (message: string) => void;
+	checkQuotaStatus: () => Promise<unknown>;
+	onQuotaError: (error: unknown) => void;
+	fetchBootstrapData: () => Promise<unknown> | void;
+	prefetchPassesEligibility: () => Promise<unknown> | void;
+	prefetchFastModeStatus: () => Promise<unknown> | void;
+	resolveFastModeStatusFromCache: () => void;
+	saveStartupPrefetchedAt: (timestamp: number) => void;
+	refreshExampleCommands: () => Promise<unknown> | void;
+	now?: () => number;
+}): void {
+	const {
+		bareMode,
+		isNonInteractiveSession,
+		bgRefreshThrottleMs,
+		lastPrefetched,
+		fastModeKillSwitchEnabled,
+		logForDebugging,
+		checkQuotaStatus,
+		onQuotaError,
+		fetchBootstrapData,
+		prefetchPassesEligibility,
+		prefetchFastModeStatus,
+		resolveFastModeStatusFromCache,
+		saveStartupPrefetchedAt,
+		refreshExampleCommands,
+		now = Date.now,
+	} = options;
+
+	const currentTime = now();
+	const skipStartupPrefetches =
+		bareMode ||
+		(bgRefreshThrottleMs > 0 &&
+			currentTime - lastPrefetched < bgRefreshThrottleMs);
+
+	if (!skipStartupPrefetches) {
+		const lastPrefetchedInfo =
+			lastPrefetched > 0
+				? ` last ran ${Math.round((currentTime - lastPrefetched) / 1000)}s ago`
+				: "";
+		logForDebugging(
+			`Starting background startup prefetches${lastPrefetchedInfo}`,
+		);
+
+		checkQuotaStatus().catch((error) => onQuotaError(error));
+		void fetchBootstrapData();
+		void prefetchPassesEligibility();
+		if (!fastModeKillSwitchEnabled) {
+			void prefetchFastModeStatus();
+		} else {
+			resolveFastModeStatusFromCache();
+		}
+		if (bgRefreshThrottleMs > 0) {
+			saveStartupPrefetchedAt(currentTime);
+		}
+	} else {
+		logForDebugging(
+			`Skipping startup prefetches, last ran ${Math.round((currentTime - lastPrefetched) / 1000)}s ago`,
+		);
+		resolveFastModeStatusFromCache();
+	}
+
+	if (!isNonInteractiveSession) {
+		void refreshExampleCommands();
+	}
+}
