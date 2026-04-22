@@ -739,8 +739,8 @@ export function registerCliHostCommands(
     .command('update')
     .description(describe(['update']))
     .action(async () => {
-      const { updateCCB } = await import('../../cli/updateCCB.js')
-      await updateCCB()
+        const { updateHare } = await import('../../cli/updateHare.js')
+        await updateHare()
     })
 
   if (process.env.USER_TYPE === 'ant') {

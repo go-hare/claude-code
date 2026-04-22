@@ -8,13 +8,13 @@ function printUsage(): void {
   process.stdout.write(
     [
       'Usage:',
-      '  ccb weixin serve',
-      '  ccb weixin login',
-      '  ccb weixin login clear',
-      '  ccb weixin access pair <code>',
+      '  hare weixin serve',
+      '  hare weixin login',
+      '  hare weixin login clear',
+      '  hare weixin access pair <code>',
       '',
       'Session enablement:',
-      '  ccb --channels plugin:weixin@builtin',
+      '  hare --channels plugin:weixin@builtin',
     ].join('\n') + '\n',
   )
 }
@@ -34,9 +34,9 @@ async function runLogin(clear = false): Promise<void> {
         `  User ID: ${existing.userId || 'unknown'}`,
         `  Connected since: ${existing.savedAt}`,
         '',
-        'Run `ccb weixin login clear` to disconnect.',
+        'Run `hare weixin login clear` to disconnect.',
         'Restart Claude Code with:',
-        '  ccb --channels plugin:weixin@builtin',
+        '  hare --channels plugin:weixin@builtin',
       ].join('\n') + '\n',
     )
     return
@@ -72,7 +72,7 @@ async function runLogin(clear = false): Promise<void> {
       `  Base URL: ${result.baseUrl || DEFAULT_BASE_URL}`,
       '',
       'Restart Claude Code with:',
-      '  ccb --channels plugin:weixin@builtin',
+      '  hare --channels plugin:weixin@builtin',
     ].join('\n') + '\n',
   )
 }

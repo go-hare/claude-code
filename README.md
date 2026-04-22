@@ -1,179 +1,178 @@
-# Claude Code Best V5 (CCB)
+# Hare Code
 
-[![GitHub Stars](https://img.shields.io/github/stars/go-hare/claude-code?style=flat-square&logo=github&color=yellow)](https://github.com/go-hare/claude-code/stargazers)
-[![GitHub Contributors](https://img.shields.io/github/contributors/go-hare/claude-code?style=flat-square&color=green)](https://github.com/go-hare/claude-code/graphs/contributors)
-[![GitHub Issues](https://img.shields.io/github/issues/go-hare/claude-code?style=flat-square&color=orange)](https://github.com/go-hare/claude-code/issues)
-[![GitHub License](https://img.shields.io/github/license/go-hare/claude-code?style=flat-square)](https://github.com/go-hare/claude-code/blob/main/LICENSE)
-[![Last Commit](https://img.shields.io/github/last-commit/go-hare/claude-code?style=flat-square&color=blue)](https://github.com/go-hare/claude-code/commits/main)
+[![GitHub Stars](https://img.shields.io/github/stars/go-hare/hare-code?style=flat-square&logo=github&color=yellow)](https://github.com/go-hare/hare-code/stargazers)
+[![GitHub Contributors](https://img.shields.io/github/contributors/go-hare/hare-code?style=flat-square&color=green)](https://github.com/go-hare/hare-code/graphs/contributors)
+[![GitHub Issues](https://img.shields.io/github/issues/go-hare/hare-code?style=flat-square&color=orange)](https://github.com/go-hare/hare-code/issues)
+[![GitHub License](https://img.shields.io/github/license/go-hare/hare-code?style=flat-square)](https://github.com/go-hare/hare-code/blob/main/LICENSE)
+[![Last Commit](https://img.shields.io/github/last-commit/go-hare/hare-code?style=flat-square&color=blue)](https://github.com/go-hare/hare-code/commits/main)
 [![Bun](https://img.shields.io/badge/runtime-Bun-black?style=flat-square&logo=bun)](https://bun.sh/)
-[![Discord](https://img.shields.io/badge/Discord-Join-5865F2?style=flat-square&logo=discord)](https://discord.gg/uApuzJWGKX)
 
-> Which Claude do you like? The open source one is the best.
+Hare Code 是一个面向终端交互、headless 嵌入、direct-connect、server、bridge 和 daemon 场景的 AI coding runtime。
 
-牢 A (Anthropic) 官方 [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI 工具的源码反编译/逆向还原项目。目标是将 Claude Code 大部分功能及工程化能力复现 (问就是老佛爷已经付过钱了)。虽然很难绷, 但是它叫做 CCB(踩踩背)... 而且, 我们实现了企业版或者需要登陆 Claude 账号才能使用的特性, 实现技术普惠
+当前项目的目标不是继续围绕 CLI 做大规模重构，而是：
 
-[文档在这里, 支持投稿 PR](https://ccb.agent-aura.top/) | [留影文档在这里](./Friends.md) | [Discord 群组](https://discord.gg/uApuzJWGKX)
+- 保持 CLI 作为官方交互宿主
+- 将可复用能力稳定暴露到 `src/kernel`
+- 让外部宿主优先通过 kernel façade 接入
+- 在不破坏主链的前提下持续收口运行时能力
 
-| 特性 | 说明 | 文档 |
-|------|------|------|
-| **Claude 群控技术** | Pipe IPC 多实例协作：同机 main/sub 自动编排 + LAN 跨机器零配置发现与通讯，`/pipes` 选择面板 + `Shift+↓` 交互 + 消息广播路由 | [Pipe IPC](https://ccb.agent-aura.top/docs/features/pipes-and-lan) / [LAN](https://ccb.agent-aura.top/docs/features/lan-pipes) |
-| **ACP 协议一等一支持** | 支持接入 Zed、Cursor 等 IDE，支持会话恢复、Skills、权限桥接 | [文档](https://ccb.agent-aura.top/docs/features/acp-zed) |
-| **Remote Control 私有部署** | Docker 自托管远程界面, 可以手机上看 CC | [文档](https://ccb.agent-aura.top/docs/features/remote-control-self-hosting) |
-| **Langfuse 监控** | 企业级 Agent 监控, 可以清晰看到每次 agent loop 细节, 可以一键转化为数据集 | [文档](https://ccb.agent-aura.top/docs/features/langfuse-monitoring) |
-| **Web Search** | 内置网页搜索工具, 支持 bing 和 brave 搜索 | [文档](https://ccb.agent-aura.top/docs/features/web-browser-tool) |
-| **Poor Mode** | 穷鬼模式，关闭记忆提取和键入建议,大幅度减少并发请求 | /poor 可以开关 |
-| **Channels 频道通知** | MCP 服务器推送外部消息到会话（飞书/Slack/Discord/微信等），`--channels plugin:name@marketplace` 启用 | [文档](https://ccb.agent-aura.top/docs/features/channels) |
-| **自定义模型供应商** | OpenAI/Anthropic/Gemini/Grok 兼容 | [文档](https://ccb.agent-aura.top/docs/features/custom-platform-login) |
-| Voice Mode | Push-to-Talk 语音输入 | [文档](https://ccb.agent-aura.top/docs/features/voice-mode) |
-| Computer Use | 屏幕截图、键鼠控制 | [文档](https://ccb.agent-aura.top/docs/features/computer-use) |
-| Chrome Use | 浏览器自动化、表单填写、数据抓取 | [自托管](https://ccb.agent-aura.top/docs/features/chrome-use-mcp) [原生版](https://ccb.agent-aura.top/docs/features/claude-in-chrome-mcp) |
-| Sentry | 企业级错误追踪 | [文档](https://ccb.agent-aura.top/docs/internals/sentry-setup) |
-| GrowthBook | 企业级特性开关 | [文档](https://ccb.agent-aura.top/docs/internals/growthbook-adapter) |
-| /dream 记忆整理 | 自动整理和优化记忆文件 | [文档](https://ccb.agent-aura.top/docs/features/auto-dream) |
+## 项目定位
 
-- 🚀 [想要启动项目](#快速开始源码版)
-- 🐛 [想要调试项目](#vs-code-调试)
-- 📖 [想要学习项目](#teach-me-学习项目)
+当前代码基线可以分成三层：
 
+1. `src/kernel`
+   - 稳定公开面
+   - 面向外部 embedding / host / service 接入
+2. `src/runtime`
+   - 内部能力层
+   - 包含 execution、server、bridge、daemon、tools、mcp 等能力
+3. `CLI / REPL`
+   - 官方交互宿主
+   - 负责终端交互，而不是承担全部 runtime 抽象
 
-## ⚡ 快速开始(安装版)
+当前已经稳定公开的 kernel 入口包括：
 
-不用克隆仓库, 从 NPM 下载后, 直接使用
+- [src/kernel/index.ts](/D:/work/py/reachy_code/claude-code/src/kernel/index.ts)
+- [src/kernel/headless.ts](/D:/work/py/reachy_code/claude-code/src/kernel/headless.ts)
+- [src/kernel/headlessMcp.ts](/D:/work/py/reachy_code/claude-code/src/kernel/headlessMcp.ts)
+- [src/kernel/headlessStartup.ts](/D:/work/py/reachy_code/claude-code/src/kernel/headlessStartup.ts)
+- [src/kernel/bridge.ts](/D:/work/py/reachy_code/claude-code/src/kernel/bridge.ts)
+- [src/kernel/daemon.ts](/D:/work/py/reachy_code/claude-code/src/kernel/daemon.ts)
 
-```sh
-npm i -g @go-hare/claude-code
+## 当前能力
 
-# bun 安装比较多问题, 推荐 npm 装
-# bun i -g @go-hare/claude-code
-# bun pm -g trust @go-hare/claude-code
+- 交互式 CLI / REPL
+- headless kernel session
+- direct-connect / server
+- ACP agent 模式
+- bridge / daemon façade
+- MCP、channels、plugins
+- OpenAI-compatible provider 接入
+- Buddy / KAIROS / Coordinator / task / subagent / team 主链
+- computer-use / chrome bridge / remote-control 相关能力
 
-hare # 启动 CLI
-hare update # 更新到最新版本
-CLAUDE_BRIDGE_BASE_URL=https://remote-control.example.com/ CLAUDE_BRIDGE_OAUTH_TOKEN=test-my-key hare --remote-control # 自部署的远程控制
+## 安装
+
+### npm 安装
+
+```bash
+npm install -g @go-hare/hare-code
+hare
 ```
 
-## ⚡ 快速开始(源码版)
+### GitHub tag 安装
 
-### ⚙️ 环境要求
+当对应版本已经发布 GitHub Release 二进制资产时，可以直接通过 git tag 安装：
 
-一定要最新版本的 bun 啊, 不然一堆奇奇怪怪的 BUG!!! bun upgrade!!!
+```bash
+npm install -g git+https://github.com/go-hare/hare-code.git#v1.7.1
+hare
+```
 
-- 📦 [Bun](https://bun.sh/) >= 1.3.11
-- ⚙️ 常规的配置 CC 的方式, 各大提供商都有自己的配置方式
+安装阶段会通过 release 资产下载当前平台对应的 `hare` 二进制。
 
-### 📥 安装
+## 源码启动
+
+### 环境要求
+
+- [Bun](https://bun.sh/) >= 1.3.11
+- 你自己的 provider 配置
+
+### 安装依赖
 
 ```bash
 bun install
 ```
 
-### ▶️ 运行
+### 开发模式
 
 ```bash
-# 开发模式, 看到版本号 888 说明就是对了
 bun run dev
+```
 
-# 构建
+### 构建
+
+```bash
 bun run build
 ```
 
-构建采用 code splitting 多文件打包（`build.ts`），产物输出到 `dist/` 目录（入口 `dist/cli.js` + 约 450 个 chunk 文件）。
+常见构建产物：
 
-构建出的版本 bun 和 node 都可以启动, 你 publish 到私有源可以直接启动
+- `dist/cli-node.js`
+- `dist/cli-bun.js`
 
-如果遇到 bug 请直接提一个 issues, 我们优先解决
-
-### 👤 新人配置 /login
-
-首次运行后，在 REPL 中输入 `/login` 命令进入登录配置界面，选择 **Anthropic Compatible** 即可对接第三方 API 兼容服务（无需 Anthropic 官方账号）。
-选择 OpenAI 和 Gemini 对应的栏目都是支持相应协议的
-
-需要填写的字段：
-
-| 📌 字段 | 📝 说明 | 💡 示例 |
-|------|------|------|
-| Base URL | API 服务地址 | `https://api.example.com/v1` |
-| API Key | 认证密钥 | `sk-xxx` |
-| Haiku Model | 快速模型 ID | `claude-haiku-4-5-20251001` |
-| Sonnet Model | 均衡模型 ID | `claude-sonnet-4-6` |
-| Opus Model | 高性能模型 ID | `claude-opus-4-6` |
-
-- ⌨️ **Tab / Shift+Tab** 切换字段，**Enter** 确认并跳到下一个，最后一个字段按 Enter 保存
-
-
-> ℹ️ 支持所有 Anthropic API 兼容服务（如 OpenRouter、AWS Bedrock 代理等），只要接口兼容 Messages API 即可。
-
-## Feature Flags
-
-所有功能开关通过 `FEATURE_<FLAG_NAME>=1` 环境变量启用，例如：
+二进制分发构建：
 
 ```bash
-FEATURE_BUDDY=1 FEATURE_FORK_SUBAGENT=1 bun run dev
+bun run build:release
 ```
 
-各 Feature 的详细说明见 [`docs/features/`](docs/features/) 目录，欢迎投稿补充。
+## Kernel 使用
 
-## VS Code 调试
+最小示例见：
 
-TUI (REPL) 模式需要真实终端，无法直接通过 VS Code launch 启动调试。使用 **attach 模式**：
+- [examples/README.md](/D:/work/py/reachy_code/claude-code/examples/README.md)
+- [examples/kernel-headless-embed.ts](/D:/work/py/reachy_code/claude-code/examples/kernel-headless-embed.ts)
+- [examples/kernel-direct-connect.ts](/D:/work/py/reachy_code/claude-code/examples/kernel-direct-connect.ts)
 
-### 步骤
+适合外部接入的方向：
 
-1. **终端启动 inspect 服务**：
-   ```bash
-   bun run dev:inspect
-   ```
-   会输出类似 `ws://localhost:8888/xxxxxxxx` 的地址。
+- headless embedding
+- direct-connect client
+- server host
+- bridge / daemon host
 
-2. **VS Code 附着调试器**：
-   - 在 `src/` 文件中打断点
-   - F5 → 选择 **"Attach to Bun (TUI debug)"**
+不建议把外部接入直接建立在 `REPL.tsx` 上。
 
-
-## Teach Me 学习项目
-
-我们新加了一个 teach-me skills, 通过问答式引导帮你理解这个项目的任何模块。(调整 [sigma skill 而来](https://github.com/sanyuan0704/sanyuan-skills))
+## 常用命令
 
 ```bash
-# 在 REPL 中直接输入
-/teach-me Claude Code 架构
-/teach-me React Ink 终端渲染 --level beginner
-/teach-me Tool 系统 --resume
+hare
+hare update
+hare --acp
+hare weixin login
 ```
 
-### 它能做什么
+## 配置目录
 
-- **诊断水平** — 自动评估你对相关概念的掌握程度，跳过已知的、聚焦薄弱的
-- **构建学习路径** — 将主题拆解为 5-15 个原子概念，按依赖排序逐步推进
-- **苏格拉底式提问** — 用选项引导思考，而非直接给答案
-- **错误概念追踪** — 发现并纠正深层误解
-- **断点续学** — `--resume` 从上次进度继续
+当前支持：
 
-### 学习记录
+- 用户级配置目录：`CLAUDE_CONFIG_DIR`
+- 项目级配置目录名：`CLAUDE_PROJECT_CONFIG_DIR_NAME`
 
-学习进度保存在 `.claude/skills/teach-me/` 目录下，支持跨主题学习者档案。
+例如：
 
-## 相关文档及网站
+```powershell
+$env:CLAUDE_CONFIG_DIR = "$HOME\\.hare"
+$env:CLAUDE_PROJECT_CONFIG_DIR_NAME = ".hare"
+hare
+```
 
-- **在线文档（Mintlify）**: [ccb.agent-aura.top](https://ccb.agent-aura.top/) — 文档源码位于 [`docs/`](docs/) 目录，欢迎投稿 PR
-- **DeepWiki**: <https://deepwiki.com/go-hare/claude-code>
+## 项目结构
 
-## Contributors
+- [src/entrypoints/cli.tsx](/D:/work/py/reachy_code/claude-code/src/entrypoints/cli.tsx)
+  - CLI 入口
+- [src/main.tsx](/D:/work/py/reachy_code/claude-code/src/main.tsx)
+  - 启动装配与模式分发
+- [src/screens/REPL.tsx](/D:/work/py/reachy_code/claude-code/src/screens/REPL.tsx)
+  - 官方终端交互宿主
+- [src/query.ts](/D:/work/py/reachy_code/claude-code/src/query.ts)
+  - turn loop 与 query orchestration
+- [src/QueryEngine.ts](/D:/work/py/reachy_code/claude-code/src/QueryEngine.ts)
+  - 执行引擎兼容壳
+- [src/runtime](/D:/work/py/reachy_code/claude-code/src/runtime)
+  - 内部 runtime capability 层
+- [src/kernel](/D:/work/py/reachy_code/claude-code/src/kernel)
+  - 稳定 kernel façade
 
-<a href="https://github.com/go-hare/claude-code/graphs/contributors">
-  <img src="contributors.svg" alt="Contributors" />
-</a>
+## 开发原则
 
-## Star History
-
-<a href="https://www.star-history.com/?repos=go-hare%2Fclaude-code&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/image?repos=go-hare/claude-code&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/image?repos=go-hare/claude-code&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/image?repos=go-hare/claude-code&type=date&legend=top-left" />
- </picture>
-</a>
+- CLI 主链优先稳定
+- REPL 只做外围收口，不把执行中枢当成重构主战场
+- 新宿主优先通过 `src/kernel` 接入
+- 共享行为变更优先补测试
+- 不为“结构更优雅”发起高风险重排
 
 ## 许可证
 
-本项目仅供学习研究用途。Claude Code 的所有权利归 [Anthropic](https://www.anthropic.com/) 所有。
+本项目仅供学习、研究与工程实验用途。

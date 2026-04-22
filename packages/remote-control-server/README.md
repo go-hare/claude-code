@@ -103,7 +103,7 @@ volumes:
 
 
 ```sh
-ACP_RCS_URL=http://localhost:3000 ACP_RCS_TOKEN=test-my-key acp-link ccb-bun -- --acp
+ACP_RCS_URL=http://localhost:3000 ACP_RCS_TOKEN=test-my-key acp-link hare --acp
 ```
 
 ## 反向代理配置

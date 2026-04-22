@@ -1,158 +1,178 @@
-# Claude Code Best V5 (CCB)
+# Hare Code
 
-[![GitHub Stars](https://img.shields.io/github/stars/go-hare/claude-code?style=flat-square&logo=github&color=yellow)](https://github.com/go-hare/claude-code/stargazers)
-[![GitHub Contributors](https://img.shields.io/github/contributors/go-hare/claude-code?style=flat-square&color=green)](https://github.com/go-hare/claude-code/graphs/contributors)
-[![GitHub Issues](https://img.shields.io/github/issues/go-hare/claude-code?style=flat-square&color=orange)](https://github.com/go-hare/claude-code/issues)
-[![GitHub License](https://img.shields.io/github/license/go-hare/claude-code?style=flat-square)](https://github.com/go-hare/claude-code/blob/main/LICENSE)
-[![Last Commit](https://img.shields.io/github/last-commit/go-hare/claude-code?style=flat-square&color=blue)](https://github.com/go-hare/claude-code/commits/main)
+[![GitHub Stars](https://img.shields.io/github/stars/go-hare/hare-code?style=flat-square&logo=github&color=yellow)](https://github.com/go-hare/hare-code/stargazers)
+[![GitHub Contributors](https://img.shields.io/github/contributors/go-hare/hare-code?style=flat-square&color=green)](https://github.com/go-hare/hare-code/graphs/contributors)
+[![GitHub Issues](https://img.shields.io/github/issues/go-hare/hare-code?style=flat-square&color=orange)](https://github.com/go-hare/hare-code/issues)
+[![GitHub License](https://img.shields.io/github/license/go-hare/hare-code?style=flat-square)](https://github.com/go-hare/hare-code/blob/main/LICENSE)
+[![Last Commit](https://img.shields.io/github/last-commit/go-hare/hare-code?style=flat-square&color=blue)](https://github.com/go-hare/hare-code/commits/main)
 [![Bun](https://img.shields.io/badge/runtime-Bun-black?style=flat-square&logo=bun)](https://bun.sh/)
 
-> Which Claude do you like? The open source one is the best.
+Hare Code is an AI coding runtime for terminal interaction, headless embedding, direct-connect, server, bridge, and daemon scenarios.
 
-A reverse-engineered / decompiled source restoration of Anthropic's official [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI tool. The goal is to reproduce most of Claude Code's functionality and engineering capabilities. It's abbreviated as CCB.
+The goal of the current codebase is not to keep restructuring around the CLI. The goal is to:
 
-[Documentation (Chinese)](https://ccb.agent-aura.top/) — PR contributions welcome.
+- keep the CLI as the official interactive host
+- expose reusable capabilities through `src/kernel`
+- let external hosts integrate through kernel facades first
+- continue tightening runtime boundaries without breaking the main interaction path
 
-Sponsor placeholder.
+## Project Position
 
-- [x] v1: Basic runability and type checking pass
-- [x] V2: Complete engineering infrastructure
-  - [ ] Biome formatting may not be implemented first to avoid code conflicts
-  - [x] Build pipeline complete, output runnable on both Node.js and Bun
-- [x] V3: Extensive documentation and documentation site improvements
-- [x] V4: Large-scale test suite for improved stability
-  - [x] Buddy pet feature restored [Docs](https://ccb.agent-aura.top/docs/features/buddy)
-  - [x] Auto Mode restored [Docs](https://ccb.agent-aura.top/docs/safety/auto-mode)
-  - [x] All features now configurable via environment variables instead of `bun --feature`
-- [x] V5: Enterprise-grade monitoring/reporting, missing tools补全, restrictions removed
-  - [x] Removed anti-distillation code
-  - [x] Web search capability (using Bing) [Docs](https://ccb.agent-aura.top/docs/features/web-browser-tool)
-  - [x] Debug mode support [Docs](https://ccb.agent-aura.top/docs/features/debug-mode)
-  - [x] Disabled auto-updates
-  - [x] Custom Sentry error reporting support [Docs](https://ccb.agent-aura.top/docs/internals/sentry-setup)
-  - [x] Custom GrowthBook support (GB is open source — configure your own feature flag platform) [Docs](https://ccb.agent-aura.top/docs/internals/growthbook-adapter)
-  - [x] Custom login mode — configure Claude models your way
-- [ ] V6: Large-scale refactoring, full modular packaging
-  - [ ] V6 will be a new branch; main branch will be archived as a historical version
+The current codebase can be understood as three layers:
 
-> I don't know how long this project will survive. Star + Fork + git clone + .zip is the safest bet.
->
-> This project updates rapidly — Opus continuously optimizes in the background, with new changes almost every few hours.
->
-> Claude has burned over $1000, out of budget, switching to GLM to continue; @zai-org GLM 5.1 is quite capable.
+1. `src/kernel`
+   - stable public surface
+   - intended for external embedding, host, and service integration
+2. `src/runtime`
+   - internal capability layer
+   - contains execution, server, bridge, daemon, tools, mcp, and related capabilities
+3. `CLI / REPL`
+   - official interactive host
+   - responsible for terminal interaction, not for owning every runtime abstraction
 
-## Quick Start
+The stable kernel entry points exposed today are:
 
-### Prerequisites
+- [src/kernel/index.ts](/D:/work/py/reachy_code/claude-code/src/kernel/index.ts)
+- [src/kernel/headless.ts](/D:/work/py/reachy_code/claude-code/src/kernel/headless.ts)
+- [src/kernel/headlessMcp.ts](/D:/work/py/reachy_code/claude-code/src/kernel/headlessMcp.ts)
+- [src/kernel/headlessStartup.ts](/D:/work/py/reachy_code/claude-code/src/kernel/headlessStartup.ts)
+- [src/kernel/bridge.ts](/D:/work/py/reachy_code/claude-code/src/kernel/bridge.ts)
+- [src/kernel/daemon.ts](/D:/work/py/reachy_code/claude-code/src/kernel/daemon.ts)
 
-Make sure you're on the latest version of Bun, otherwise you'll run into all sorts of weird bugs. Run `bun upgrade`!
+## Current Capabilities
+
+- interactive CLI / REPL
+- headless kernel sessions
+- direct-connect / server
+- ACP agent mode
+- bridge / daemon facades
+- MCP, channels, and plugins
+- OpenAI-compatible provider integration
+- Buddy / KAIROS / Coordinator / task / subagent / team mainline flows
+- computer-use / chrome bridge / remote-control related capabilities
+
+## Installation
+
+### npm
+
+```bash
+npm install -g @go-hare/hare-code
+hare
+```
+
+### GitHub tag install
+
+When the matching version has published GitHub Release binary assets, you can install directly from a git tag:
+
+```bash
+npm install -g git+https://github.com/go-hare/hare-code.git#v1.7.1
+hare
+```
+
+During installation, the package downloads the platform-specific `hare` binary from the release assets.
+
+## Running from Source
+
+### Requirements
 
 - [Bun](https://bun.sh/) >= 1.3.11
-- Standard Claude Code configuration — each provider has its own setup method
+- your own provider configuration
 
-### Install
+### Install dependencies
 
 ```bash
 bun install
 ```
 
-### Run
+### Development mode
 
 ```bash
-# Dev mode — if you see version 888, it's working
 bun run dev
+```
 
-# Build
+### Build
+
+```bash
 bun run build
 ```
 
-The build uses code splitting (`build.ts`), outputting to `dist/` (entry `dist/cli.js` + ~450 chunk files).
+Common build outputs:
 
-The build output runs on both Bun and Node.js — you can publish to a private registry and run directly.
+- `dist/cli-node.js`
+- `dist/cli-bun.js`
 
-If you encounter a bug, please open an issue — we'll prioritize it.
-
-### First-time Setup /login
-
-After the first run, enter `/login` in the REPL to access the login configuration screen. Select **Anthropic Compatible** to connect to third-party API-compatible services (no Anthropic account required).
-
-Fields to fill in:
-
-| Field | Description | Example |
-|-------|-------------|---------|
-| Base URL | API service URL | `https://api.example.com/v1` |
-| API Key | Authentication key | `sk-xxx` |
-| Haiku Model | Fast model ID | `claude-haiku-4-5-20251001` |
-| Sonnet Model | Balanced model ID | `claude-sonnet-4-6` |
-| Opus Model | High-performance model ID | `claude-opus-4-6` |
-
-- **Tab / Shift+Tab** to switch fields, **Enter** to confirm and move to the next, press Enter on the last field to save
-- Model fields auto-fill from current environment variables
-- Configuration saves to `~/.claude/settings.json` under the `env` key, effective immediately
-
-You can also edit `~/.claude/settings.json` directly:
-
-```json
-{
-  "env": {
-    "ANTHROPIC_BASE_URL": "https://api.example.com/v1",
-    "ANTHROPIC_AUTH_TOKEN": "sk-xxx",
-    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-4-5-20251001",
-    "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-4-6",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-4-6"
-  }
-}
-```
-
-> Supports all Anthropic API-compatible services (e.g., OpenRouter, AWS Bedrock proxies, etc.) as long as the interface is compatible with the Messages API.
-
-## Feature Flags
-
-All feature toggles are enabled via `FEATURE_<FLAG_NAME>=1` environment variables, for example:
+Binary release build:
 
 ```bash
-FEATURE_BUDDY=1 FEATURE_FORK_SUBAGENT=1 bun run dev
+bun run build:release
 ```
 
-See [`docs/features/`](docs/features/) for detailed descriptions of each feature. Contributions welcome.
+## Using the Kernel
 
-## VS Code Debugging
+Minimal examples:
 
-The TUI (REPL) mode requires a real terminal and cannot be launched directly via VS Code's launch config. Use **attach mode**:
+- [examples/README.md](/D:/work/py/reachy_code/claude-code/examples/README.md)
+- [examples/kernel-headless-embed.ts](/D:/work/py/reachy_code/claude-code/examples/kernel-headless-embed.ts)
+- [examples/kernel-direct-connect.ts](/D:/work/py/reachy_code/claude-code/examples/kernel-direct-connect.ts)
 
-### Steps
+Recommended external integration directions:
 
-1. **Start inspect server in terminal**:
-   ```bash
-   bun run dev:inspect
-   ```
-   This outputs an address like `ws://localhost:8888/xxxxxxxx`.
+- headless embedding
+- direct-connect clients
+- server hosts
+- bridge / daemon hosts
 
-2. **Attach debugger from VS Code**:
-   - Set breakpoints in `src/` files
-   - Press F5 → select **"Attach to Bun (TUI debug)"**
+Do not build external integrations directly on top of `REPL.tsx`.
 
-## Documentation & Links
+## Common Commands
 
-- **Online docs (Mintlify)**: [ccb.agent-aura.top](https://ccb.agent-aura.top/) — source in [`docs/`](docs/), PR contributions welcome
-- **DeepWiki**: <https://deepwiki.com/go-hare/claude-code>
+```bash
+hare
+hare update
+hare --acp
+hare weixin login
+```
 
-## Contributors
+## Configuration Directories
 
-<a href="https://github.com/go-hare/claude-code/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=go-hare/claude-code" />
-</a>
+The project currently supports:
 
-## Star History
+- user-level config directory: `CLAUDE_CONFIG_DIR`
+- project-level config directory name: `CLAUDE_PROJECT_CONFIG_DIR_NAME`
 
-<a href="https://www.star-history.com/?repos=go-hare%2Fclaude-code&type=date&legend=top-left">
- <picture>
- <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/image?repos=go-hare%2Fclaude-code&type=date&theme=dark&legend=top-left" />
- <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/image?repos=go-hare%2Fclaude-code&type=date&legend=top-left" />
- <img alt="Star History Chart" src="https://api.star-history.com/image?repos=go-hare%2Fclaude-code&type=date&legend=top-left" />
- </picture>
-</a>
+For example:
+
+```powershell
+$env:CLAUDE_CONFIG_DIR = "$HOME\\.hare"
+$env:CLAUDE_PROJECT_CONFIG_DIR_NAME = ".hare"
+hare
+```
+
+## Project Structure
+
+- [src/entrypoints/cli.tsx](/D:/work/py/reachy_code/claude-code/src/entrypoints/cli.tsx)
+  - CLI entry
+- [src/main.tsx](/D:/work/py/reachy_code/claude-code/src/main.tsx)
+  - startup assembly and mode dispatch
+- [src/screens/REPL.tsx](/D:/work/py/reachy_code/claude-code/src/screens/REPL.tsx)
+  - official terminal interaction host
+- [src/query.ts](/D:/work/py/reachy_code/claude-code/src/query.ts)
+  - turn loop and query orchestration
+- [src/QueryEngine.ts](/D:/work/py/reachy_code/claude-code/src/QueryEngine.ts)
+  - execution engine compatibility shell
+- [src/runtime](/D:/work/py/reachy_code/claude-code/src/runtime)
+  - internal runtime capability layer
+- [src/kernel](/D:/work/py/reachy_code/claude-code/src/kernel)
+  - stable kernel facades
+
+## Development Principles
+
+- keep the CLI mainline stable
+- limit REPL refactors to peripheral tightening, not execution-core restructuring
+- integrate new hosts through `src/kernel` first
+- add tests first for shared behavior changes
+- do not start high-risk reordering work just to make the structure look cleaner
 
 ## License
 
-This project is for educational and research purposes only. All rights to Claude Code belong to [Anthropic](https://www.anthropic.com/).
+This project is intended for learning, research, and engineering experiments.
