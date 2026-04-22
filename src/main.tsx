@@ -48,6 +48,7 @@ import {
 } from './main/commandAssembly.js'
 import { determineMainLaunchMode } from './main/modeDispatch.js'
 import {
+	createInteractiveStartupMcpMessages,
 	determineSetupTrigger,
 	mergeStartupMcpState,
 	runSessionStartupSideEffects,
@@ -3607,9 +3608,14 @@ async function run(): Promise<CommanderCommand> {
 			// Slow servers populate for turn 2+. Matches interactive-no-prompt
 			// behavior. Print mode: per-server push into headlessStore (below).
 			const hookMessages: Awaited<NonNullable<typeof hooksPromise>> = [];
-			// Suppress transient unhandledRejection — the prefetch warms the
-			// memoized connectToServer cache but nobody awaits it in interactive.
-			mcpPromise.catch(() => {});
+			const pendingStartupMessages = createInteractiveStartupMcpMessages({
+				mcpPromise,
+				onError: (error) =>
+					createSystemMessage(
+						`MCP startup prefetch failed: ${errorMessage(error)}`,
+						"warning",
+					),
+			});
 
 			const mcpClients: Awaited<typeof mcpPromise>["clients"] = [];
 			const mcpTools: Awaited<typeof mcpPromise>["tools"] = [];
@@ -5233,6 +5239,7 @@ async function run(): Promise<CommanderCommand> {
 					{
 						...sessionConfig,
 						initialMessages,
+						pendingStartupMessages,
 						pendingHookMessages,
 					},
 					renderAndRun,

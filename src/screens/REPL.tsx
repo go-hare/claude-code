@@ -686,6 +686,8 @@ export type Props = {
   initialTools: Tool[];
   // Initial messages to populate the REPL with
   initialMessages?: MessageType[];
+  // Deferred startup diagnostics — injected after render without blocking turn 1.
+  pendingStartupMessages?: Promise<MessageType[]>;
   // Deferred hook messages promise — REPL renders immediately and injects
   // hook messages when they resolve. Awaited before the first API call.
   pendingHookMessages?: Promise<HookResultMessage[]>;
@@ -733,6 +735,7 @@ export function REPL({
   debug,
   initialTools,
   initialMessages,
+  pendingStartupMessages,
   pendingHookMessages,
   initialFileHistorySnapshots,
   initialContentReplacements,
@@ -1490,6 +1493,18 @@ export function REPL({
   // hook messages are injected when they resolve. awaitPendingHooks()
   // must be called before the first API call so the model sees hook context.
   const awaitPendingHooks = useDeferredHookMessages(pendingHookMessages, setMessages);
+
+  useEffect(() => {
+    if (!pendingStartupMessages) return;
+    let cancelled = false;
+    void pendingStartupMessages.then(msgs => {
+      if (cancelled || msgs.length === 0) return;
+      setMessages(prev => [...prev, ...msgs]);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingStartupMessages, setMessages]);
 
   // Deferred messages for the Messages component — renders at transition
   // priority so the reconciler yields every 5ms, keeping input responsive

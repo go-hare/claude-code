@@ -1,6 +1,8 @@
 import { describe, expect, mock, test } from "bun:test";
+import { z } from "zod/v4";
 
 import {
+	createInteractiveStartupMcpMessages,
 	determineSetupTrigger,
 	mergeStartupMcpState,
 	runSessionStartupSideEffects,
@@ -8,6 +10,57 @@ import {
 	runVersionedPluginStartup,
 } from "../startupAssembly.js";
 import { buildTool } from "../../Tool.js";
+import type { Command } from "../../types/command.js";
+import type { MCPServerConnection } from "../../services/mcp/types.js";
+
+function createTestTool(options: {
+	name: string;
+	description: string;
+	mcpInfo?: {
+		serverName: string;
+		toolName: string;
+	};
+}) {
+	return buildTool({
+		name: options.name,
+		description: async () => options.description,
+		prompt: async () => options.description,
+		inputSchema: z.object({}),
+		maxResultSizeChars: 10_000,
+		renderToolUseMessage: () => null,
+		mapToolResultToToolResultBlockParam: (_content, toolUseID) => ({
+			type: "tool_result" as const,
+			tool_use_id: toolUseID,
+			content: options.description,
+		}),
+		call: async () => ({ data: options.description }),
+		...(options.mcpInfo ? { mcpInfo: options.mcpInfo } : {}),
+	});
+}
+
+function createTestCommand(name: string): Command {
+	return {
+		name,
+		description: `${name} description`,
+		type: "local",
+		supportsNonInteractive: true,
+		load: async () => ({
+			call: async () => ({ type: "text", value: `${name} ok` }),
+		}),
+	};
+}
+
+function createTestClient(name: string): MCPServerConnection {
+	return {
+		name,
+		type: "disabled",
+		config: {
+			type: "sdk",
+			name: `${name}-sdk`,
+			scope: "local",
+		},
+	};
+}
 
 describe("determineSetupTrigger", () => {
 	test("prefers init for initOnly and init", () => {
@@ -182,19 +235,13 @@ describe("runSessionStartupSideEffects", () => {
 
 describe("mergeStartupMcpState", () => {
 	test("throws when startup MCP prefetches surface different tools with the same name", () => {
-		const localTool = buildTool({
+		const localTool = createTestTool({
 			name: "duplicate_tool",
-			inputSchema: { type: "object" } as any,
-			call: async () => ({ data: "local" }),
-			description: async () => "local",
-			prompt: async () => "local",
+			description: "local",
 		});
-		const claudeaiTool = buildTool({
+		const claudeaiTool = createTestTool({
 			name: "duplicate_tool",
-			inputSchema: { type: "object" } as any,
-			call: async () => ({ data: "claudeai" }),
-			description: async () => "claudeai",
-			prompt: async () => "claudeai",
+			description: "claudeai",
 		});
 
 		expect(() =>
@@ -206,23 +253,17 @@ describe("mergeStartupMcpState", () => {
 	});
 
 	test("deduplicates the same MCP logical tool across startup sources", () => {
-		const localTool = buildTool({
+		const localTool = createTestTool({
 			name: "shared_tool",
-			inputSchema: { type: "object" } as any,
-			call: async () => ({ data: "shared" }),
-			description: async () => "shared",
-			prompt: async () => "shared",
+			description: "shared",
 			mcpInfo: {
 				serverName: "demo",
 				toolName: "shared_tool",
 			},
 		});
-		const claudeaiTool = buildTool({
+		const claudeaiTool = createTestTool({
 			name: "shared_tool",
-			inputSchema: { type: "object" } as any,
-			call: async () => ({ data: "shared" }),
-			description: async () => "shared",
-			prompt: async () => "shared",
+			description: "shared",
 			mcpInfo: {
 				serverName: "demo",
 				toolName: "shared_tool",
@@ -230,17 +271,53 @@ describe("mergeStartupMcpState", () => {
 		});
 
 		const merged = mergeStartupMcpState(
-			{ clients: ["local"], tools: [localTool], commands: [{ name: "a" }] },
 			{
-				clients: ["claudeai"],
+				clients: [createTestClient("local")],
+				tools: [localTool],
+				commands: [createTestCommand("a")],
+			},
+			{
+				clients: [createTestClient("claudeai")],
 				tools: [claudeaiTool],
-				commands: [{ name: "a" }, { name: "b" }],
+				commands: [createTestCommand("a"), createTestCommand("b")],
 			},
 		);
 
-		expect(merged.clients).toEqual(["local", "claudeai"]);
+		expect(merged.clients.map((client) => client.name)).toEqual([
+			"local",
+			"claudeai",
+		]);
 		expect(merged.tools).toEqual([localTool]);
-		expect(merged.commands).toEqual([{ name: "a" }, { name: "b" }]);
+		expect(merged.commands.map((command) => command.name)).toEqual([
+			"a",
+			"b",
+		]);
+	});
+});
+
+describe("createInteractiveStartupMcpMessages", () => {
+	test("returns no messages when startup MCP prefetch succeeds", async () => {
+		const onError = mock((_error: unknown) => "warning");
+
+		const messages = await createInteractiveStartupMcpMessages({
+			mcpPromise: Promise.resolve({ clients: [], tools: [], commands: [] }),
+			onError,
+		});
+
+		expect(messages).toEqual([]);
+		expect(onError).toHaveBeenCalledTimes(0);
+	});
+
+	test("converts startup MCP failures into warning messages", async () => {
+		const onError = mock((error: unknown) => `warning:${String(error)}`);
+
+		const messages = await createInteractiveStartupMcpMessages({
+			mcpPromise: Promise.reject(new Error("duplicate MCP tool")),
+			onError,
+		});
+
+		expect(messages).toEqual(["warning:Error: duplicate MCP tool"]);
+		expect(onError).toHaveBeenCalledTimes(1);
 	});
 });
 

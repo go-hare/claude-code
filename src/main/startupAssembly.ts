@@ -1,12 +1,14 @@
+import type { Command } from "../commands.js";
+import type { MCPServerConnection } from "../services/mcp/types.js";
 import uniqBy from "lodash-es/uniqBy.js";
-import { dedupeToolsByName, type Tools } from "../Tool.js";
+import { dedupeToolsByName, type Tool } from "../Tool.js";
 
 export type SetupTrigger = "init" | "maintenance" | null;
 
 export type StartupMcpState = {
-	clients: unknown[];
-	tools: Tools;
-	commands: Array<{ name: string }>;
+	clients: MCPServerConnection[];
+	tools: Tool[];
+	commands: Command[];
 };
 
 export function determineSetupTrigger(options: {
@@ -109,6 +111,15 @@ export function mergeStartupMcpState(
 		tools: dedupeToolsByName([...local.tools, ...claudeai.tools]),
 		commands: uniqBy([...local.commands, ...claudeai.commands], "name"),
 	};
+}
+
+export function createInteractiveStartupMcpMessages<T>(options: {
+	mcpPromise: Promise<StartupMcpState>;
+	onError: (error: unknown) => T;
+}): Promise<T[]> {
+	return options.mcpPromise.then(() => []).catch((error) => [
+		options.onError(error),
+	]);
 }
 
 export function runStartupPrefetches(options: {
