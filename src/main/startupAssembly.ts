@@ -52,3 +52,41 @@ export async function runVersionedPluginStartup(options: {
 		warmGlobExclusions();
 	});
 }
+
+export function runSessionStartupSideEffects(options: {
+	logContextMetrics: () => void;
+	logPermissionContext: () => void;
+	logManagedSettings: () => void;
+	sessionNameArg?: string;
+	registerSession: () => Promise<boolean>;
+	updateSessionName: (name: string) => Promise<unknown> | void;
+	countConcurrentSessions: () => Promise<number>;
+	onConcurrentSessions: (count: number) => void;
+}): void {
+	const {
+		logContextMetrics,
+		logPermissionContext,
+		logManagedSettings,
+		sessionNameArg,
+		registerSession,
+		updateSessionName,
+		countConcurrentSessions,
+		onConcurrentSessions,
+	} = options;
+
+	logContextMetrics();
+	logPermissionContext();
+	logManagedSettings();
+
+	void registerSession().then((registered) => {
+		if (!registered) return;
+		if (sessionNameArg) {
+			void updateSessionName(sessionNameArg);
+		}
+		void countConcurrentSessions().then((count) => {
+			if (count >= 2) {
+				onConcurrentSessions(count);
+			}
+		});
+	});
+}

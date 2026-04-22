@@ -50,6 +50,7 @@ import {
 import { determineMainLaunchMode } from './main/modeDispatch.js'
 import {
 	determineSetupTrigger,
+	runSessionStartupSideEffects,
 	runVersionedPluginStartup,
 } from './main/startupAssembly.js'
 import { launchRepl } from './replLauncher.js'
@@ -3729,28 +3730,29 @@ async function run(): Promise<CommanderCommand> {
 			});
 
 			// Log context metrics once at initialization
-			void logContextMetrics(regularMcpConfigs, toolPermissionContext);
-
-			void logPermissionContextForAnts(null, "initialization");
-
-			logManagedSettings();
-
-			// Register PID file for concurrent-session detection (~/.claude/sessions/)
-			// and fire multi-clauding telemetry. Lives here (not init.ts) so only the
-			// REPL path registers — not subcommands like `claude doctor`. Chained:
-			// count must run after register's write completes or it misses our own file.
-			void registerSession().then((registered) => {
-				if (!registered) return;
-				if (sessionNameArg) {
-					void updateSessionName(sessionNameArg);
-				}
-				void countConcurrentSessions().then((count) => {
-					if (count >= 2) {
-						logEvent("tengu_concurrent_sessions", {
-							num_sessions: count,
-						});
-					}
-				});
+			runSessionStartupSideEffects({
+				logContextMetrics: () => {
+					void logContextMetrics(
+						regularMcpConfigs,
+						toolPermissionContext,
+					);
+				},
+				logPermissionContext: () => {
+					void logPermissionContextForAnts(
+						null,
+						"initialization",
+					);
+				},
+				logManagedSettings,
+				sessionNameArg,
+				registerSession,
+				updateSessionName,
+				countConcurrentSessions,
+				onConcurrentSessions: (count) => {
+					logEvent("tengu_concurrent_sessions", {
+						num_sessions: count,
+					});
+				},
 			});
 
 			// Initialize versioned plugins system (triggers V1→V2 migration if
