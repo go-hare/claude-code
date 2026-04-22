@@ -1,4 +1,4 @@
-import axios, { type AxiosResponse } from 'axios'
+import axios, { AxiosHeaders, type AxiosResponse } from 'axios'
 import { LRUCache } from 'lru-cache'
 import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
@@ -80,6 +80,24 @@ const DOMAIN_CHECK_CACHE = new LRUCache<string, true>({
 export function clearWebFetchCache(): void {
   URL_CACHE.clear()
   DOMAIN_CHECK_CACHE.clear()
+}
+
+function normalizeHeaderValue(
+  value: AxiosResponse['headers'][string] | undefined,
+): string {
+  if (typeof value === 'string') {
+    return value
+  }
+  if (Array.isArray(value)) {
+    return value.join(', ')
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value)
+  }
+  if (value instanceof AxiosHeaders) {
+    return value.toString()
+  }
+  return ''
 }
 
 // Lazy singleton — defers the turndown → @mixmark-io/domino import (~1.4MB
@@ -430,7 +448,7 @@ export async function getURLMarkdownContent(
   // This lets GC reclaim up to MAX_HTTP_CONTENT_LENGTH (10MB) before Turndown
   // builds its DOM tree (which can be 3-5x the HTML size).
   ;(response as { data: unknown }).data = null
-  const contentType = response.headers['content-type'] ?? ''
+  const contentType = normalizeHeaderValue(response.headers['content-type'])
 
   // Binary content: save raw bytes to disk with a proper extension so Claude
   // can inspect the file later. We still fall through to the utf-8 decode +

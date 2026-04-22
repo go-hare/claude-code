@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { buildTool, getEmptyToolPermissionContext, type ToolUseContext } from '../Tool.js'
+import type { CanUseToolFn } from '../hooks/useCanUseTool.js'
+import type { QueryDeps } from '../query/deps.js'
 import { query } from '../query.js'
 import { getDefaultAppState } from '../state/AppStateStore.js'
+import { asAgentId } from '../types/ids.js'
 import {
   resetCommandQueue,
 } from '../utils/messageQueueManager.js'
@@ -71,9 +74,18 @@ function createTestToolUseContext(
     setResponseLength: () => {},
     updateFileHistoryState: () => {},
     updateAttributionState: () => {},
-    agentId: 'agent-before',
+    agentId: asAgentId('agent-before'),
   }
 }
+
+const allowTool: CanUseToolFn = async (_tool, input) => ({
+  behavior: 'allow',
+  updatedInput: input,
+})
+
+const passthroughMicrocompact: QueryDeps['microcompact'] = async messages => ({
+  messages,
+})
 
 afterEach(() => {
   resetCommandQueue()
@@ -113,19 +125,18 @@ describe('query post-tool context', () => {
 
     const stream = query({
       messages: [createUserMessage({ content: 'run tool' })],
-      systemPrompt: asSystemPrompt('system'),
+      systemPrompt: asSystemPrompt(['system']),
       userContext: {},
       systemContext: {},
-      canUseTool: (async (_tool, input) => ({
-        behavior: 'allow',
-        updatedInput: input,
-      })) as any,
+      canUseTool: allowTool,
       toolUseContext,
       querySource: 'agent:test',
       deps: {
         uuid: () => 'query-id',
-        microcompact: async messages => ({ messages }),
-        autocompact: async () => ({ compactionResult: null, consecutiveFailures: undefined }),
+        microcompact: passthroughMicrocompact,
+        autocompact: async () => ({
+          wasCompacted: false,
+        }),
         callModel: async function* () {
           callCount++
           if (callCount === 1) {
@@ -143,7 +154,7 @@ describe('query post-tool context', () => {
           }
           yield createAssistantMessage({ content: 'done' })
         },
-      } as any,
+      } as QueryDeps,
     })
 
     for await (const event of stream) {
@@ -158,28 +169,24 @@ describe('query post-tool context', () => {
   test('returns api_error terminal reason for final API errors', async () => {
     const stream = query({
       messages: [createUserMessage({ content: 'run query' })],
-      systemPrompt: asSystemPrompt('system'),
+      systemPrompt: asSystemPrompt(['system']),
       userContext: {},
       systemContext: {},
-      canUseTool: (async (_tool, input) => ({
-        behavior: 'allow',
-        updatedInput: input,
-      })) as any,
+      canUseTool: allowTool,
       toolUseContext: createTestToolUseContext([]),
       querySource: 'agent:test',
       deps: {
         uuid: () => 'query-id',
-        microcompact: async messages => ({ messages }),
+        microcompact: passthroughMicrocompact,
         autocompact: async () => ({
-          compactionResult: null,
-          consecutiveFailures: undefined,
+          wasCompacted: false,
         }),
         callModel: async function* () {
           yield createAssistantAPIErrorMessage({
             content: 'Rate limit exceeded',
           })
         },
-      } as any,
+      } as QueryDeps,
     })
 
     await expect(collectQueryTerminal(stream as any)).resolves.toMatchObject({

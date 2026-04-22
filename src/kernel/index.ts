@@ -30,15 +30,11 @@ export {
   createDirectConnectSession as createKernelSession,
   createDirectConnectSession,
   DirectConnectError,
-} from '../server/createDirectConnectSession.js'
-export {
   runConnectHeadless as runKernelHeadlessClient,
   runConnectHeadless,
-} from '../server/connectHeadless.js'
-export {
   startServer as startKernelServer,
   startServer,
-} from '../server/server.js'
+} from './serverHost.js'
 export {
   connectResponseSchema,
   type DirectConnectConfig,

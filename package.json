@@ -28,6 +28,14 @@
     "hare": "dist/cli-node.js",
     "hare-bun": "dist/cli-bun.js"
   },
+  "exports": {
+    "./kernel": {
+      "types": "./src/kernel/index.ts",
+      "import": "./dist/kernel.js",
+      "default": "./dist/kernel.js"
+    },
+    "./package.json": "./package.json"
+  },
   "workspaces": [
     "packages/*",
     "packages/@ant/*",
@@ -35,6 +43,7 @@
   ],
   "files": [
     "dist",
+    "src",
     "scripts/postinstall.cjs",
     "scripts/run-parallel.mjs",
     "scripts/setup-chrome-mcp.mjs"

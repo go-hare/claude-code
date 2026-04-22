@@ -11,6 +11,9 @@ It demonstrates:
 - default headless environment construction
 - running a single headless kernel session through `src/kernel`
 
+For published-package consumers, prefer importing the same surface through
+`@go-hare/hare-code/kernel`.
+
 ### Run
 
 ```powershell
@@ -38,12 +41,15 @@ It demonstrates:
 - using the returned session config
 - running a single headless request over the direct-connect channel
 
+For published-package consumers, prefer importing the same surface through
+`@go-hare/hare-code/kernel`.
+
 ### Run
 
 Start a server first:
 
 ```powershell
-bun run dev server --host 127.0.0.1 --port 8318 --auth-token testtoken --workspace D:\work\py\reachy_code\claude-code
+bun run dev server --host 127.0.0.1 --port 8318 --auth-token testtoken --workspace .
 ```
 
 Then run the example in another terminal:

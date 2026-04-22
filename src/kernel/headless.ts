@@ -1,6 +1,10 @@
 import { feature } from 'bun:bundle'
-import { runHeadless } from '../cli/print.js'
 import type { Command } from '../commands.js'
+import {
+  runHeadlessRuntime,
+  type HeadlessRuntimeInput,
+  type HeadlessRuntimeOptions,
+} from '../runtime/capabilities/execution/HeadlessRuntime.js'
 import type {
   MCPServerConnection,
   McpSdkServerConfig,
@@ -24,7 +28,7 @@ import {
 } from '../utils/fastMode.js'
 import { verifyAutoModeGateAccess } from '../utils/permissions/permissionSetup.js'
 
-export type KernelHeadlessInput = string | AsyncIterable<string>
+export type KernelHeadlessInput = HeadlessRuntimeInput
 
 export type KernelHeadlessStore = ReturnType<typeof createStore<AppState>>
 
@@ -52,7 +56,7 @@ export type DefaultKernelHeadlessEnvironmentOptions = {
   kairosEnabled?: boolean
 }
 
-export type KernelHeadlessRunOptions = Parameters<typeof runHeadless>[7]
+export type KernelHeadlessRunOptions = HeadlessRuntimeOptions
 
 export type KernelHeadlessSession = {
   run(
@@ -156,16 +160,16 @@ export function createDefaultKernelHeadlessEnvironment(
 /**
  * Stable headless kernel runner.
  *
- * This is a façade over the existing CLI headless execution loop. It keeps the
- * assembly contract stable for external callers while the underlying
- * implementation continues to reuse the current headless runtime.
+ * This is a façade over the runtime-owned headless execution entry. It keeps
+ * the assembly contract stable for external callers while the underlying
+ * implementation can continue to evolve behind the runtime boundary.
  */
 export async function runKernelHeadless(
   inputPrompt: KernelHeadlessInput,
   environment: KernelHeadlessEnvironment,
   options: KernelHeadlessRunOptions,
 ): Promise<void> {
-  return runHeadless(
+  return runHeadlessRuntime(
     inputPrompt,
     () => environment.store.getState(),
     environment.store.setState,

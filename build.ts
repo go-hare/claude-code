@@ -17,7 +17,7 @@ const features = [...new Set([...DEFAULT_BUILD_FEATURES, ...envFeatures])]
 
 // Step 2: Bundle with splitting
 const result = await Bun.build({
-  entrypoints: ['src/entrypoints/cli.tsx'],
+  entrypoints: ['src/entrypoints/cli.tsx', 'src/entrypoints/kernel.ts'],
   outdir,
   target: 'bun',
   splitting: true,

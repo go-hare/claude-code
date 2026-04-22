@@ -3,4 +3,4 @@ export {
   createBridgeSessionRuntime as createBridgeSession,
   getBridgeSessionRuntime as getBridgeSession,
   updateBridgeSessionTitleRuntime as updateBridgeSessionTitle,
-} from '../runtime/capabilities/bridge/SessionApi.js'
+} from '../kernel/bridge.js'

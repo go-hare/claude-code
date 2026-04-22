@@ -392,13 +392,13 @@ import {
 	createDefaultKernelHeadlessEnvironment,
 	prepareKernelHeadlessStartup,
 } from "./kernel/index.js";
-import { createRemoteSessionConfig } from "./remote/RemoteSessionManager.js";
-/* eslint-enable @typescript-eslint/no-require-imports */
-// teleportWithProgress dynamically imported at call site
 import {
 	createDirectConnectSession,
 	DirectConnectError,
-} from "./server/createDirectConnectSession.js";
+} from "./kernel/serverHost.js";
+import { createRemoteSessionConfig } from "./remote/RemoteSessionManager.js";
+/* eslint-enable @typescript-eslint/no-require-imports */
+// teleportWithProgress dynamically imported at call site
 import { initializeLspServerManager } from "./services/lsp/manager.js";
 import { shouldEnablePromptSuggestion } from "./services/PromptSuggestion/promptSuggestion.js";
 import {
@@ -3886,10 +3886,12 @@ async function run(): Promise<CommanderCommand> {
 						logSessionTelemetry,
 					},
 				);
-				profileCheckpoint("before_print_import");
-				const { runHeadless } = await import("src/cli/print.js");
-				profileCheckpoint("after_print_import");
-				void runHeadless(
+				profileCheckpoint("before_headless_runtime_import");
+				const { runHeadlessRuntime } = await import(
+					"src/runtime/capabilities/execution/HeadlessRuntime.js"
+				);
+				profileCheckpoint("after_headless_runtime_import");
+				void runHeadlessRuntime(
 					inputPrompt,
 					() => headlessStore.getState(),
 					headlessStore.setState,

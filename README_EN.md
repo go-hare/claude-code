@@ -21,7 +21,7 @@ The goal of the current codebase is not to keep restructuring around the CLI. Th
 The current codebase can be understood as three layers:
 
 1. `src/kernel`
-   - stable public surface
+   - the recommended source-level public integration surface today
    - intended for external embedding, host, and service integration
 2. `src/runtime`
    - internal capability layer
@@ -30,14 +30,28 @@ The current codebase can be understood as three layers:
    - official interactive host
    - responsible for terminal interaction, not for owning every runtime abstraction
 
-The stable kernel entry points exposed today are:
+The kernel entry points exposed today at source level are:
 
-- [src/kernel/index.ts](/D:/work/py/reachy_code/claude-code/src/kernel/index.ts)
-- [src/kernel/headless.ts](/D:/work/py/reachy_code/claude-code/src/kernel/headless.ts)
-- [src/kernel/headlessMcp.ts](/D:/work/py/reachy_code/claude-code/src/kernel/headlessMcp.ts)
-- [src/kernel/headlessStartup.ts](/D:/work/py/reachy_code/claude-code/src/kernel/headlessStartup.ts)
-- [src/kernel/bridge.ts](/D:/work/py/reachy_code/claude-code/src/kernel/bridge.ts)
-- [src/kernel/daemon.ts](/D:/work/py/reachy_code/claude-code/src/kernel/daemon.ts)
+- [src/kernel/index.ts](src/kernel/index.ts)
+- [src/kernel/headless.ts](src/kernel/headless.ts)
+- [src/kernel/headlessMcp.ts](src/kernel/headlessMcp.ts)
+- [src/kernel/headlessStartup.ts](src/kernel/headlessStartup.ts)
+- [src/kernel/bridge.ts](src/kernel/bridge.ts)
+- [src/kernel/daemon.ts](src/kernel/daemon.ts)
+
+These entry points are sufficient as the unified host-side integration surface
+today, but they are still primarily source-level boundaries rather than formal
+package-level stable exports.
+
+The package now exposes a kernel subpath export:
+
+```ts
+import {
+  createDirectConnectSession,
+  createDefaultKernelHeadlessEnvironment,
+  runKernelHeadless,
+} from '@go-hare/hare-code/kernel'
+```
 
 ## Current Capabilities
 
@@ -113,9 +127,13 @@ npm pack --dry-run
 
 Minimal examples:
 
-- [examples/README.md](/D:/work/py/reachy_code/claude-code/examples/README.md)
-- [examples/kernel-headless-embed.ts](/D:/work/py/reachy_code/claude-code/examples/kernel-headless-embed.ts)
-- [examples/kernel-direct-connect.ts](/D:/work/py/reachy_code/claude-code/examples/kernel-direct-connect.ts)
+- [examples/README.md](examples/README.md)
+- [examples/kernel-headless-embed.ts](examples/kernel-headless-embed.ts)
+- [examples/kernel-direct-connect.ts](examples/kernel-direct-connect.ts)
+
+Note: the in-repo examples keep using local `src` imports so they can run
+directly from the source tree. External installed consumers should prefer
+`@go-hare/hare-code/kernel`.
 
 Recommended external integration directions:
 
@@ -152,20 +170,20 @@ hare
 
 ## Project Structure
 
-- [src/entrypoints/cli.tsx](/D:/work/py/reachy_code/claude-code/src/entrypoints/cli.tsx)
+- [src/entrypoints/cli.tsx](src/entrypoints/cli.tsx)
   - CLI entry
-- [src/main.tsx](/D:/work/py/reachy_code/claude-code/src/main.tsx)
+- [src/main.tsx](src/main.tsx)
   - startup assembly and mode dispatch
-- [src/screens/REPL.tsx](/D:/work/py/reachy_code/claude-code/src/screens/REPL.tsx)
+- [src/screens/REPL.tsx](src/screens/REPL.tsx)
   - official terminal interaction host
-- [src/query.ts](/D:/work/py/reachy_code/claude-code/src/query.ts)
+- [src/query.ts](src/query.ts)
   - turn loop and query orchestration
-- [src/QueryEngine.ts](/D:/work/py/reachy_code/claude-code/src/QueryEngine.ts)
+- [src/QueryEngine.ts](src/QueryEngine.ts)
   - execution engine compatibility shell
-- [src/runtime](/D:/work/py/reachy_code/claude-code/src/runtime)
+- [src/runtime](src/runtime)
   - internal runtime capability layer
-- [src/kernel](/D:/work/py/reachy_code/claude-code/src/kernel)
-  - stable kernel facades
+- [src/kernel](src/kernel)
+  - the current unified kernel-facing integration surface
 
 ## Development Principles
 

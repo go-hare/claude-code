@@ -45,8 +45,8 @@ import { getTrustedDeviceToken } from './trustedDevice.js'
 import {
   BridgeHeadlessPermanentError,
   type HeadlessBridgeOpts,
-} from '../runtime/capabilities/bridge/HeadlessBridgeRuntime.js'
-import { runHeadlessBridgeRuntime } from '../runtime/capabilities/bridge/HeadlessBridgeEntry.js'
+  runHeadlessBridgeRuntime,
+} from '../kernel/bridge.js'
 import {
   BRIDGE_LOGIN_ERROR,
   type BridgeApiClient,
@@ -1684,7 +1684,7 @@ async function stopWorkWithRetry(
       }
       const errMsg = errorMessage(err)
       if (attempt < MAX_ATTEMPTS) {
-        const delay = addJitter(baseDelayMs * Math.pow(2, attempt - 1))
+        const delay = addJitter(baseDelayMs * 2 ** (attempt - 1))
         logger.logVerbose(
           `Failed to stop work ${workId} (attempt ${attempt}/${MAX_ATTEMPTS}), retrying in ${formatDelay(delay)}: ${errMsg}`,
         )

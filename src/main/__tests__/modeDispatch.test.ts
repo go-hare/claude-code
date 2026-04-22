@@ -29,6 +29,19 @@ describe("determineMainLaunchMode", () => {
 		).toBe("continue");
 	});
 
+	test("direct-connect wins when it is the highest-priority interactive branch", () => {
+		expect(
+			determineMainLaunchMode({
+				isNonInteractiveSession: false,
+				continueRequested: false,
+				hasPendingDirectConnect: true,
+				hasPendingSsh: true,
+				hasPendingAssistantChat: true,
+				hasResumeLikeRequest: true,
+			}),
+		).toBe("direct-connect");
+	});
+
 	test("falls back to interactive when no specialized mode matches", () => {
 		expect(
 			determineMainLaunchMode({

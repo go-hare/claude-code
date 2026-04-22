@@ -6,88 +6,176 @@
 
 - CLI 是内核的基本功能之一，也是官方主宿主
 - 内核化不是把 CLI 边缘化，而是把可复用能力从 CLI/REPL 私有实现里持续下沉
-- 对外稳定接入面优先通过 `src/kernel`
+- 对外源码级接入面优先通过 `src/kernel`
 - `src/runtime` 是内部能力层，允许继续演进
 
 在这个口径下，判断重点不是“CLI 是否还在主链里”，而是：
 
 1. 执行、server、bridge、daemon、tools、mcp 等能力是否已经从历史主链实现里抽离
-2. `src/kernel` 是否已经成为稳定 façade
+2. `src/kernel` 是否已经成为统一 façade
 3. 顶层宿主是否正在逐步收口到 kernel-first 的调用方式
 
 ## 当前判断
 
-当前仓库的内核化大约在 **80% 到 85%**，已处于**主结构完成、剩余收口**阶段。
+截至 2026-04-23，当前内核化已经进入 **最后收口阶段**，不是“还没开始”，也不是“需要推翻重来”。
 
 一句话概括：
 
-> 当前项目已经从“围绕 CLI 堆叠能力”演进到“CLI 主宿主 + runtime 内核 + kernel 稳定接入面”的结构，后续重点是入口归属、测试护栏和发布边界收口，而不是重做架构。
+> 当前项目已经完成统一入口、宿主改道、第一轮包级导出和最小测试护栏；剩余工作主要是实现压平和稳定性强化，而不是架构方向性重做。
 
-## 已完成的主干
+当前已经成立的结构是：
 
-### 1. runtime 分层已经形成
+- CLI 仍是主宿主，但不再独占核心能力
+- `src/runtime` 是内部能力层，继续承载执行、server、bridge、daemon 等真正实现
+- `src/kernel` 已成为对外统一 façade，集中暴露 headless、direct-connect、server、bridge、daemon 的统一接入面
 
-当前 `src/runtime` 已经拆出较清晰的能力分层：
+这意味着项目现在已经不是：
 
-- `contracts`
-- `capabilities`
-- `core/state`
+- CLI 一把梭
+- 各宿主各自直连内部深路径
 
-这意味着执行、server、bridge、daemon、tools、mcp 等核心能力已经有了统一的内部归属，而不是继续散落在 CLI 主链中。
+而是：
 
-### 2. 执行中枢已经下沉
+- 顶层宿主逐步只认 kernel
+- runtime 继续作为内部能力层演进
+- kernel 负责向外部 consumer 提供较稳定的接入边界
 
-`QueryEngine` 现在本质上是 `SessionRuntime` 的兼容壳，说明执行中枢已经开始从历史入口抽离，统一收敛到 runtime capability。
+## 完成度清单
 
-### 3. server / direct-connect 已经 runtime 化
+### 已完成
 
-当前 `server` 和 `createDirectConnectSession` 都已经是对 runtime capability 的转发，而不是历史孤立实现。
+#### 1. kernel 统一入口已建立
 
-### 4. kernel façade 已经成型
-
-`src/kernel` 已经统一暴露：
+`src/kernel/index.ts` 已统一导出：
 
 - headless
-- direct-connect
-- server
+- headless MCP / startup
+- direct-connect / server
 - bridge
 - daemon
 
-README 和 examples 也已经开始按这个口径对外描述和使用。
+这一步已经不再是问题，统一入口本身已经成立。
 
-### 5. CLI 仍是主宿主，但不再承担全部抽象
+#### 2. headless 顶层入口已收口到 runtime
 
-当前方向不是弱化 CLI，而是让 CLI 继续作为官方交互宿主，同时让其他宿主不必直接依赖 `main.tsx`、`REPL.tsx` 或 CLI 专属装配逻辑。
+`runKernelHeadless()` 已经转为走 `runHeadlessRuntime()`，`KernelHeadlessEnvironment` / `KernelHeadlessSession` 对外契约也已经存在。
 
-## 当前还差什么
+这意味着 headless 的接入归属已经清晰，外部可以通过 kernel headless 入口稳定接入。
 
-### 1. headless 执行入口仍借道 CLI 模块
+#### 3. server / direct-connect 顶层宿主已基本 kernel-first
 
-`runKernelHeadless()` 目前仍复用 `cli/print.ts` 中的 `runHeadless()`。
+`src/kernel/serverHost.ts` 已统一暴露：
 
-这不是方向错误，但说明 headless 的最终执行入口在模块归属上还没有完全收口到 runtime/kernel 名义下。
+- `createDirectConnectSession`
+- `runConnectHeadless`
+- `startServer`
 
-### 2. direct-connect / server 的宿主装配还没有完全 kernel-first
+同时 `main.tsx` 与 CLI host command 已优先经过 kernel façade，而不是直接拼接 `server/*` 细节。
 
-虽然底层实现已经 runtime 化，但 `main.tsx` 和 CLI host command 仍有部分路径直接装配 `server/*` 细节。
+#### 4. bridge / daemon 顶层入口第一轮收口已完成
 
-当前问题不在“能力没有抽出来”，而在“顶层宿主入口还没有统一经过 kernel”。
+`bridgeMain.ts`、`createSession.ts`、`workerRegistry.ts` 现在都已经优先依赖 `src/kernel/bridge.ts` / `src/kernel/daemon.ts`，顶层宿主不再明显依赖 runtime 深路径。
 
-### 3. bridge / daemon 顶层入口仍有 runtime 深路径依赖
+也就是说，bridge / daemon 第一轮“宿主只认 kernel”收口已经成立。
 
-`bridgeMain.ts`、`createSession.ts`、`workerRegistry.ts` 等顶层文件仍直接引用 runtime capability 深路径。
+#### 5. 最小 kernel contract / surface 护栏已落地
 
-这部分也已具备 kernel façade，但还没有完全形成“顶层宿主只认 kernel”的边界。
+当前已经有以下最小护栏：
 
-### 4. kernel 公开面缺少专门的 contract tests
+- `src/kernel/__tests__/headless.test.ts`
+- `src/kernel/__tests__/serverHost.test.ts`
+- `src/kernel/__tests__/surface.test.ts`
+- `src/runtime/capabilities/server/__tests__/DirectConnectSessionApi.test.ts`
+- `src/daemon/__tests__/workerRegistry.test.ts`
+- `src/main/__tests__/modeDispatch.test.ts`
 
-当前测试更多是功能性和间接覆盖，缺少围绕 `src/kernel` 公开面建立的专门回归护栏。
+它们已经覆盖了最小的 surface / delegation / façade / direct-connect contract 断言，说明 kernel 已不再是“无护栏状态”。
 
-这会让结构收口后的稳定性更多依赖经验，而不是显式接口约束。
+#### 6. package-level kernel 发布入口第一轮已建立
 
-### 5. kernel 仍主要是源码级稳定面，还不是发布级稳定面
+当前已经具备：
 
-当前构建与发布形态仍以 CLI 为主，`package.json` 和 `build.ts` 还没有把 kernel 明确提升为包级稳定导出面。
+- `src/entrypoints/kernel.ts`
+- `dist/kernel.js`
+- `package.json` 的 `./kernel` export
+- 包级导入 smoke 已验证可用
+
+也就是说，kernel 已不只是源码级入口，而是已经有了第一轮正式发布面。
+
+### 半完成
+
+#### 1. headless 实现收口：入口已完成，底层仍复用历史 CLI loop
+
+`main.tsx` 和 `src/kernel/headless.ts` 已统一经过 runtime 级 `HeadlessRuntime` 入口。
+
+但 `HeadlessRuntime` 底层仍复用 `cli/print.ts` 中的 `runHeadless()`，说明 headless 的最终实现还没有完全从历史 CLI 模块物理下沉。
+
+这是当前最典型的“外壳已 kernel 化、实现层仍未完全物理下沉”的点。
+
+#### 2. serverHost / bridge / daemon 的 kernel 层仍偏薄 façade
+
+`kernel/serverHost`、`kernel/bridge`、`kernel/daemon` 已经把宿主边界收住，但内部更多还是稳定转发层，而不是已经彻底压平后的主编排层。
+
+这意味着：
+
+- “顶层只认 kernel” 已基本成立
+- “kernel 已完全成为内部链路真正汇聚点” 还没有成立
+
+#### 3. 测试护栏已起步，但还不是完整 contract / integration 体系
+
+当前已经有最小 contract / surface 护栏，但还不等于已经具备完整的长期稳定矩阵。
+
+尤其还缺更强的：
+
+- package-level consumer 真实导入链路回归
+- end-to-end kernel headless smoke tests
+- direct-connect / server 的 kernel-only 使用链路回归
+- 防止宿主回退到深路径引用的结构性测试
+
+#### 4. kernel 已有发布入口，但“长期发布级稳定面”仍在沉淀
+
+从工程动作上说，package-level kernel 入口已经有了。
+
+但从长期 API 承诺角度说，它目前更准确的口径仍然是“第一轮包级发布面已建立”，还不是已经被充分回归和长期 consumer 证明过的成熟稳定 API。
+
+### 未完成
+
+#### 1. headless 底层完全脱离历史 CLI 实现
+
+目标已经不是再改入口，而是继续把仍在 `cli/print.ts` 里的 headless 底层实现下沉到 runtime / kernel 内部边界。
+
+这一点仍然未完成。
+
+#### 2. kernel 内部链路进一步压平
+
+当前仍可描述为：
+
+- `kernel -> server`
+- `kernel -> bridge/runtime`
+- `kernel -> daemon/runtime`
+
+而不是更纯粹的：
+
+- `kernel` 直接成为稳定主编排层
+
+这一点仍然未完成。
+
+#### 3. 更完整的 kernel contract / integration 测试矩阵
+
+最小测试已经足够证明“结构收口正在发生”，但还不足以证明“对外长期稳定”。
+
+更完整的 contract / integration 体系仍然未完成。
+
+## 工程验证状态
+
+截至 2026-04-23，当前工程验证结果如下：
+
+- 已通过：`bun run typecheck`
+- 已通过：`bun run build`
+- 已通过：包级导入 smoke（`@go-hare/hare-code/kernel`）
+- 已通过：kernel 相关定向测试（headless / serverHost / surface / DirectConnectSessionApi / workerRegistry / modeDispatch）
+- 未全绿：`bun test` 仍存在仓库存量失败，主要集中在若干无关模块的模块解析与 WebSearch adapter 测试
+- 未全绿：`bun run lint` 仍存在仓库存量问题，主要是一批 `unused suppression` 与少量风格项
 
 ## 收口原则
 
@@ -102,6 +190,8 @@ README 和 examples 也已经开始按这个口径对外描述和使用。
 ## 建议的 5 个 commit
 
 ### Commit 1
+
+状态：已完成第一轮入口收口
 
 `refactor(kernel): 收口 headless 入口`
 
@@ -125,6 +215,8 @@ README 和 examples 也已经开始按这个口径对外描述和使用。
 - `examples/kernel-headless-embed.ts` 保持可用
 
 ### Commit 2
+
+状态：已完成第一轮宿主装配收口
 
 `refactor(kernel): 统一直连与服务宿主装配`
 
@@ -150,6 +242,8 @@ README 和 examples 也已经开始按这个口径对外描述和使用。
 
 ### Commit 3
 
+状态：已完成第一轮 bridge / daemon 顶层入口收口
+
 `refactor(kernel): 收口 bridge 与 daemon 顶层入口`
 
 目标：
@@ -172,6 +266,8 @@ README 和 examples 也已经开始按这个口径对外描述和使用。
 
 ### Commit 4
 
+状态：已完成最小 contract / surface 护栏；更完整的 integration 矩阵仍未完成
+
 `test(kernel): 补 kernel contract tests`
 
 目标：
@@ -193,6 +289,8 @@ README 和 examples 也已经开始按这个口径对外描述和使用。
 
 ### Commit 5
 
+状态：已完成第一轮 package-level 收口，已提供 `dist/kernel.js` 的独立 build entry、`package.json` 的 `./kernel` export，并验证包级导入可用；长期稳定性仍需更多回归支撑
+
 `chore(build): 将 kernel 升级为发布级入口`
 
 目标：
@@ -212,7 +310,7 @@ README 和 examples 也已经开始按这个口径对外描述和使用。
 验收标准：
 
 - package 具备明确的 kernel export
-- build 产物包含 kernel 入口和类型产物
+- build 产物包含 kernel 入口
 - 至少有一个最小 consumer 能从包级入口导入 kernel
 
 ## 推荐落刀顺序
@@ -239,4 +337,4 @@ README 和 examples 也已经开始按这个口径对外描述和使用。
 
 因此，当前阶段更准确的判断不是“CLI 还没退场，所以内核化不彻底”，而是：
 
-> CLI 主宿主地位已经明确，runtime 能力抽离已经基本完成，kernel façade 已经成型；现在真正剩下的是最后一轮入口归属、测试护栏和发布边界收口。
+> CLI 主宿主地位已经明确，runtime 能力层已经形成，kernel 统一接入面已经成型；现在真正剩下的是最后一轮入口归属、测试护栏和发布边界收口。

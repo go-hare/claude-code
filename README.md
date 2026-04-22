@@ -18,14 +18,14 @@ Hare Code 是一个面向终端交互、headless 嵌入、direct-connect、serve
 
 当前内核化现状与后续收口计划见：
 
-- [docs/internals/kernelization-status.md](/D:/work/py/reachy_code/claude-code/docs/internals/kernelization-status.md)
+- [docs/internals/kernelization-status.md](docs/internals/kernelization-status.md)
 
 ## 项目定位
 
 当前代码基线可以分成三层：
 
 1. `src/kernel`
-   - 稳定公开面
+   - 当前推荐的源码级公共接入面
    - 面向外部 embedding / host / service 接入
 2. `src/runtime`
    - 内部能力层
@@ -34,14 +34,27 @@ Hare Code 是一个面向终端交互、headless 嵌入、direct-connect、serve
    - 官方交互宿主
    - 负责终端交互，而不是承担全部 runtime 抽象
 
-当前已经稳定公开的 kernel 入口包括：
+当前以源码级入口形式暴露的 kernel 接入点包括：
 
-- [src/kernel/index.ts](/D:/work/py/reachy_code/claude-code/src/kernel/index.ts)
-- [src/kernel/headless.ts](/D:/work/py/reachy_code/claude-code/src/kernel/headless.ts)
-- [src/kernel/headlessMcp.ts](/D:/work/py/reachy_code/claude-code/src/kernel/headlessMcp.ts)
-- [src/kernel/headlessStartup.ts](/D:/work/py/reachy_code/claude-code/src/kernel/headlessStartup.ts)
-- [src/kernel/bridge.ts](/D:/work/py/reachy_code/claude-code/src/kernel/bridge.ts)
-- [src/kernel/daemon.ts](/D:/work/py/reachy_code/claude-code/src/kernel/daemon.ts)
+- [src/kernel/index.ts](src/kernel/index.ts)
+- [src/kernel/headless.ts](src/kernel/headless.ts)
+- [src/kernel/headlessMcp.ts](src/kernel/headlessMcp.ts)
+- [src/kernel/headlessStartup.ts](src/kernel/headlessStartup.ts)
+- [src/kernel/bridge.ts](src/kernel/bridge.ts)
+- [src/kernel/daemon.ts](src/kernel/daemon.ts)
+
+这些入口已经足够作为宿主侧统一接入面使用，但当前仍主要是源码级边界，还不
+是包级稳定导出。
+
+当前已提供包级 kernel 子路径导出：
+
+```ts
+import {
+  createDirectConnectSession,
+  createDefaultKernelHeadlessEnvironment,
+  runKernelHeadless,
+} from '@go-hare/hare-code/kernel'
+```
 
 ## 当前能力
 
@@ -117,9 +130,12 @@ npm pack --dry-run
 
 最小示例见：
 
-- [examples/README.md](/D:/work/py/reachy_code/claude-code/examples/README.md)
-- [examples/kernel-headless-embed.ts](/D:/work/py/reachy_code/claude-code/examples/kernel-headless-embed.ts)
-- [examples/kernel-direct-connect.ts](/D:/work/py/reachy_code/claude-code/examples/kernel-direct-connect.ts)
+- [examples/README.md](examples/README.md)
+- [examples/kernel-headless-embed.ts](examples/kernel-headless-embed.ts)
+- [examples/kernel-direct-connect.ts](examples/kernel-direct-connect.ts)
+
+说明：仓库内示例为了便于直接在源码树运行，仍然使用本地 `src` 导入；已安装包的
+外部 consumer 应优先使用 `@go-hare/hare-code/kernel`。
 
 适合外部接入的方向：
 
@@ -156,20 +172,20 @@ hare
 
 ## 项目结构
 
-- [src/entrypoints/cli.tsx](/D:/work/py/reachy_code/claude-code/src/entrypoints/cli.tsx)
+- [src/entrypoints/cli.tsx](src/entrypoints/cli.tsx)
   - CLI 入口
-- [src/main.tsx](/D:/work/py/reachy_code/claude-code/src/main.tsx)
+- [src/main.tsx](src/main.tsx)
   - 启动装配与模式分发
-- [src/screens/REPL.tsx](/D:/work/py/reachy_code/claude-code/src/screens/REPL.tsx)
+- [src/screens/REPL.tsx](src/screens/REPL.tsx)
   - 官方终端交互宿主
-- [src/query.ts](/D:/work/py/reachy_code/claude-code/src/query.ts)
+- [src/query.ts](src/query.ts)
   - turn loop 与 query orchestration
-- [src/QueryEngine.ts](/D:/work/py/reachy_code/claude-code/src/QueryEngine.ts)
+- [src/QueryEngine.ts](src/QueryEngine.ts)
   - 执行引擎兼容壳
-- [src/runtime](/D:/work/py/reachy_code/claude-code/src/runtime)
+- [src/runtime](src/runtime)
   - 内部 runtime capability 层
-- [src/kernel](/D:/work/py/reachy_code/claude-code/src/kernel)
-  - 稳定 kernel façade
+- [src/kernel](src/kernel)
+  - 当前推荐的 kernel 统一接入面
 
 ## 开发原则
 

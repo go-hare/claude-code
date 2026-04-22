@@ -6,6 +6,7 @@ import {
   buildCronDeletePrompt,
   buildCronListPrompt,
 } from '../ScheduleCronTool/prompt.js'
+import { CronCreateTool } from '../ScheduleCronTool/CronCreateTool.js'
 import { getEnterWorktreeToolPrompt } from '../EnterWorktreeTool/prompt.js'
 import { CLAUDE_CODE_GUIDE_AGENT } from '../AgentTool/built-in/claudeCodeGuideAgent.js'
 import { getPrompt as getTeamCreatePrompt } from '../TeamCreateTool/prompt.js'
@@ -39,11 +40,8 @@ describe('config dir prompts', () => {
     expect(buildCronDeletePrompt(true)).toContain('.hare/scheduled_tasks.json')
     expect(buildCronListPrompt(true)).toContain('.hare/scheduled_tasks.json')
 
-    const { CronCreateTool } = await import(
-      `../ScheduleCronTool/CronCreateTool.js?project-dir=.hare`
-    )
-    const durableDescription = CronCreateTool.inputSchema.shape.durable
-      .description
+    const durableDescription =
+      CronCreateTool.inputSchema.shape.durable.description ?? ''
     expect(durableDescription).toContain('.hare/scheduled_tasks.json')
   })
 
@@ -72,7 +70,7 @@ describe('config dir prompts', () => {
   test('statusline setup prompt honors custom user config dir display path', () => {
     process.env.CLAUDE_CONFIG_DIR = join(homedir(), '.hare')
 
-    const prompt = STATUSLINE_SETUP_AGENT.getSystemPrompt()
+    const prompt = STATUSLINE_SETUP_AGENT.getSystemPrompt({} as never)
     expect(prompt).toContain('~/.hare/statusline-command.sh')
     expect(prompt).toContain('~/.hare/settings.json')
   })

@@ -16,7 +16,7 @@ export type PrepareKernelHeadlessStartupDeps = {
 /**
  * Final headless startup preparation that should happen after the runtime
  * environment and MCP state are ready, but before the session enters
- * runHeadless().
+ * runHeadlessRuntime().
  */
 export async function prepareKernelHeadlessStartup(
   options: PrepareKernelHeadlessStartupOptions,

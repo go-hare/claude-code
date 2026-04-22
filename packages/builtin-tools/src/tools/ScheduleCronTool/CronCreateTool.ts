@@ -29,8 +29,8 @@ function getCronFileDisplayPath(): string {
   return getProjectConfigDirDisplayPath('scheduled_tasks.json')
 }
 
-const inputSchema = lazySchema(() =>
-  z.strictObject({
+function inputSchema() {
+  return z.strictObject({
     cron: z
       .string()
       .describe(
@@ -43,8 +43,8 @@ const inputSchema = lazySchema(() =>
     durable: semanticBoolean(z.boolean().optional()).describe(
       `true = persist to ${getCronFileDisplayPath()} and survive restarts. false (default) = in-memory only, dies when this Claude session ends. Use true only when the user asks the task to survive across sessions.`,
     ),
-  }),
-)
+  })
+}
 type InputSchema = ReturnType<typeof inputSchema>
 
 const outputSchema = lazySchema(() =>
@@ -58,7 +58,7 @@ const outputSchema = lazySchema(() =>
 type OutputSchema = ReturnType<typeof outputSchema>
 export type CreateOutput = z.infer<OutputSchema>
 
-export const CronCreateTool = buildTool({
+const cronCreateTool = buildTool({
   name: CRON_CREATE_TOOL_NAME,
   searchHint: 'schedule a recurring or one-shot prompt',
   maxResultSizeChars: 100_000,
@@ -160,3 +160,11 @@ export const CronCreateTool = buildTool({
   renderToolUseMessage: renderCreateToolUseMessage,
   renderToolResultMessage: renderCreateResultMessage,
 } satisfies ToolDef<InputSchema, CreateOutput>)
+
+Object.defineProperty(cronCreateTool, 'inputSchema', {
+  configurable: true,
+  enumerable: true,
+  get: () => inputSchema(),
+})
+
+export const CronCreateTool = cronCreateTool
