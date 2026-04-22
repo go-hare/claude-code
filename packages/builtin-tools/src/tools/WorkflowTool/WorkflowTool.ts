@@ -1,6 +1,7 @@
 import { z } from 'zod/v4'
 import type { ToolResultBlockParam } from 'src/Tool.js'
 import { buildTool } from 'src/Tool.js'
+import { getProjectConfigDirDisplayPath } from 'src/utils/configPaths.js'
 import { truncate } from 'src/utils/format.js'
 import { WORKFLOW_TOOL_NAME } from './constants.js'
 
@@ -13,6 +14,10 @@ type WorkflowInput = z.infer<Input>
 
 type WorkflowOutput = { output: string }
 
+function getWorkflowDirDisplayPath(): string {
+  return getProjectConfigDirDisplayPath('workflows')
+}
+
 export const WorkflowTool = buildTool({
   name: WORKFLOW_TOOL_NAME,
   searchHint: 'execute user-defined workflow scripts',
@@ -22,13 +27,14 @@ export const WorkflowTool = buildTool({
   inputSchema,
 
   async description() {
-    return 'Execute a user-defined workflow script from .claude/workflows/'
+    return `Execute a user-defined workflow script from ${getWorkflowDirDisplayPath()}/`
   },
   async prompt() {
-    return `Use the Workflow tool to execute user-defined workflow scripts located in .claude/workflows/. Workflows are YAML or Markdown files that define a sequence of steps for common development tasks.
+    const workflowDirDisplayPath = getWorkflowDirDisplayPath()
+    return `Use the Workflow tool to execute user-defined workflow scripts located in ${workflowDirDisplayPath}/. Workflows are YAML or Markdown files that define a sequence of steps for common development tasks.
 
 Guidelines:
-- Specify the workflow name to execute (must match a file in .claude/workflows/)
+- Specify the workflow name to execute (must match a file in ${workflowDirDisplayPath}/)
 - Optionally pass arguments that the workflow can use
 - Workflows run in the context of the current project`
   },

@@ -12,7 +12,6 @@
 import { randomUUID } from 'crypto'
 import { readFileSync } from 'fs'
 import { mkdir, writeFile } from 'fs/promises'
-import { join } from 'path'
 import {
   addSessionCronTask,
   getProjectRoot,
@@ -20,6 +19,7 @@ import {
   removeSessionCronTasks,
 } from '../bootstrap/state.js'
 import { computeNextCronRun, parseCronExpression } from './cron.js'
+import { getProjectConfigDir, joinProjectConfigPath } from './configPaths.js'
 import { logForDebugging } from './debug.js'
 import { isFsInaccessible } from './errors.js'
 import { getFsImplementation } from './fsOperations.js'
@@ -71,22 +71,20 @@ export type CronTask = {
 
 type CronFile = { tasks: CronTask[] }
 
-const CRON_FILE_REL = join('.claude', 'scheduled_tasks.json')
-
 /**
  * Path to the cron file. `dir` defaults to getProjectRoot() — pass it
  * explicitly from contexts that don't run through main.tsx (e.g. the Agent
  * SDK daemon, which has no bootstrap state).
  */
 export function getCronFilePath(dir?: string): string {
-  return join(dir ?? getProjectRoot(), CRON_FILE_REL)
+  return joinProjectConfigPath(dir ?? getProjectRoot(), 'scheduled_tasks.json')
 }
 
 /**
- * Read and parse .claude/scheduled_tasks.json. Returns an empty task list if the file
- * is missing, empty, or malformed. Tasks with invalid cron strings are
- * silently dropped (logged at debug level) so a single bad entry never
- * blocks the whole file.
+ * Read and parse scheduled_tasks.json from the project config dir. Returns an
+ * empty task list if the file is missing, empty, or malformed. Tasks with
+ * invalid cron strings are silently dropped (logged at debug level) so a
+ * single bad entry never blocks the whole file.
  */
 export async function readCronTasks(dir?: string): Promise<CronTask[]> {
   const fs = getFsImplementation()
@@ -158,16 +156,17 @@ export function hasCronTasksSync(dir?: string): boolean {
 }
 
 /**
- * Overwrite .claude/scheduled_tasks.json with the given tasks. Creates .claude/ if
- * missing. Empty task list writes an empty file (rather than deleting) so
- * the file watcher sees a change event on last-task-removed.
+ * Overwrite scheduled_tasks.json in the project config dir with the given
+ * tasks. Creates the project config dir if missing. Empty task list writes an
+ * empty file (rather than deleting) so the file watcher sees a change event on
+ * last-task-removed.
  */
 export async function writeCronTasks(
   tasks: CronTask[],
   dir?: string,
 ): Promise<void> {
   const root = dir ?? getProjectRoot()
-  await mkdir(join(root, '.claude'), { recursive: true })
+  await mkdir(getProjectConfigDir(root), { recursive: true })
   // Strip the runtime-only `durable` flag — everything on disk is durable
   // by definition, and keeping the flag out means readCronTasks() naturally
   // yields durable: undefined without having to set it explicitly.

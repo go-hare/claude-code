@@ -1,5 +1,6 @@
 import * as React from 'react'
 import { useCallback } from 'react'
+import { homedir } from 'os'
 import { Select } from '../../../components/CustomSelect/select.js'
 import { Box, Dialog, Text } from '@anthropic/ink'
 import type { ToolPermissionContext } from '../../../Tool.js'
@@ -22,10 +23,21 @@ import {
   type EditableSettingSource,
   SOURCES,
 } from '../../../utils/settings/constants.js'
-import { getRelativeSettingsFilePathForSource } from '../../../utils/settings/settings.js'
+import {
+  getRelativeSettingsFilePathForSource,
+  getSettingsFilePathForSource,
+} from '../../../utils/settings/settings.js'
 import { plural } from '../../../utils/stringUtils.js'
 import type { OptionWithDescription } from '../../CustomSelect/select.js'
 import { PermissionRuleDescription } from './PermissionRuleDescription.js'
+
+function formatDisplayPath(path: string): string {
+  const home = homedir()
+  if (path.startsWith(home)) {
+    return `~${path.slice(home.length)}`.replaceAll('\\', '/')
+  }
+  return path.replaceAll('\\', '/')
+}
 
 export function optionForPermissionSaveDestination(
   saveDestination: EditableSettingSource,
@@ -46,7 +58,7 @@ export function optionForPermissionSaveDestination(
     case 'userSettings':
       return {
         label: 'User settings',
-        description: `Saved in at ~/.claude/settings.json`,
+        description: `Saved in ${formatDisplayPath(getSettingsFilePathForSource('userSettings') ?? '~/.claude/settings.json')}`,
         value: saveDestination,
       }
   }

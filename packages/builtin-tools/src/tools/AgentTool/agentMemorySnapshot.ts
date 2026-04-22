@@ -2,6 +2,7 @@ import { mkdir, readdir, readFile, unlink, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { z } from 'zod/v4'
 import { getCwd } from 'src/utils/cwd.js'
+import { joinProjectConfigPath } from 'src/utils/configPaths.js'
 import { logForDebugging } from 'src/utils/debug.js'
 import { lazySchema } from 'src/utils/lazySchema.js'
 import { jsonParse, jsonStringify } from 'src/utils/slowOperations.js'
@@ -26,10 +27,10 @@ type SyncedMeta = z.infer<ReturnType<typeof syncedMetaSchema>>
 
 /**
  * Returns the path to the snapshot directory for an agent in the current project.
- * e.g., <cwd>/.claude/agent-memory-snapshots/<agentType>/
+ * e.g., <cwd>/<project-config>/agent-memory-snapshots/<agentType>/
  */
 export function getSnapshotDirForAgent(agentType: string): string {
-  return join(getCwd(), '.claude', SNAPSHOT_BASE, agentType)
+  return joinProjectConfigPath(getCwd(), SNAPSHOT_BASE, agentType)
 }
 
 function getSnapshotJsonPath(agentType: string): string {

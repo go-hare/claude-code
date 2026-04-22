@@ -1,14 +1,17 @@
 import { readdir } from 'fs/promises'
 import { join, parse } from 'path'
 import type { Command } from 'src/types/command.js'
-import { WORKFLOW_DIR_NAME, WORKFLOW_FILE_EXTENSIONS } from './constants.js'
+import {
+  getWorkflowDirPath,
+  WORKFLOW_FILE_EXTENSIONS,
+} from './constants.js'
 
 /**
- * Scans .claude/workflows/ directory and creates Command objects for each workflow file.
+ * Scans the project workflow directory and creates Command objects for each workflow file.
  * Each workflow file becomes a slash command (e.g. /workflow-name).
  */
 export async function getWorkflowCommands(cwd: string): Promise<Command[]> {
-  const workflowDir = join(cwd, WORKFLOW_DIR_NAME)
+  const workflowDir = getWorkflowDirPath(cwd)
   let files: string[]
   try {
     files = await readdir(workflowDir)

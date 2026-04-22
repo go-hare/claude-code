@@ -1,10 +1,15 @@
 import { feature } from 'bun:bundle'
+import { homedir } from 'node:os'
 import type { Command } from '../commands.js'
 import { maybeMarkProjectOnboardingComplete } from '../projectOnboardingState.js'
 import { AUTONOMY_AGENTS_PATH_POSIX } from '../utils/autonomyAuthority.js'
+import {
+  getProjectConfigDirName,
+  getUserConfigHomeDir,
+} from '../utils/configPaths.js'
 import { isEnvTruthy } from '../utils/envUtils.js'
 
-const OLD_INIT_PROMPT = `Please analyze this codebase and create a CLAUDE.md file, which will be given to future instances of Claude Code to operate in this repository.
+const OLD_INIT_PROMPT_TEMPLATE = `Please analyze this codebase and create a CLAUDE.md file, which will be given to future instances of Claude Code to operate in this repository.
 
 What to add:
 1. Commands that will be commonly used, such as how to build, lint, and run tests. Include the necessary commands to develop in this codebase, such as how to run a single test.
@@ -26,7 +31,7 @@ Usage notes:
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 \`\`\``
 
-const NEW_INIT_PROMPT = `Set up a minimal CLAUDE.md (and optionally skills and hooks) for this repo. CLAUDE.md is loaded into every Claude Code session, so it must be concise — only include what Claude would get wrong without it.
+const NEW_INIT_PROMPT_TEMPLATE = `Set up a minimal CLAUDE.md (and optionally skills and hooks) for this repo. CLAUDE.md is loaded into every Claude Code session, so it must be concise — only include what Claude would get wrong without it.
 
 ## Phase 1: Ask what to set up
 
@@ -224,6 +229,51 @@ When building the list, work through these checks and include only what applies:
 - To help you create skills and optimize existing skills using evals, Claude Code has an official skill-creator plugin you can install. Install it with \`/plugin install skill-creator@claude-plugins-official\`, then run \`/skill-creator <skill-name>\` to create new skills or refine any existing skill. (Always include this one.)
 - Browse official plugins with \`/plugin\` — these bundle skills, agents, hooks, and MCP servers that you may find helpful. You can also create your own custom plugins to share them with others. (Always include this one.)`
 
+function normalizeDisplayPath(path: string): string {
+  const normalized = path.replaceAll('\\', '/')
+  const normalizedHome = homedir().replaceAll('\\', '/')
+  if (
+    normalized.length >= normalizedHome.length &&
+    normalized.slice(0, normalizedHome.length).toLowerCase() ===
+      normalizedHome.toLowerCase()
+  ) {
+    return `~${normalized.slice(normalizedHome.length)}`
+  }
+  return normalized
+}
+
+function replaceInitPromptPaths(
+  prompt: string,
+  projectConfigDirName: string,
+  userConfigHomeDir: string,
+): string {
+  return prompt
+    .replaceAll('~/.claude/', `${normalizeDisplayPath(userConfigHomeDir)}/`)
+    .replaceAll('.claude/', `${projectConfigDirName}/`)
+}
+
+export function buildOldInitPrompt(
+  projectConfigDirName = getProjectConfigDirName(),
+  userConfigHomeDir = getUserConfigHomeDir(),
+): string {
+  return replaceInitPromptPaths(
+    OLD_INIT_PROMPT_TEMPLATE,
+    projectConfigDirName,
+    userConfigHomeDir,
+  )
+}
+
+export function buildNewInitPrompt(
+  projectConfigDirName = getProjectConfigDirName(),
+  userConfigHomeDir = getUserConfigHomeDir(),
+): string {
+  return replaceInitPromptPaths(
+    NEW_INIT_PROMPT_TEMPLATE,
+    projectConfigDirName,
+    userConfigHomeDir,
+  )
+}
+
 const command = {
   type: 'prompt',
   name: 'init',
@@ -247,8 +297,8 @@ const command = {
           feature('NEW_INIT') &&
           (process.env.USER_TYPE === 'ant' ||
             isEnvTruthy(process.env.CLAUDE_CODE_NEW_INIT))
-            ? NEW_INIT_PROMPT
-            : OLD_INIT_PROMPT,
+            ? buildNewInitPrompt()
+            : buildOldInitPrompt(),
       },
     ]
   },

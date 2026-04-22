@@ -6,6 +6,10 @@ import { SEND_MESSAGE_TOOL_NAME } from '@claude-code-best/builtin-tools/tools/Se
 import { WEB_FETCH_TOOL_NAME } from '@claude-code-best/builtin-tools/tools/WebFetchTool/prompt.js'
 import { WEB_SEARCH_TOOL_NAME } from '@claude-code-best/builtin-tools/tools/WebSearchTool/prompt.js'
 import { isUsing3PServices } from 'src/utils/auth.js'
+import {
+  getProjectConfigDirDisplayPath,
+  getProjectConfigDirName,
+} from 'src/utils/configPaths.js'
 import { hasEmbeddedSearchTools } from 'src/utils/embeddedTools.js'
 import { getSettings_DEPRECATED } from 'src/utils/settings/settings.js'
 import { jsonStringify } from 'src/utils/slowOperations.js'
@@ -26,6 +30,7 @@ function getClaudeCodeGuideBasePrompt(): string {
   const localSearchHint = hasEmbeddedSearchTools()
     ? `${FILE_READ_TOOL_NAME}, \`find\`, and \`grep\``
     : `${FILE_READ_TOOL_NAME}, ${GLOB_TOOL_NAME}, and ${GREP_TOOL_NAME}`
+  const projectConfigDirName = getProjectConfigDirName()
 
   return `You are the Claude guide agent. Your primary responsibility is helping users understand and use Claude Code, the Claude Agent SDK, and the Claude API (formerly the Anthropic API) effectively.
 
@@ -74,7 +79,7 @@ function getClaudeCodeGuideBasePrompt(): string {
 4. Fetch the specific documentation pages
 5. Provide clear, actionable guidance based on official documentation
 6. Use ${WEB_SEARCH_TOOL_NAME} if docs don't cover the topic
-7. Reference local project files (CLAUDE.md, .claude/ directory) when relevant using ${localSearchHint}
+7. Reference local project files (CLAUDE.md, ${projectConfigDirName}/ directory) when relevant using ${localSearchHint}
 
 **Guidelines:**
 - Always prioritize official documentation over assumptions
@@ -135,7 +140,7 @@ export const CLAUDE_CODE_GUIDE_AGENT: BuiltInAgentDefinition = {
       )
     }
 
-    // 2. Custom agents from .claude/agents/
+    // 2. Custom agents from <project-config>/agents/
     const customAgents =
       toolUseContext.options.agentDefinitions.activeAgents.filter(
         (a: AgentDefinition) => a.source !== 'built-in',
@@ -145,7 +150,7 @@ export const CLAUDE_CODE_GUIDE_AGENT: BuiltInAgentDefinition = {
         .map((a: AgentDefinition) => `- ${a.agentType}: ${a.whenToUse}`)
         .join('\n')
       contextSections.push(
-        `**Available custom agents configured:**\n${agentList}`,
+        `**Available custom agents configured from ${getProjectConfigDirDisplayPath('agents')}/:**\n${agentList}`,
       )
     }
 

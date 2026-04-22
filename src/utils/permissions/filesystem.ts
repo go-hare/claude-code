@@ -3,19 +3,19 @@ import { randomBytes } from 'crypto'
 import ignore from 'ignore'
 import memoize from 'lodash-es/memoize.js'
 import { homedir, tmpdir } from 'os'
-import { join, normalize, posix, sep } from 'path'
+import { basename, join, normalize, posix, sep } from 'path'
 import { hasAutoMemPathOverride, isAutoMemPath } from 'src/memdir/paths.js'
 import { isAgentMemoryPath } from '@claude-code-best/builtin-tools/tools/AgentTool/agentMemory.js'
-import {
-  CLAUDE_FOLDER_PERMISSION_PATTERN,
-  FILE_EDIT_TOOL_NAME,
-  GLOBAL_CLAUDE_FOLDER_PERMISSION_PATTERN,
-} from '@claude-code-best/builtin-tools/tools/FileEditTool/constants.js'
+import { FILE_EDIT_TOOL_NAME } from '@claude-code-best/builtin-tools/tools/FileEditTool/constants.js'
 import type { z } from 'zod/v4'
 import { getOriginalCwd, getSessionId } from '../../bootstrap/state.js'
 import { checkStatsigFeatureGate_CACHED_MAY_BE_STALE } from '../../services/analytics/growthbook.js'
 import type { AnyObject, Tool, ToolPermissionContext } from '../../Tool.js'
 import { FILE_READ_TOOL_NAME } from '@claude-code-best/builtin-tools/tools/FileReadTool/prompt.js'
+import {
+  getProjectConfigDirName,
+  joinProjectConfigPath,
+} from '../configPaths.js'
 import { getCwd } from '../cwd.js'
 import { getClaudeConfigHomeDir } from '../envUtils.js'
 import {
@@ -78,6 +78,37 @@ export const DANGEROUS_DIRECTORIES = [
   '.claude',
 ] as const
 
+function toPermissionPatternPath(path: string): string {
+  const normalizedPath = toPosixPath(expandPath(path))
+  const normalizedHome = toPosixPath(homedir())
+  if (
+    normalizedPath.length >= normalizedHome.length &&
+    normalizedPath.slice(0, normalizedHome.length).toLowerCase() ===
+      normalizedHome.toLowerCase()
+  ) {
+    return `~${normalizedPath.slice(normalizedHome.length)}`
+  }
+  return normalizedPath
+}
+
+function getDangerousDirectoryNames(): string[] {
+  const directoryNames = new Set<string>(DANGEROUS_DIRECTORIES)
+  directoryNames.add(getProjectConfigDirName())
+  const userConfigDirName = basename(getClaudeConfigHomeDir())
+  if (userConfigDirName.startsWith('.')) {
+    directoryNames.add(userConfigDirName)
+  }
+  return [...directoryNames]
+}
+
+export function getProjectConfigPermissionPattern(): string {
+  return `/${getProjectConfigDirName()}/**`
+}
+
+export function getGlobalConfigPermissionPattern(): string {
+  return `${toPermissionPatternPath(getClaudeConfigHomeDir())}/**`
+}
+
 /**
  * Normalizes a path for case-insensitive comparison.
  * This prevents bypassing security checks using mixed-case paths on case-insensitive
@@ -106,12 +137,12 @@ export function getClaudeSkillScope(
 
   const bases = [
     {
-      dir: expandPath(join(getOriginalCwd(), '.claude', 'skills')),
-      prefix: '/.claude/skills/',
+      dir: expandPath(joinProjectConfigPath(getOriginalCwd(), 'skills')),
+      prefix: `/${getProjectConfigDirName()}/skills/`,
     },
     {
-      dir: expandPath(join(homedir(), '.claude', 'skills')),
-      prefix: '~/.claude/skills/',
+      dir: expandPath(join(getClaudeConfigHomeDir(), 'skills')),
+      prefix: `${toPermissionPatternPath(getClaudeConfigHomeDir())}/skills/`,
     },
   ]
 
@@ -207,9 +238,16 @@ export function isClaudeSettingsPath(filePath: string): boolean {
   const normalizedPath = normalizeCaseForComparison(expandedPath)
 
   // Use platform separator so endsWith checks work on both Unix (/) and Windows (\)
+  const configDirName = getProjectConfigDirName()
   if (
-    normalizedPath.endsWith(`${sep}.claude${sep}settings.json`) ||
-    normalizedPath.endsWith(`${sep}.claude${sep}settings.local.json`)
+    normalizedPath.endsWith(
+      normalizeCaseForComparison(`${sep}${configDirName}${sep}settings.json`),
+    ) ||
+    normalizedPath.endsWith(
+      normalizeCaseForComparison(
+        `${sep}${configDirName}${sep}settings.local.json`,
+      ),
+    )
   ) {
     // Include .claude/settings.json even for other projects
     return true
@@ -230,9 +268,9 @@ function isClaudeConfigFilePath(filePath: string): boolean {
   // Check if file is within .claude/commands or .claude/agents directories
   // using proper path segment validation (not string matching with includes())
   // pathInWorkingPath now handles case-insensitive comparison to prevent bypasses
-  const commandsDir = join(getOriginalCwd(), '.claude', 'commands')
-  const agentsDir = join(getOriginalCwd(), '.claude', 'agents')
-  const skillsDir = join(getOriginalCwd(), '.claude', 'skills')
+  const commandsDir = joinProjectConfigPath(getOriginalCwd(), 'commands')
+  const agentsDir = joinProjectConfigPath(getOriginalCwd(), 'agents')
+  const skillsDir = joinProjectConfigPath(getOriginalCwd(), 'skills')
 
   return (
     pathInWorkingPath(filePath, commandsDir) ||
@@ -447,8 +485,9 @@ function isDangerousFilePathToAutoEdit(path: string): boolean {
   for (let i = 0; i < pathSegments.length; i++) {
     const segment = pathSegments[i]!
     const normalizedSegment = normalizeCaseForComparison(segment)
+    const projectConfigDirName = getProjectConfigDirName()
 
-    for (const dir of DANGEROUS_DIRECTORIES) {
+    for (const dir of getDangerousDirectoryNames()) {
       if (normalizedSegment !== normalizeCaseForComparison(dir)) {
         continue
       }
@@ -457,7 +496,7 @@ function isDangerousFilePathToAutoEdit(path: string): boolean {
       // git worktrees), not a user-created dangerous directory. Skip the .claude
       // segment when it's followed by 'worktrees'. Any nested .claude directories
       // within the worktree (not followed by 'worktrees') are still blocked.
-      if (dir === '.claude') {
+      if (dir === projectConfigDirName) {
         const nextSegment = pathSegments[i + 1]
         if (
           nextSegment &&
@@ -1281,9 +1320,11 @@ export function checkWritePermissionForTool<Input extends AnyObject>(
     const ruleContent = claudeFolderAllowRule.ruleValue.ruleContent
     if (
       ruleContent &&
-      (ruleContent.startsWith(CLAUDE_FOLDER_PERMISSION_PATTERN.slice(0, -2)) ||
+      (ruleContent.startsWith(
+        getProjectConfigPermissionPattern().slice(0, -2),
+      ) ||
         ruleContent.startsWith(
-          GLOBAL_CLAUDE_FOLDER_PERMISSION_PATTERN.slice(0, -2),
+          getGlobalConfigPermissionPattern().slice(0, -2),
         )) &&
       !ruleContent.includes('..') &&
       ruleContent.endsWith('/**')
@@ -1590,7 +1631,9 @@ export function checkEditableInternalPath(
   // .claude/ only (not ~/.claude/) since launch.json is per-project.
   if (
     normalizeCaseForComparison(normalizedPath) ===
-    normalizeCaseForComparison(join(getOriginalCwd(), '.claude', 'launch.json'))
+    normalizeCaseForComparison(
+      joinProjectConfigPath(getOriginalCwd(), 'launch.json'),
+    )
   ) {
     return {
       behavior: 'allow',

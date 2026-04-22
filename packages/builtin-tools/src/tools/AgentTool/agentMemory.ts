@@ -5,11 +5,17 @@ import {
   ensureMemoryDirExists,
 } from 'src/memdir/memdir.js'
 import { getMemoryBaseDir } from 'src/memdir/paths.js'
+import {
+  getProjectConfigDirName,
+  joinProjectConfigPath,
+} from 'src/utils/configPaths.js'
 import { getCwd } from 'src/utils/cwd.js'
 import { findCanonicalGitRoot } from 'src/utils/git.js'
 import { sanitizePath } from 'src/utils/path.js'
 
-// Persistent agent memory scope: 'user' (~/.claude/agent-memory/), 'project' (.claude/agent-memory/), or 'local' (.claude/agent-memory-local/)
+// Persistent agent memory scope: 'user' (~/.claude/agent-memory/), 'project'
+// (<project-config>/agent-memory/), or 'local'
+// (<project-config>/agent-memory-local/).
 export type AgentMemoryScope = 'user' | 'project' | 'local'
 
 /**
@@ -24,7 +30,7 @@ function sanitizeAgentTypeForPath(agentType: string): string {
 /**
  * Returns the local agent memory directory, which is project-specific and not checked into VCS.
  * When CLAUDE_CODE_REMOTE_MEMORY_DIR is set, persists to the mount with project namespacing.
- * Otherwise, uses <cwd>/.claude/agent-memory-local/<agentType>/.
+ * Otherwise, uses <cwd>/<project-config>/agent-memory-local/<agentType>/.
  */
 function getLocalAgentMemoryDir(dirName: string): string {
   if (process.env.CLAUDE_CODE_REMOTE_MEMORY_DIR) {
@@ -40,13 +46,13 @@ function getLocalAgentMemoryDir(dirName: string): string {
       ) + sep
     )
   }
-  return join(getCwd(), '.claude', 'agent-memory-local', dirName) + sep
+  return joinProjectConfigPath(getCwd(), 'agent-memory-local', dirName) + sep
 }
 
 /**
  * Returns the agent memory directory for a given agent type and scope.
  * - 'user' scope: <memoryBase>/agent-memory/<agentType>/
- * - 'project' scope: <cwd>/.claude/agent-memory/<agentType>/
+ * - 'project' scope: <cwd>/<project-config>/agent-memory/<agentType>/
  * - 'local' scope: see getLocalAgentMemoryDir()
  */
 export function getAgentMemoryDir(
@@ -56,7 +62,7 @@ export function getAgentMemoryDir(
   const dirName = sanitizeAgentTypeForPath(agentType)
   switch (scope) {
     case 'project':
-      return join(getCwd(), '.claude', 'agent-memory', dirName) + sep
+      return joinProjectConfigPath(getCwd(), 'agent-memory', dirName) + sep
     case 'local':
       return getLocalAgentMemoryDir(dirName)
     case 'user':
@@ -75,9 +81,11 @@ export function isAgentMemoryPath(absolutePath: string): boolean {
     return true
   }
 
-  // Project scope: always cwd-based (not redirected)
+  // Project scope: always cwd-based (not redirected to the remote memory dir)
   if (
-    normalizedPath.startsWith(join(getCwd(), '.claude', 'agent-memory') + sep)
+    normalizedPath.startsWith(
+      normalize(joinProjectConfigPath(getCwd(), 'agent-memory')) + sep,
+    )
   ) {
     return true
   }
@@ -94,7 +102,7 @@ export function isAgentMemoryPath(absolutePath: string): boolean {
     }
   } else if (
     normalizedPath.startsWith(
-      join(getCwd(), '.claude', 'agent-memory-local') + sep,
+      normalize(joinProjectConfigPath(getCwd(), 'agent-memory-local')) + sep,
     )
   ) {
     return true
@@ -120,7 +128,7 @@ export function getMemoryScopeDisplay(
     case 'user':
       return `User (${join(getMemoryBaseDir(), 'agent-memory')}/)`
     case 'project':
-      return 'Project (.claude/agent-memory/)'
+      return `Project (${getProjectConfigDirName()}/agent-memory/)`
     case 'local':
       return `Local (${getLocalAgentMemoryDir('...')})`
     default:
@@ -133,7 +141,7 @@ export function getMemoryScopeDisplay(
  * Creates the memory directory if needed and returns a prompt with memory contents.
  *
  * @param agentType The agent's type name (used as directory name)
- * @param scope 'user' for ~/.claude/agent-memory/ or 'project' for .claude/agent-memory/
+ * @param scope 'user' for ~/.claude/agent-memory/ or 'project' for <project-config>/agent-memory/
  */
 export function loadAgentMemoryPrompt(
   agentType: string,

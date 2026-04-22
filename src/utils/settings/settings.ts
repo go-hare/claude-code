@@ -10,6 +10,7 @@ import {
 } from '../../bootstrap/state.js'
 import { getRemoteManagedSettingsSyncFromCache } from '../../services/remoteManagedSettings/syncCacheState.js'
 import { uniq } from '../array.js'
+import { getProjectConfigDirName } from '../configPaths.js'
 import { logForDebugging } from '../debug.js'
 import { logForDiagnosticsNoPII } from '../diagLogs.js'
 import { getClaudeConfigHomeDir, isEnvTruthy } from '../envUtils.js'
@@ -300,9 +301,9 @@ export function getRelativeSettingsFilePathForSource(
 ): string {
   switch (source) {
     case 'projectSettings':
-      return join('.claude', 'settings.json')
+      return join(getProjectConfigDirName(), 'settings.json')
     case 'localSettings':
-      return join('.claude', 'settings.local.json')
+      return join(getProjectConfigDirName(), 'settings.local.json')
   }
 }
 

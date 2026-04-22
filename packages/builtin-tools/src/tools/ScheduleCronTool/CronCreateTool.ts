@@ -3,6 +3,7 @@ import { setScheduledTasksEnabled } from 'src/bootstrap/state.js'
 import type { ValidationResult } from 'src/Tool.js'
 import { buildTool, type ToolDef } from 'src/Tool.js'
 import { cronToHuman, parseCronExpression } from 'src/utils/cron.js'
+import { getProjectConfigDirDisplayPath } from 'src/utils/configPaths.js'
 import {
   addCronTask,
   getCronFilePath,
@@ -24,6 +25,10 @@ import { renderCreateResultMessage, renderCreateToolUseMessage } from './UI.js'
 
 const MAX_JOBS = 50
 
+function getCronFileDisplayPath(): string {
+  return getProjectConfigDirDisplayPath('scheduled_tasks.json')
+}
+
 const inputSchema = lazySchema(() =>
   z.strictObject({
     cron: z
@@ -36,7 +41,7 @@ const inputSchema = lazySchema(() =>
       `true (default) = fire on every cron match until deleted or auto-expired after ${DEFAULT_MAX_AGE_DAYS} days. false = fire once at the next match, then auto-delete. Use false for "remind me at X" one-shot requests with pinned minute/hour/dom/month.`,
     ),
     durable: semanticBoolean(z.boolean().optional()).describe(
-      'true = persist to .claude/scheduled_tasks.json and survive restarts. false (default) = in-memory only, dies when this Claude session ends. Use true only when the user asks the task to survive across sessions.',
+      `true = persist to ${getCronFileDisplayPath()} and survive restarts. false (default) = in-memory only, dies when this Claude session ends. Use true only when the user asks the task to survive across sessions.`,
     ),
   }),
 )
@@ -142,7 +147,7 @@ export const CronCreateTool = buildTool({
   },
   mapToolResultToToolResultBlockParam(output, toolUseID) {
     const where = output.durable
-      ? 'Persisted to .claude/scheduled_tasks.json'
+      ? `Persisted to ${getCronFileDisplayPath()}`
       : 'Session-only (not written to disk, dies when Claude exits)'
     return {
       tool_use_id: toolUseID,

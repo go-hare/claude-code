@@ -24,9 +24,12 @@ import {
 import { cleanupTempDir, createTempDir } from '../../../tests/mocks/file-system'
 
 let tempDir = ''
+const originalProjectConfigDirName =
+  process.env.CLAUDE_PROJECT_CONFIG_DIR_NAME
 
 beforeEach(async () => {
   tempDir = await createTempDir('cron-baseline-')
+  delete process.env.CLAUDE_PROJECT_CONFIG_DIR_NAME
   resetStateForTests()
   setOriginalCwd(tempDir)
   setProjectRoot(tempDir)
@@ -34,6 +37,11 @@ beforeEach(async () => {
 
 afterEach(async () => {
   resetStateForTests()
+  if (originalProjectConfigDirName === undefined) {
+    delete process.env.CLAUDE_PROJECT_CONFIG_DIR_NAME
+  } else {
+    process.env.CLAUDE_PROJECT_CONFIG_DIR_NAME = originalProjectConfigDirName
+  }
   if (tempDir) {
     await cleanupTempDir(tempDir)
   }
@@ -72,6 +80,24 @@ describe('cronTasks baseline', () => {
       recurring: true,
     })
     expect(fileTasks[0].durable).toBeUndefined()
+  })
+
+  test('durable cron tasks honor a custom project config dir name', async () => {
+    process.env.CLAUDE_PROJECT_CONFIG_DIR_NAME = '.hare'
+
+    const id = await addCronTask('* * * * *', 'durable prompt', true, true)
+
+    const filePath = getCronFilePath()
+    const fileTasks = await readCronTasks()
+
+    expect(existsSync(filePath)).toBe(true)
+    expect(filePath).toBe(join(tempDir, '.hare', 'scheduled_tasks.json'))
+    expect(fileTasks).toHaveLength(1)
+    expect(fileTasks[0]).toMatchObject({
+      id,
+      prompt: 'durable prompt',
+      recurring: true,
+    })
   })
 
   test('writeCronTasks strips runtime-only durable flags from disk', async () => {
