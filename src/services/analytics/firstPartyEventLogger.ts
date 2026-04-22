@@ -12,6 +12,7 @@ import { randomUUID } from 'crypto'
 import { isEqual } from 'lodash-es'
 import { getOrCreateUserID } from '../../utils/config.js'
 import { logForDebugging } from '../../utils/debug.js'
+import { isEnvTruthy } from '../../utils/envUtils.js'
 import { logError } from '../../utils/log.js'
 import { getPlatform, getWslVersion } from '../../utils/platform.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
@@ -104,6 +105,7 @@ function getBatchConfig(): BatchConfig {
 // Module-local state for event logging (not exposed globally)
 let firstPartyEventLogger: ReturnType<typeof logs.getLogger> | null = null
 let firstPartyEventLoggerProvider: LoggerProvider | null = null
+const ENABLE_1P_EVENT_LOGGING_ENV = 'CLAUDE_CODE_ENABLE_ANTHROPIC_EVENT_LOGGING'
 // Last batch config used to construct the provider — used by
 // reinitialize1PEventLoggingIfConfigChanged to decide whether a rebuild is
 // needed when GrowthBook refreshes.
@@ -134,13 +136,17 @@ export async function shutdown1PEventLogging(): Promise<void> {
  * - Third-party cloud providers (Bedrock/Vertex)
  * - Global telemetry opt-outs
  * - Non-essential traffic disabled
+ * - Anthropic 1P event logging is not explicitly opt-ed in
  *
  * Note: Unlike BigQuery metrics, event logging does NOT check organization-level
  * metrics opt-out via API. It follows the same pattern as Statsig event logging.
  */
 export function is1PEventLoggingEnabled(): boolean {
-  // Respect standard analytics opt-outs
-  return !isAnalyticsDisabled()
+  // 本项目默认关闭 Anthropic 1P 云上报；仅显式设置环境变量时开启。
+  return (
+    !isAnalyticsDisabled() &&
+    isEnvTruthy(process.env[ENABLE_1P_EVENT_LOGGING_ENV])
+  )
 }
 
 /**
