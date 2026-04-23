@@ -21,7 +21,7 @@
 
 一句话概括：
 
-> 当前项目已经完成统一入口、宿主改道和最小测试护栏；剩余工作主要集中在 runtime state ownership、shared session core、REPL 巨石拆分，以及 package-level 发布面的真实收口。
+> 当前项目已经完成统一入口、宿主改道、package-level kernel 发布面和最小测试护栏；剩余工作主要集中在 runtime state ownership、shared session core，以及 REPL / headless 的最后收口。
 
 结合 2026-04-23 本轮收口进展，更准确的补充口径是：
 
@@ -184,7 +184,7 @@
 
 说明 kernel 已不再是“无护栏状态”。
 
-#### 7. package-level kernel 发布入口第一轮已建立
+#### 7. package-level kernel 发布面已收口
 
 当前已经具备：
 
@@ -192,16 +192,15 @@
 - `dist/kernel.js`
 - `package.json` 的 `./kernel` export
 
-但当前还不能据此宣称 package-level kernel 已经完成第一轮稳定收口。
+截至 2026-04-24，这一层已经可以按“完成”记：
 
-当前真实状态是：
+- `src/entrypoints/kernel.ts` 已稳定 re-export `src/kernel/index.ts`
+- `package.json` 的 `./kernel` export 指向 `./dist/kernel.js`
+- `bun run build` 后，`@go-hare/hare-code/kernel` 可真实导入
+- `runKernelHeadless`、`createDefaultKernelHeadlessEnvironment`、`createDirectConnectSession`、`runBridgeHeadless`、`runDaemonWorker` 在 built package entry 上可用
+- `createKernelSession === createDirectConnectSession`
 
-- package-level entrypoint 的文件骨架已经存在
-- build 产物里也已经有 `dist/kernel.js`
-- 但 built entry 仍存在导出名和稳定 kernel surface 不完全对齐的问题
-- 目前不能稳定保证 consumer 从 `@go-hare/hare-code/kernel` 取到预期命名的 bridge / daemon 导出
-
-也就是说，kernel 已不只是源码级入口，但还不能算“已经有了第一轮正式发布面”。
+也就是说，这一层已经不只是“入口骨架存在”，而是已经具备发布级可导入 surface。
 
 ### 半完成
 
@@ -224,17 +223,9 @@
 - 更大范围的 consumer/import 组合回归
 - 更接近真实运行参数的 kernel headless / server e2e 覆盖
 
-#### 3. kernel 已有发布入口骨架，但发布级稳定面尚未成立
+#### 3. kernel 已有发布入口与 smoke 护栏，但全量稳定性仍要靠后续验证维持
 
-从工程动作上说，package-level kernel 入口已经有了。
-
-但从当前工程现实看，它还不只是“长期稳定性不足”，而是仍有 package-level built export 未对齐的问题。
-
-更准确的口径应该是：
-
-- 源码级 kernel façade 已成立
-- package-level entrypoint 骨架已建立
-- 发布级 consumer surface 仍未完成，不应视为稳定外部承诺
+从当前工程现实看，package-level 发布面已经打通；后续问题更多会出现在 kernel contracts / runtime ownership / shared session core，而不是 `./kernel` export 本身。
 
 ### 已完成补充
 
@@ -382,11 +373,19 @@
 - shared session core 这一段已经收到了可提交 stop point；REPL split 也已经开始第一刀，`replQueryRuntime` helper 进入 `runtime/capabilities/execution/internal/*`
 - `REPL.tsx` 不再自己保留全部 query-param 装配逻辑；本地 turn 主链、background query 和 partial compact 已开始共用同一条 runtime-side query-preparation seam
 - REPL split 第二刀也已开始：`replTurnShell` 已接管 session title、allowed-tools sync、non-query short-circuit、companion refresh 与 API metrics 这类 host-shell 副作用，`onQueryImpl` 继续向“宿主编排壳”收缩
+- REPL split 第三刀也已开始：`replTurnShell` 继续吃进了 pre-query IDE/onboarding 预处理，以及 `queryGuard.end()` 内的 pipe done / bridge result / tungsten auto-hide / abort-controller clear 这类完成态宿主收尾
+- REPL split 第四刀也已开始：turn budget capture 与 turn-duration/deferred-swarm 这类 completion tail 已从 `onQuery` finally 主链抽到独立 helper，剩下更集中的主要尾巴已经接近 user-cancel auto-restore
+- REPL split 第五刀也已开始：`user-cancel auto-restore` 的 guard / history rewind / prompt restore 已从 `onQuery` finally 主链抽到独立 helper，`REPL.tsx` 在这一段里更接近纯宿主参数组装
+- REPL split 第六刀也已开始：`onCancel` 的 proactive pause / partial-stream preserve / token-budget clear / prompt or remote cancel routing / turn-cancel notify 已收成独立 cancel shell，`REPL.tsx` 不再直接持有整块取消收尾
+- REPL split 第七刀也已开始：`initialMessage` 的 clear-context / permission 注入 / first-turn hook 预热 / submit-vs-query 分流 已收成独立 bootstrap shell，`REPL.tsx` 在启动期只保留 effect 触发与 ref 管理
 - headless bootstrap ownership 虽然开始走 session seam，但 hydration / resume 数据装载本身仍在 `loadInitialMessages()`，还没和 REPL 侧统一
+- headless state ownership 也继续往前推了一刀：`mainThreadAgentType` / `initJsonSchema` / `allowedChannels` / `registeredHooks` 已进入 `RuntimeBootstrapStateProvider` 的显式 seam，`headlessControl.ts`、`headlessSessionControl.ts`、`headlessRuntimeLoop.ts` 不再直接从 `bootstrap/state` 读取或写入这些状态
 - headless 的 loaded-conversation adoption 现在已经从 `loadInitialMessages()` 挪回 loop + session bootstrap seam，但 teleport / coordinator-mode refresh / startup hooks 这些 host-adjacent 行为还没继续下沉
 - headless 的 interrupted-turn replay 已经不是 loop 私有逻辑，但 command queue / startup hooks / coordinator refresh 仍在 loop 或 bootstrap 路径外层
 - coordinator-mode refresh 已不再留在 `loadInitialMessages()`，但 startup hooks 与 teleport 仍然是当前这条线剩下的主要 host-adjacent 尾巴
 - startup hooks 里的 `initialUserMessage` 已不再由 loop 直接读取侧信道，但 hook promise 的调度与 startup hook 执行本身仍在 bootstrap/load 路径外层
+- headless managed session 也开始带上 runtime-owned 的 session identity / lifecycle contract；server 的 `RuntimeManagedSession` 与 headless 的 `HeadlessManagedSession` 现在至少共享同一条 `RuntimeSessionLifecycle` seam，headless cleanup 也开始经由 `stopAndWait()` 收口
+- execution 侧的 `RuntimeExecutionSession` 也已经接上同一条 lifecycle seam，`ask()` 在 one-shot 路径里会显式 `stopAndWait()` 收尾；这意味着 shared session lifecycle 已不只停留在 headless helper，而是进入 execution factory 的真实接入面
 
 验收标准：
 

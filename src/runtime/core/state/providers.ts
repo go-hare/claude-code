@@ -1,8 +1,12 @@
 export type {
   RuntimeAppStateProvider,
+  RuntimeAllowedChannelEntry,
   RuntimeBootstrapStateProvider,
   RuntimeExecutionAppStateSlice,
   RuntimeExecutionBudgetState,
+  RuntimeHeadlessControlState,
+  RuntimeHeadlessControlStatePatch,
+  RuntimeRegisteredHookCallbacks,
   RuntimeExecutionPromptState,
   RuntimeExecutionPromptStatePatch,
   RuntimeRequestDebugState,

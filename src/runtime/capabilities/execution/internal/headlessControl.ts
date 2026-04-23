@@ -39,14 +39,6 @@ import {
   DEFAULT_OUTPUT_STYLE_NAME,
   getAllOutputStyles,
 } from 'src/constants/outputStyles.js'
-import {
-  getMainThreadAgentType,
-  getSessionId,
-  registerHookCallbacks,
-  setInitJsonSchema,
-  setMainLoopModelOverride,
-  setMainThreadAgentType,
-} from 'src/bootstrap/state.js'
 import { getAccountInformation } from 'src/utils/auth.js'
 import { getAPIProvider } from 'src/utils/model/providers.js'
 import type { HookCallbackMatcher } from 'src/types/hooks.js'
@@ -67,6 +59,7 @@ import {
 import { parseUserSpecifiedModel } from 'src/utils/model/model.js'
 import { AwsAuthStatusManager } from 'src/utils/awsAuthStatusManager.js'
 import type { Stream } from 'src/utils/stream.js'
+import type { RuntimeBootstrapStateProvider } from '../../../core/state/providers.js'
 
 type PromptValue = string | ContentBlockParam[]
 
@@ -321,6 +314,7 @@ export async function handleInitializeRequest(
   },
   agents: AgentDefinition[],
   getAppState: () => AppState,
+  bootstrapStateProvider: RuntimeBootstrapStateProvider,
 ): Promise<void> {
   if (initialized) {
     output.enqueue({
@@ -355,10 +349,14 @@ export async function handleInitializeRequest(
   }
 
   if (options.agent) {
-    const alreadyResolved = getMainThreadAgentType() === options.agent
+    const alreadyResolved =
+      bootstrapStateProvider.getHeadlessControlState().mainThreadAgentType ===
+      options.agent
     const mainThreadAgent = agents.find(a => a.agentType === options.agent)
     if (mainThreadAgent && !alreadyResolved) {
-      setMainThreadAgentType(mainThreadAgent.agentType)
+      bootstrapStateProvider.patchHeadlessControlState({
+        mainThreadAgentType: mainThreadAgent.agentType,
+      })
 
       if (!options.systemPrompt && !isBuiltInAgent(mainThreadAgent)) {
         const agentSystemPrompt = mainThreadAgent.getSystemPrompt()
@@ -373,7 +371,9 @@ export async function handleInitializeRequest(
         mainThreadAgent.model !== 'inherit'
       ) {
         const agentModel = parseUserSpecifiedModel(mainThreadAgent.model)
-        setMainLoopModelOverride(agentModel)
+        bootstrapStateProvider.patchPromptState({
+          mainLoopModelOverride: agentModel,
+        })
       }
 
       if (mainThreadAgent.initialPrompt) {
@@ -405,10 +405,13 @@ export async function handleInitializeRequest(
         }
       })
     }
-    registerHookCallbacks(hooks)
+    bootstrapStateProvider.registerHookCallbacks(hooks)
   }
   if ((request as Record<string, unknown>).jsonSchema) {
-    setInitJsonSchema((request as Record<string, unknown>).jsonSchema as Record<string, unknown>)
+    bootstrapStateProvider.patchHeadlessControlState({
+      initJsonSchema: (request as Record<string, unknown>)
+        .jsonSchema as Record<string, unknown>,
+    })
   }
 
   const initResponse: SDKControlInitializeResponse = {
@@ -469,7 +472,8 @@ export async function handleInitializeRequest(
         output: status.output,
         error: status.error,
         uuid: randomUUID(),
-        session_id: getSessionId(),
+        session_id:
+          bootstrapStateProvider.getSessionIdentity().sessionId,
       })
     }
   }

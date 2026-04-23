@@ -7,7 +7,10 @@ import type { SDKControlResponse, StdoutMessage } from 'src/entrypoints/sdk/cont
 import type { InternalPermissionMode } from 'src/types/permissions.js'
 import type { MCPServerConnection } from 'src/services/mcp/types.js'
 import type { AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS } from 'src/services/analytics/index.js'
-import type { RuntimeBootstrapStateProvider } from '../../../core/state/providers.js'
+import type {
+  RuntimeAllowedChannelEntry,
+  RuntimeBootstrapStateProvider,
+} from '../../../core/state/providers.js'
 import { feature } from 'bun:bundle'
 import { logForDebugging } from 'src/utils/debug.js'
 import { logMCPDebug } from 'src/utils/log.js'
@@ -21,7 +24,6 @@ import {
   wrapChannelMessage,
 } from 'src/services/mcp/channelNotification.js'
 import { parsePluginIdentifier } from 'src/utils/plugins/pluginIdentifier.js'
-import { getAllowedChannels, setAllowedChannels, type ChannelEntry } from 'src/bootstrap/state.js'
 import {
   getAutoModeUnavailableNotification,
   getAutoModeUnavailableReason,
@@ -257,6 +259,7 @@ export function handleChannelEnable(
   serverName: string,
   connectionPool: readonly MCPServerConnection[],
   output: Stream<StdoutMessage>,
+  bootstrapStateProvider: RuntimeBootstrapStateProvider,
 ): void {
   const respondError = (error: string) =>
     output.enqueue({
@@ -283,27 +286,36 @@ export function handleChannelEnable(
     )
   }
 
-  const entry: ChannelEntry = {
+  const entry: RuntimeAllowedChannelEntry = {
     kind: 'plugin',
     name: parsed.name,
     marketplace: parsed.marketplace,
   }
-  const prior = getAllowedChannels()
+  const prior = bootstrapStateProvider.getHeadlessControlState().allowedChannels
   const already = prior.some(
     e =>
       e.kind === 'plugin' &&
       e.name === entry.name &&
       e.marketplace === entry.marketplace,
   )
-  if (!already) setAllowedChannels([...prior, entry])
+  if (!already) {
+    bootstrapStateProvider.patchHeadlessControlState({
+      allowedChannels: [...prior, entry],
+    })
+  }
 
   const gate = gateChannelServer(
     serverName,
     connection.capabilities,
     pluginSource,
+    already ? prior : [...prior, entry],
   )
   if (gate.action === 'skip') {
-    if (!already) setAllowedChannels(prior)
+    if (!already) {
+      bootstrapStateProvider.patchHeadlessControlState({
+        allowedChannels: prior,
+      })
+    }
     return respondError(gate.reason)
   }
 
@@ -351,17 +363,22 @@ export function handleChannelEnable(
 
 export function reregisterChannelHandlerAfterReconnect(
   connection: MCPServerConnection,
+  bootstrapStateProvider: RuntimeBootstrapStateProvider,
 ): void {
   if (connection.type !== 'connected') return
+
+  const allowedChannels =
+    bootstrapStateProvider.getHeadlessControlState().allowedChannels
 
   const gate = gateChannelServer(
     connection.name,
     connection.capabilities,
     connection.config.pluginSource,
+    allowedChannels,
   )
   if (gate.action !== 'register') return
 
-  const entry = findChannelEntry(connection.name, getAllowedChannels())
+  const entry = findChannelEntry(connection.name, allowedChannels)
   const pluginId =
     entry?.kind === 'plugin'
       ? (`${entry.name}@${entry.marketplace}` as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS)

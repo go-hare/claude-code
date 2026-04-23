@@ -205,11 +205,8 @@ import type { ToolPermissionContext, Tool } from '../Tool.js';
 import { notifyAutomationStateChanged } from '../utils/sessionState.js';
 import {
   applyPermissionUpdate,
-  applyPermissionUpdates,
   persistPermissionUpdate,
 } from '../utils/permissions/PermissionUpdate.js';
-import { buildPermissionUpdates } from '../components/permissions/ExitPlanModePermissionRequest/ExitPlanModePermissionRequest.js';
-import { stripDangerousPermissionsForAutoMode } from '../utils/permissions/permissionSetup.js';
 import { getScratchpadDir, isScratchpadEnabled } from '../utils/permissions/filesystem.js';
 import { WEB_FETCH_TOOL_NAME } from '@go-hare/builtin-tools/tools/WebFetchTool/prompt.js';
 import { SLEEP_TOOL_NAME } from '@go-hare/builtin-tools/tools/SleepTool/prompt.js';
@@ -279,11 +276,20 @@ import {
 } from '../runtime/capabilities/execution/internal/replQueryRuntime.js';
 import {
   appendReplApiMetricsMessage,
+  finalizeReplCompletedTurnHostShell,
   maybeGenerateReplSessionTitle,
   maybeRefreshCompanionReaction,
+  runReplPreQueryHostPrep,
   shortCircuitReplNonQueryTurn,
   syncReplAllowedToolsForTurn,
 } from './replTurnShell.js';
+import {
+  captureReplTurnBudgetInfo,
+  finalizeReplTurnDurationShell,
+} from './replTurnCompletion.js';
+import { runReplCancelShell } from './replCancelShell.js';
+import { runReplInitialMessageShell } from './replInitialMessageShell.js';
+import { maybeRestoreCancelledReplTurn } from './replTurnRestore.js';
 import { getTools, assembleToolPool } from '../tools.js';
 import type { AgentDefinition } from '@go-hare/builtin-tools/tools/AgentTool/loadAgentsDir.js';
 import { resolveAgentTools } from '@go-hare/builtin-tools/tools/AgentTool/agentToolUtils.js';
@@ -2410,64 +2416,60 @@ export function REPL({
   }, [focusedInputDialog, repinScroll]);
 
   function onCancel() {
-    if (focusedInputDialog === 'elicitation') {
-      // Elicitation dialog handles its own Escape, and closing it shouldn't affect any loading state.
-      return;
-    }
-
     logForDebugging(`[onCancel] focusedInputDialog=${focusedInputDialog} streamMode=${streamMode}`);
 
-    // Pause proactive mode so the user gets control back.
-    // It will resume when they submit their next input (see onSubmit).
-    if (feature('PROACTIVE') || feature('KAIROS')) {
-      proactiveModule?.pauseProactive();
-    }
-
-    queryGuard.forceEnd();
-    skipIdleCheckRef.current = false;
-
-    // Preserve partially-streamed text so the user can read what was
-    // generated before pressing Esc. Pushed before resetLoadingState clears
-    // streamingText, and before query.ts yields the async interrupt marker,
-    // giving final order [user, partial-assistant, [Request interrupted by user]].
-    if (streamingText?.trim()) {
-      setMessages(prev => [...prev, createAssistantMessage({ content: streamingText })]);
-    }
-
-    resetLoadingState();
-
-    // Clear any active token budget so the backstop doesn't fire on
-    // a stale budget if the query generator hasn't exited yet.
+    let shouldClearTokenBudget = false;
     if (feature('TOKEN_BUDGET')) {
-      snapshotOutputTokensForTurn(null);
+      shouldClearTokenBudget = true;
     }
 
-    if (focusedInputDialog === 'tool-permission') {
-      // Tool use confirm handles the abort signal itself
-      toolUseConfirmQueue[0]?.onAbort();
-      setToolUseConfirmQueue([]);
-    } else if (focusedInputDialog === 'prompt') {
-      // Reject all pending prompts and clear the queue
-      for (const item of promptQueue) {
-        item.reject(new Error('Prompt cancelled by user'));
-      }
-      setPromptQueue([]);
-      abortController?.abort('user-cancel');
-    } else if (activeRemote.isRemoteMode) {
-      // Remote mode: send interrupt signal to CCR
-      activeRemote.cancelRequest();
-    } else {
-      abortController?.abort('user-cancel');
-    }
-
-    // Clear the controller so subsequent Escape presses don't see a stale
-    // aborted signal. Without this, canCancelRunningTask is false (signal
-    // defined but .aborted === true), so isActive becomes false if no other
-    // activating conditions hold — leaving the Escape keybinding inactive.
-    setAbortController(null);
-
-    // forceEnd() skips the finally path — fire directly (aborted=true).
-    void mrOnTurnComplete(messagesRef.current, true);
+    runReplCancelShell({
+      focusedInputDialog,
+      pauseProactive:
+        feature('PROACTIVE') || feature('KAIROS')
+          ? () => {
+              proactiveModule?.pauseProactive();
+            }
+          : undefined,
+      forceEndQuery: () => {
+        queryGuard.forceEnd();
+      },
+      clearIdleSkip: () => {
+        skipIdleCheckRef.current = false;
+      },
+      partialStreamingText: streamingText,
+      appendPartialAssistantMessage: text => {
+        setMessages(prev => [...prev, createAssistantMessage({ content: text })]);
+      },
+      resetLoadingState,
+      shouldClearTokenBudget,
+      clearTokenBudget: () => {
+        snapshotOutputTokensForTurn(null);
+      },
+      abortToolUseConfirm: () => {
+        toolUseConfirmQueue[0]?.onAbort();
+      },
+      clearToolUseConfirmQueue: () => {
+        setToolUseConfirmQueue([]);
+      },
+      promptQueue,
+      clearPromptQueue: () => {
+        setPromptQueue([]);
+      },
+      abortCurrentRequest: () => {
+        abortController?.abort('user-cancel');
+      },
+      isRemoteMode: activeRemote.isRemoteMode,
+      cancelRemoteRequest: () => {
+        activeRemote.cancelRequest();
+      },
+      clearAbortController: () => {
+        setAbortController(null);
+      },
+      notifyTurnCancelled: () => {
+        void mrOnTurnComplete(messagesRef.current, true);
+      },
+    });
   }
 
   // Function to handle queued command when canceling a permission request
@@ -3106,20 +3108,19 @@ export function REPL({
       mainLoopModelParam: string,
       effort?: EffortValue,
     ) => {
-      // Prepare IDE integration for new prompt. Read mcpClients fresh from
-      // store — useManageMCPConnections may have populated it since the
-      // render that captured this closure (same pattern as computeTools).
-      if (shouldQuery) {
-        const freshClients = mergeClients(initialMcpClients, store.getState().mcp.clients);
-        void diagnosticTracker.handleQueryStart(freshClients);
-        const ideClient = getConnectedIdeClient(freshClients);
-        if (ideClient) {
-          void closeOpenDiffs(ideClient);
-        }
-      }
-
-      // Mark onboarding as complete when any user message is sent to Claude
-      void maybeMarkProjectOnboardingComplete();
+      runReplPreQueryHostPrep({
+        shouldQuery,
+        getFreshMcpClients: () =>
+          mergeClients(initialMcpClients, store.getState().mcp.clients),
+        onDiagnosticQueryStart: clients => {
+          void diagnosticTracker.handleQueryStart(clients);
+        },
+        getConnectedIdeClient,
+        closeOpenDiffs,
+        markProjectOnboardingComplete: () => {
+          void maybeMarkProjectOnboardingComplete();
+        },
+      });
 
       maybeGenerateReplSessionTitle({
         newMessages,
@@ -3266,26 +3267,30 @@ export function REPL({
           entries: apiMetricsRef.current,
           loadingStartTimeMs: loadingStartTimeRef.current,
           setMessages: updater => {
-          setMessages(prev => {
-            const withBaseMetrics = updater(prev);
-            const apiMetricsMessage = withBaseMetrics.at(-1);
-            if (
-              apiMetricsMessage?.type !== 'system' ||
-              apiMetricsMessage.subtype !== 'api_metrics'
-            ) {
-              return withBaseMetrics;
-            }
-            const nextMessages = withBaseMetrics.slice();
-            nextMessages[nextMessages.length - 1] = {
-              ...apiMetricsMessage,
-              hookDurationMs: hookMs > 0 ? hookMs : undefined,
-              hookCount: hookCount > 0 ? hookCount : undefined,
-              toolDurationMs: toolMs > 0 ? toolMs : undefined,
-              toolCount: toolCount > 0 ? toolCount : undefined,
-              classifierDurationMs: classifierMs > 0 ? classifierMs : undefined,
-              classifierCount: classifierCount > 0 ? classifierCount : undefined,
-            };
-            return nextMessages;
+            setMessages(prev => {
+              const withBaseMetrics = updater(prev);
+              const apiMetricsMessage = withBaseMetrics.at(-1);
+              if (
+                apiMetricsMessage?.type !== 'system' ||
+                apiMetricsMessage.subtype !== 'api_metrics'
+              ) {
+                return withBaseMetrics;
+              }
+              const nextMessages = withBaseMetrics.slice();
+              nextMessages[nextMessages.length - 1] = {
+                ...apiMetricsMessage,
+                hookDurationMs: hookMs > 0 ? hookMs : undefined,
+                hookCount: hookCount > 0 ? hookCount : undefined,
+                toolDurationMs: toolMs > 0 ? toolMs : undefined,
+                toolCount: toolCount > 0 ? toolCount : undefined,
+                classifierDurationMs: classifierMs > 0
+                  ? classifierMs
+                  : undefined,
+                classifierCount: classifierCount > 0
+                  ? classifierCount
+                  : undefined,
+              };
+              return nextMessages;
             });
           },
         });
@@ -3428,81 +3433,75 @@ export function REPL({
 
           await mrOnTurnComplete(messagesRef.current, abortController.signal.aborted);
 
-          if (feature('UDS_INBOX') && !pipeReturnHadErrorRef.current) {
-            relayPipeMessage({
-              type: 'done',
-              data: '',
-            });
+          let shouldSignalPipeDone = false;
+          if (feature('UDS_INBOX')) {
+            shouldSignalPipeDone = !pipeReturnHadErrorRef.current;
           }
 
-          // Notify bridge clients that the turn is complete so mobile apps
-          // can stop the spark animation and show post-turn UI.
-          sendBridgeResultRef.current();
+          finalizeReplCompletedTurnHostShell({
+            shouldSignalPipeDone,
+            signalPipeDone: () => {
+              relayPipeMessage({
+                type: 'done',
+                data: '',
+              });
+            },
+            sendBridgeResult: () => {
+              sendBridgeResultRef.current();
+            },
+            shouldAutoHideTungsten:
+              process.env.USER_TYPE === 'ant' &&
+              !abortController.signal.aborted,
+            setTungstenAutoHidden: updater => {
+              setAppState(updater);
+            },
+            setAbortController,
+          });
 
-          // Auto-hide tungsten panel content at turn end (ant-only), but keep
-          // tungstenActiveSession set so the pill stays in the footer and the user
-          // can reopen the panel. Background tmux tasks (e.g. /hunter) run for
-          // minutes — wiping the session made the pill disappear entirely, forcing
-          // the user to re-invoke Tmux just to peek. Skip on abort so the panel
-          // stays open for inspection (matches the turn-duration guard below).
-          if (process.env.USER_TYPE === 'ant' && !abortController.signal.aborted) {
-            setAppState(prev => {
-              if (prev.tungstenActiveSession === undefined) return prev;
-              if (prev.tungstenPanelAutoHidden === true) return prev;
-              return { ...prev, tungstenPanelAutoHidden: true };
-            });
-          }
-
-          // Capture budget info before clearing (ant-only)
-          let budgetInfo: { tokens: number; limit: number; nudges: number } | undefined;
+          let budgetInfo:
+            | { tokens: number; limit: number; nudges: number }
+            | undefined;
           if (feature('TOKEN_BUDGET')) {
-            if (
-              getCurrentTurnTokenBudget() !== null &&
-              getCurrentTurnTokenBudget()! > 0 &&
-              !abortController.signal.aborted
-            ) {
-              budgetInfo = {
-                tokens: getTurnOutputTokens(),
-                limit: getCurrentTurnTokenBudget()!,
-                nudges: getBudgetContinuationCount(),
-              };
-            }
-            snapshotOutputTokensForTurn(null);
+            budgetInfo = captureReplTurnBudgetInfo({
+              tokenBudget: getCurrentTurnTokenBudget(),
+              isAborted: abortController.signal.aborted,
+              getTurnOutputTokens,
+              getBudgetContinuationCount,
+              clearTurnBudget: () => {
+                snapshotOutputTokensForTurn(null);
+              },
+            });
           }
 
-          // Add turn duration message for turns longer than 30s or with a budget
-          // Skip if user aborted or if in loop mode (too noisy between ticks)
-          // Defer if swarm teammates are still running (show when they finish)
           const turnDurationMs = Date.now() - loadingStartTimeRef.current - totalPausedMsRef.current;
-          if (
-            (turnDurationMs > 30000 || budgetInfo !== undefined) &&
-            !abortController.signal.aborted &&
-            !proactiveActive
-          ) {
-            const hasRunningSwarmAgents = getAllInProcessTeammateTasks(store.getState().tasks).some(
-              t => t.status === 'running',
-            );
-            if (hasRunningSwarmAgents) {
-              // Only record start time on the first deferred turn
+          finalizeReplTurnDurationShell({
+            turnDurationMs,
+            budgetInfo,
+            isAborted: abortController.signal.aborted,
+            proactiveActive: proactiveActive === true,
+            hasRunningSwarmAgents: getAllInProcessTeammateTasks(
+              store.getState().tasks,
+            ).some(t => t.status === 'running'),
+            loadingStartTimeMs: loadingStartTimeRef.current,
+            recordDeferredSwarmStartTime: timeMs => {
               if (swarmStartTimeRef.current === null) {
-                swarmStartTimeRef.current = loadingStartTimeRef.current;
+                swarmStartTimeRef.current = timeMs;
               }
-              // Always update budget — later turns may carry the actual budget
-              if (budgetInfo) {
-                swarmBudgetInfoRef.current = budgetInfo;
-              }
-            } else {
+            },
+            recordDeferredBudgetInfo: nextBudgetInfo => {
+              swarmBudgetInfoRef.current = nextBudgetInfo;
+            },
+            appendTurnDurationMessage: (nextTurnDurationMs, nextBudgetInfo) => {
               setMessages(prev => [
                 ...prev,
-                createTurnDurationMessage(turnDurationMs, budgetInfo, count(prev, isLoggableMessage)),
+                createTurnDurationMessage(
+                  nextTurnDurationMs,
+                  nextBudgetInfo,
+                  count(prev, isLoggableMessage),
+                ),
               ]);
-            }
-          }
-          // Clear the controller so CancelRequestHandler's canCancelRunningTask
-          // reads false at the idle prompt. Without this, the stale non-aborted
-          // controller makes ctrl+c fire onCancel() (aborting nothing) instead of
-          // propagating to the double-press exit flow.
-          setAbortController(null);
+            },
+          });
         }
 
         // Auto-restore: if the user interrupted before any meaningful response
@@ -3519,25 +3518,18 @@ export function REPL({
         // avoids removeLastFromHistory removing B's entry instead of A's),
         // not viewing a teammate (messagesRef is the main conversation — the
         // old Up-arrow quick-restore had this guard, preserve it).
-        if (
-          abortController.signal.reason === 'user-cancel' &&
-          !queryGuard.isActive &&
-          inputValueRef.current === '' &&
-          getCommandQueueLength() === 0 &&
-          !store.getState().viewingAgentTaskId
-        ) {
-          const msgs = messagesRef.current;
-          const lastUserMsg = msgs.findLast(selectableUserMessagesFilter);
-          if (lastUserMsg) {
-            const idx = msgs.lastIndexOf(lastUserMsg);
-            if (messagesAfterAreOnlySynthetic(msgs, idx)) {
-              // The submit is being undone — undo its history entry too,
-              // otherwise Up-arrow shows the restored text twice.
-              removeLastFromHistory();
-              restoreMessageSyncRef.current(lastUserMsg);
-            }
-          }
-        }
+        maybeRestoreCancelledReplTurn({
+          abortReason: abortController.signal.reason,
+          hasActiveQuery: queryGuard.isActive,
+          inputValue: inputValueRef.current,
+          commandQueueLength: getCommandQueueLength(),
+          viewingAgentTaskId: store.getState().viewingAgentTaskId,
+          messages: messagesRef.current,
+          removeLastFromHistory,
+          restoreMessage: message => {
+            restoreMessageSyncRef.current(message);
+          },
+        });
       }
     },
     [onQueryImpl, setAppState, resetLoadingState, queryGuard, mrOnBeforeQuery, mrOnTurnComplete],
@@ -3553,14 +3545,21 @@ export function REPL({
     // Mark as processing to prevent re-entry
     initialMessageRef.current = true;
 
-    async function processInitialMessage(initialMsg: NonNullable<typeof pending>) {
-      // Clear context if requested (plan mode exit)
-      if (initialMsg.clearContext) {
-        // Preserve the plan slug before clearing context, so the new session
-        // can access the same plan file after regenerateSessionId()
-        const oldPlanSlug = initialMsg.message.planContent ? getPlanSlug() : undefined;
+    let shouldRestrictAutoPermissions = false;
+    if (feature('TRANSCRIPT_CLASSIFIER')) {
+      shouldRestrictAutoPermissions = true;
+    }
 
-        const { clearConversation } = await import('../commands/clear/conversation.js');
+    void runReplInitialMessageShell({
+      initialMessage: pending,
+      clearContextForInitialMessage: async initialMsg => {
+        const oldPlanSlug = initialMsg.message.planContent
+          ? getPlanSlug()
+          : undefined;
+
+        const { clearConversation } = await import(
+          '../commands/clear/conversation.js'
+        );
         await clearConversation({
           setMessages,
           readFileState: readFileState.current,
@@ -3575,95 +3574,46 @@ export function REPL({
         bashTools.current.clear();
         bashToolsProcessedIdx.current = 0;
 
-        // Restore the plan slug for the new session so getPlan() finds the file
         if (oldPlanSlug) {
           setPlanSlug(getSessionId(), oldPlanSlug);
         }
-      }
-
-      // Atomically: clear initial message, set permission mode and rules
-      setAppState(prev => {
-        // Build and apply permission updates (mode + allowedPrompts rules)
-        let updatedToolPermissionContext = initialMsg.mode
-          ? applyPermissionUpdates(
-              prev.toolPermissionContext,
-              buildPermissionUpdates(initialMsg.mode, initialMsg.allowedPrompts),
-            )
-          : prev.toolPermissionContext;
-        // For auto, override the mode (buildPermissionUpdates maps
-        // it to 'default' via toExternalPermissionMode) and strip dangerous rules
-        if (feature('TRANSCRIPT_CLASSIFIER') && initialMsg.mode === 'auto') {
-          updatedToolPermissionContext = stripDangerousPermissionsForAutoMode({
-            ...updatedToolPermissionContext,
-            mode: 'auto',
-            prePlanMode: undefined,
-          });
+      },
+      setAppState,
+      shouldRestrictAutoPermissions,
+      createFileHistorySnapshot: messageUuid => {
+        if (!fileHistoryEnabled()) {
+          return;
         }
-
-        return {
-          ...prev,
-          initialMessage: null,
-          toolPermissionContext: updatedToolPermissionContext,
-        };
-      });
-
-      // Create file history snapshot for code rewind
-      if (fileHistoryEnabled()) {
-        void fileHistoryMakeSnapshot((updater: (prev: FileHistoryState) => FileHistoryState) => {
+        void fileHistoryMakeSnapshot(updater => {
           setAppState(prev => ({
             ...prev,
             fileHistory: updater(prev.fileHistory),
           }));
-        }, initialMsg.message.uuid);
-      }
-
-      // Ensure SessionStart hook context is available before the first API
-      // call. onSubmit calls this internally but the onQuery path below
-      // bypasses onSubmit — hoist here so both paths see hook messages.
-      await awaitPendingHooks();
-
-      // Route all initial prompts through onSubmit to ensure UserPromptSubmit hooks fire
-      // TODO: Simplify by always routing through onSubmit once it supports
-      // ContentBlockParam arrays (images) as input
-      const content = initialMsg.message.message.content;
-
-      // Route all string content through onSubmit to ensure hooks fire
-      // For complex content (images, etc.), fall back to direct onQuery
-      // Plan messages bypass onSubmit to preserve planContent metadata for rendering
-      if (typeof content === 'string' && !initialMsg.message.planContent) {
-        // Route through onSubmit for proper processing including UserPromptSubmit hooks
+        }, messageUuid);
+      },
+      awaitPendingHooks,
+      submitInitialPrompt: content => {
         void onSubmit(content, {
           setCursorOffset: () => {},
           clearBuffer: () => {},
           resetHistory: () => {},
         });
-      } else {
-        // Plan messages or complex content (images, etc.) - send directly to model
-        // Plan messages use onQuery to preserve planContent metadata for rendering
-        // TODO: Once onSubmit supports ContentBlockParam arrays, remove this branch
-        const newAbortController = createAbortController();
-        setAbortController(newAbortController);
-
-        void onQuery(
-          [initialMsg.message],
-          newAbortController,
-          true, // shouldQuery
-          [], // additionalAllowedTools
-          mainLoopModel,
+      },
+      createAbortController,
+      setAbortController,
+      dispatchInitialMessage: (message, abortController) => {
+        void onQuery([message], abortController, true, [], mainLoopModel);
+      },
+      scheduleProcessingReset: () => {
+        setTimeout(
+          ref => {
+            ref.current = false;
+          },
+          100,
+          initialMessageRef,
         );
-      }
-
-      // Reset ref after a delay to allow new initial messages
-      setTimeout(
-        ref => {
-          ref.current = false;
-        },
-        100,
-        initialMessageRef,
-      );
-    }
-
-    void processInitialMessage(pending);
+      },
+    });
   }, [initialMessage, isLoading, setMessages, setAppState, onQuery, mainLoopModel, tools]);
 
   const onSubmit = useCallback(

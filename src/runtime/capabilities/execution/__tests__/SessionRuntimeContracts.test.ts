@@ -12,12 +12,32 @@ const content = readFileSync(
   ),
   'utf8',
 )
+const headlessManagedSessionContent = readFileSync(
+  join(
+    process.cwd(),
+    'src/runtime/capabilities/execution/internal/headlessManagedSession.ts',
+  ),
+  'utf8',
+)
 
 describe('SessionRuntime contracts', () => {
   test('defines the execution session factory surface', () => {
+    expect(content).toContain("from '../../contracts/session.js'")
     expect(content).toContain('export interface RuntimeExecutionSession')
+    expect(content).toContain(
+      'export interface RuntimeExecutionSession extends RuntimeSessionLifecycle',
+    )
     expect(content).toContain('export type ExecutionSessionFactory')
     expect(content).toContain('export const createExecutionSessionRuntime')
+  })
+
+  test('headless managed session shares the runtime session lifecycle contract', () => {
+    expect(headlessManagedSessionContent).toContain(
+      "from '../../../contracts/session.js'",
+    )
+    expect(headlessManagedSessionContent).toContain(
+      'export type HeadlessManagedSession = RuntimeSessionLifecycle & {',
+    )
   })
 
   test('ask routes through an injected execution session factory', async () => {
@@ -32,6 +52,7 @@ describe('SessionRuntime contracts', () => {
     })
 
     const setReadFileCache = mock((_cache: unknown) => {})
+    const stopAndWait = mock(async (_force?: boolean) => {})
     const submitMessage = mock(async function* (
       prompt: string | unknown[],
       options?: { uuid?: string; isMeta?: boolean },
@@ -62,8 +83,12 @@ describe('SessionRuntime contracts', () => {
       expect(config.readFileCache).not.toBe(initialCache)
       expect(config.initialMessages).toEqual([])
       return {
+        id: 'session-1',
+        workDir: process.cwd(),
+        isLive: true,
         submitMessage,
         getReadFileState: () => nextCache,
+        stopAndWait,
       }
     })
 
@@ -89,6 +114,7 @@ describe('SessionRuntime contracts', () => {
     expect(createSessionRuntime).toHaveBeenCalledTimes(1)
     expect(submitMessage).toHaveBeenCalledTimes(1)
     expect(setReadFileCache).toHaveBeenCalledWith(nextCache)
+    expect(stopAndWait).toHaveBeenCalledWith(true)
     expect(yieldedMessages).toHaveLength(1)
   })
 })

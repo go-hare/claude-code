@@ -89,6 +89,35 @@ export function maybeGenerateReplSessionTitle({
   )
 }
 
+export function runReplPreQueryHostPrep<TMcpClient, TIdeClient>({
+  shouldQuery,
+  getFreshMcpClients,
+  onDiagnosticQueryStart,
+  getConnectedIdeClient,
+  closeOpenDiffs,
+  markProjectOnboardingComplete,
+}: {
+  shouldQuery: boolean
+  getFreshMcpClients: () => TMcpClient[]
+  onDiagnosticQueryStart: (clients: TMcpClient[]) => void
+  getConnectedIdeClient: (
+    clients: TMcpClient[],
+  ) => TIdeClient | null | undefined
+  closeOpenDiffs: (ideClient: TIdeClient) => void | Promise<void>
+  markProjectOnboardingComplete: () => void
+}): void {
+  if (shouldQuery) {
+    const freshClients = getFreshMcpClients()
+    onDiagnosticQueryStart(freshClients)
+    const ideClient = getConnectedIdeClient(freshClients)
+    if (ideClient) {
+      void closeOpenDiffs(ideClient)
+    }
+  }
+
+  markProjectOnboardingComplete()
+}
+
 export function syncReplAllowedToolsForTurn({
   setStoreState,
   additionalAllowedTools,
@@ -212,4 +241,38 @@ export function appendReplApiMetricsMessage({
       configWriteCount: getGlobalConfigWriteCount(),
     }),
   ])
+}
+
+export function finalizeReplCompletedTurnHostShell({
+  shouldSignalPipeDone,
+  signalPipeDone,
+  sendBridgeResult,
+  shouldAutoHideTungsten,
+  setTungstenAutoHidden,
+  setAbortController,
+}: {
+  shouldSignalPipeDone: boolean
+  signalPipeDone: () => void
+  sendBridgeResult: () => void
+  shouldAutoHideTungsten: boolean
+  setTungstenAutoHidden: (
+    updater: (prev: AppState) => AppState,
+  ) => void
+  setAbortController: (controller: AbortController | null) => void
+}): void {
+  if (shouldSignalPipeDone) {
+    signalPipeDone()
+  }
+
+  sendBridgeResult()
+
+  if (shouldAutoHideTungsten) {
+    setTungstenAutoHidden(prev => {
+      if (prev.tungstenActiveSession === undefined) return prev
+      if (prev.tungstenPanelAutoHidden === true) return prev
+      return { ...prev, tungstenPanelAutoHidden: true }
+    })
+  }
+
+  setAbortController(null)
 }

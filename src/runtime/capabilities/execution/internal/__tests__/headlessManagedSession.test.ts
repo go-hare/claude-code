@@ -25,7 +25,10 @@ describe('createHeadlessManagedSession', () => {
 
     const session = createHeadlessManagedSession(
       [interruptedUserMessage, interruptionSentinel, trailingMessage],
-      process.cwd(),
+      {
+        sessionId: 'session-1',
+        cwd: process.cwd(),
+      },
     )
 
     expect(session.resumeInterruptedTurn(interruptedUserMessage)).toBe(
@@ -35,7 +38,10 @@ describe('createHeadlessManagedSession', () => {
   })
 
   test('manages the active turn abort controller', () => {
-    const session = createHeadlessManagedSession([], process.cwd())
+    const session = createHeadlessManagedSession([], {
+      sessionId: 'session-1',
+      cwd: process.cwd(),
+    })
 
     expect(session.getAbortController()).toBeUndefined()
 
@@ -48,7 +54,10 @@ describe('createHeadlessManagedSession', () => {
   })
 
   test('merges pending read-state seeds at the commit boundary', () => {
-    const session = createHeadlessManagedSession([], process.cwd())
+    const session = createHeadlessManagedSession([], {
+      sessionId: 'session-1',
+      cwd: process.cwd(),
+    })
     session.seedReadFileState('/tmp/seeded.txt', {
       content: 'seeded',
       timestamp: 10,
@@ -72,5 +81,23 @@ describe('createHeadlessManagedSession', () => {
     expect(session.getReadFileCache().get('/tmp/seeded.txt')?.content).toBe(
       'seeded',
     )
+  })
+
+  test('exposes a lifecycle contract with session identity and stop semantics', async () => {
+    const session = createHeadlessManagedSession([], {
+      sessionId: 'session-42',
+      cwd: '/tmp/headless-session',
+    })
+
+    expect(session.id).toBe('session-42')
+    expect(session.workDir).toBe('/tmp/headless-session')
+    expect(session.isLive).toBe(true)
+
+    const abortController = session.startTurn()
+    await session.stopAndWait(true)
+
+    expect(session.isLive).toBe(false)
+    expect(abortController.signal.aborted).toBe(true)
+    expect(session.getAbortController()).toBeUndefined()
   })
 })

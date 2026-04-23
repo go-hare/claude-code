@@ -1,7 +1,9 @@
 import type { BetaMessageStreamParams } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
+import type { HookEvent } from 'src/entrypoints/agentSdkTypes.js'
 import type { ModelUsage } from 'src/entrypoints/agentSdkTypes.js'
 import type { AppState } from 'src/state/AppStateStore.js'
 import type { SessionId } from 'src/types/ids.js'
+import type { HookCallbackMatcher } from 'src/types/hooks.js'
 import type { ModelSetting } from 'src/utils/model/model.js'
 import type { ModelStrings } from 'src/utils/model/modelStrings.js'
 
@@ -94,6 +96,31 @@ export type RuntimeRequestDebugStatePatch = {
   lastApiCompletionTimestamp?: number
 }
 
+export type RuntimeAllowedChannelEntry =
+  | { kind: 'plugin'; name: string; marketplace: string; dev?: boolean }
+  | { kind: 'server'; name: string; dev?: boolean }
+
+export type RuntimeHeadlessControlState = {
+  initJsonSchema: Record<string, unknown> | undefined
+  mainThreadAgentType: string | undefined
+  allowedChannels: RuntimeAllowedChannelEntry[]
+  isRemoteMode: boolean
+  flagSettingsInline: Record<string, unknown> | null
+  sdkAgentProgressSummariesEnabled: boolean
+}
+
+export type RuntimeHeadlessControlStatePatch = {
+  initJsonSchema?: Record<string, unknown> | undefined
+  mainThreadAgentType?: string | undefined
+  allowedChannels?: RuntimeAllowedChannelEntry[]
+  flagSettingsInline?: Record<string, unknown> | null
+  sdkAgentProgressSummariesEnabled?: boolean
+}
+
+export type RuntimeRegisteredHookCallbacks = Partial<
+  Record<HookEvent, HookCallbackMatcher[]>
+>
+
 export type RuntimeExecutionAppStateSlice = Pick<
   AppState,
   'toolPermissionContext' | 'fileHistory' | 'attribution' | 'fastMode'
@@ -114,6 +141,9 @@ export interface RuntimeBootstrapStateProvider {
   patchPromptState(patch: RuntimeExecutionPromptStatePatch): void
   getRequestDebugState(): RuntimeRequestDebugState
   patchRequestDebugState(patch: RuntimeRequestDebugStatePatch): void
+  getHeadlessControlState(): RuntimeHeadlessControlState
+  patchHeadlessControlState(patch: RuntimeHeadlessControlStatePatch): void
+  registerHookCallbacks(hooks: RuntimeRegisteredHookCallbacks): void
   markPostCompaction(): void
   consumePostCompaction(): boolean
   isSessionPersistenceDisabled(): boolean

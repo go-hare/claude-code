@@ -35,12 +35,11 @@
 - `src/kernel` 作为统一 façade 的基本形态
 - 最小 import discipline / surface / smoke 护栏
 
-当前还没完成的硬缺口，主要是 4 类：
+当前还没完成的硬缺口，主要是 3 类：
 
-1. package-level 发布面还没真正收口
-2. runtime state ownership 还混着 bootstrap 单例
-3. shared session core 还没统一
-4. REPL 仍然是 runtime 语义和宿主 UI 混合的巨石
+1. runtime state ownership 还混着 bootstrap 单例
+2. shared session core 还没统一
+3. REPL / headless 仍然留有宿主壳与 host-adjacent 尾巴
 
 对应的直接证据：
 
@@ -73,11 +72,7 @@
 2. shared session core
 3. REPL host/runtime split
 
-### 侧线 B：package-level 发布面修复
-
-这条线可以和主线并行，但它不能替代主线完成。
-
-### 侧线 C：contracts / smoke / 验证护栏补齐
+### 侧线 B：contracts / smoke / 验证护栏补齐
 
 这条线跟随主线推进，每一阶段补足最小验证，不等到最后一次性补。
 
@@ -90,9 +85,14 @@
 
 让 `@go-hare/hare-code/kernel` 的 built entry 真正对齐源码级稳定 surface。
 
-### 为什么它还没完成
+### 当前状态
 
-当前 [`src/entrypoints/kernel.ts`](../../src/entrypoints/kernel.ts) 只是简单 re-export，但 built 产物里的实际导出名还没完全对齐稳定 kernel surface，导致 [`tests/integration/kernel-package-smoke.test.ts`](../../tests/integration/kernel-package-smoke.test.ts) 还没绿。
+截至 2026-04-24，这一阶段已经可以视为完成：
+
+1. `bun run build` 已产出可导入的 `dist/kernel.js`
+2. [`src/kernel/__tests__/packageEntry.test.ts`](../../src/kernel/__tests__/packageEntry.test.ts) 通过
+3. [`tests/integration/kernel-package-smoke.test.ts`](../../tests/integration/kernel-package-smoke.test.ts) 通过
+4. `@go-hare/hare-code/kernel` 已能稳定导出 `runKernelHeadless`、`createDefaultKernelHeadlessEnvironment`、`createDirectConnectSession`、`runBridgeHeadless`、`runDaemonWorker`，且 `createKernelSession === createDirectConnectSession`
 
 ### 建议涉及文件
 
@@ -116,9 +116,9 @@
 2. `tests/integration/kernel-package-smoke.test.ts` 转绿
 3. `src/kernel/__tests__/packageEntry.test.ts` 继续通过
 
-### 收口条件
+### 收口结论
 
-只要 built export 已对齐、smoke 转绿，就结束本阶段；不要顺手扩写 README / examples 大翻新。
+这一阶段已经满足收口条件，不再是当前主线阻塞；后续只在 build / exports 再次回退时回来看它。
 
 ## Phase 2：做实 runtime-vs-host state ownership split
 

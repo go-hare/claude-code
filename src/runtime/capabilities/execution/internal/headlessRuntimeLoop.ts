@@ -184,12 +184,6 @@ import { getAPIProvider } from 'src/utils/model/providers.js'
 import type { HookCallbackMatcher } from 'src/types/hooks.js'
 import { AwsAuthStatusManager } from 'src/utils/awsAuthStatusManager.js'
 import type { HookEvent } from 'src/entrypoints/agentSdkTypes.js'
-import {
-  registerHookCallbacks,
-  setInitJsonSchema,
-  getInitJsonSchema,
-  setSdkAgentProgressSummariesEnabled,
-} from 'src/bootstrap/state.js'
 import { createSyntheticOutputTool } from '@go-hare/builtin-tools/tools/SyntheticOutputTool/SyntheticOutputTool.js'
 import { parseSessionIdentifier } from 'src/utils/sessionUrl.js'
 import {
@@ -267,20 +261,6 @@ import {
 import { modelSupportsAdaptiveThinking } from 'src/utils/thinking.js'
 import { modelSupportsAutoMode } from 'src/utils/betas.js'
 import { ensureModelStringsInitialized } from 'src/utils/model/modelStrings.js'
-import {
-  getSessionId,
-  setMainLoopModelOverride,
-  setMainThreadAgentType,
-  switchSession,
-  isSessionPersistenceDisabled,
-  getIsRemoteMode,
-  getFlagSettingsInline,
-  setFlagSettingsInline,
-  getMainThreadAgentType,
-  getAllowedChannels,
-  setAllowedChannels,
-  type ChannelEntry,
-} from 'src/bootstrap/state.js'
 import { runWithWorkload, WORKLOAD_CRON } from 'src/utils/workloadContext.js'
 import type { UUID } from 'crypto'
 import { randomUUID } from 'crypto'
@@ -496,7 +476,8 @@ export async function runHeadlessRuntimeLoop(
   // enabledPlugins.
   if (
     feature('DOWNLOAD_USER_SETTINGS') &&
-    (isEnvTruthy(process.env.CLAUDE_CODE_REMOTE) || getIsRemoteMode())
+    (isEnvTruthy(process.env.CLAUDE_CODE_REMOTE) ||
+      session.bootstrapStateProvider.getHeadlessControlState().isRemoteMode)
   ) {
     void downloadUserSettings()
   }
@@ -622,7 +603,8 @@ export async function runHeadlessRuntimeLoop(
               hook_name: event.hookName,
               hook_event: event.hookEvent,
               uuid: randomUUID(),
-              session_id: getSessionId(),
+              session_id:
+                session.bootstrapStateProvider.getSessionIdentity().sessionId,
             }
           case 'progress':
             return {
@@ -635,7 +617,8 @@ export async function runHeadlessRuntimeLoop(
               stderr: event.stderr,
               output: event.output,
               uuid: randomUUID(),
-              session_id: getSessionId(),
+              session_id:
+                session.bootstrapStateProvider.getSessionIdentity().sessionId,
             }
           case 'response':
             return {
@@ -650,7 +633,8 @@ export async function runHeadlessRuntimeLoop(
               exit_code: event.exitCode,
               outcome: event.outcome,
               uuid: randomUUID(),
-              session_id: getSessionId(),
+              session_id:
+                session.bootstrapStateProvider.getSessionIdentity().sessionId,
             }
         }
       })()
@@ -719,7 +703,12 @@ export async function runHeadlessRuntimeLoop(
 
   // Restore agent setting from the resumed session (if not overridden by current --agent flag
   // or settings-based agent, which would already have set mainThreadAgentType in main.tsx)
-  if (!options.agent && !getMainThreadAgentType() && resumedAgentSetting) {
+  if (
+    !options.agent &&
+    !session.bootstrapStateProvider.getHeadlessControlState()
+      .mainThreadAgentType &&
+    resumedAgentSetting
+  ) {
     const { agentDefinition: restoredAgent } = restoreAgentFromSession(
       resumedAgentSetting,
       undefined,
@@ -939,8 +928,12 @@ function runHeadlessStreaming(
   let heldBackResult: StdoutMessage | null = null
   // Same queue sendRequest() enqueues to — one FIFO for everything.
   const output = structuredIO.outbound
-  const managedSession = createHeadlessManagedSession(initialMessages, cwd())
+  const managedSession = createHeadlessManagedSession(initialMessages, {
+    sessionId: session.bootstrapStateProvider.getSessionIdentity().sessionId,
+    cwd: cwd(),
+  })
   const mutableMessages = managedSession.messages
+  session.registerCleanup(() => managedSession.stopAndWait(true))
 
   // Ctrl+C in -p mode: abort the in-flight query, then shut down gracefully.
   // gracefulShutdown persists session state and flushes analytics, with a
@@ -998,7 +991,8 @@ function runHeadlessStreaming(
         status: null,
         permissionMode: newMode as PermissionMode,
         uuid: randomUUID(),
-        session_id: getSessionId(),
+        session_id:
+          session.bootstrapStateProvider.getSessionIdentity().sessionId,
       })
     }
   })
@@ -1046,7 +1040,8 @@ function runHeadlessStreaming(
         output: status.output,
         error: status.error,
         uuid: randomUUID(),
-        session_id: getSessionId(),
+        session_id:
+          session.bootstrapStateProvider.getSessionIdentity().sessionId,
       })
     })
   }
@@ -1061,7 +1056,8 @@ function runHeadlessStreaming(
         type: 'rate_limit_event',
         rate_limit_info: rateLimitInfo,
         uuid: randomUUID(),
-        session_id: getSessionId(),
+        session_id:
+          session.bootstrapStateProvider.getSessionIdentity().sessionId,
       } as unknown as Parameters<typeof output.enqueue>[0])
     }
   }
@@ -1141,7 +1137,8 @@ function runHeadlessStreaming(
           type: 'user',
           content: crumb.message.content,
           message: crumb.message as unknown,
-          session_id: getSessionId(),
+          session_id:
+            session.bootstrapStateProvider.getSessionIdentity().sessionId,
           parent_tool_use_id: null,
           uuid: crumb.uuid,
           timestamp: crumb.timestamp,
@@ -1278,7 +1275,8 @@ function runHeadlessStreaming(
               mcp_server_name: serverName,
               elicitation_id: elicitationId,
               uuid: randomUUID(),
-              session_id: getSessionId(),
+              session_id:
+                session.bootstrapStateProvider.getSessionIdentity().sessionId,
             })
           },
         )
@@ -1393,7 +1391,8 @@ function runHeadlessStreaming(
         tool => !toolMatchesName(tool, options.permissionPromptToolName!),
       )
     }
-    const initJsonSchema = getInitJsonSchema()
+    const initJsonSchema =
+      session.bootstrapStateProvider.getHeadlessControlState().initJsonSchema
     if (initJsonSchema && !options.jsonSchema) {
       const syntheticOutputResult = createSyntheticOutputTool(initJsonSchema)
       if ('tool' in syntheticOutputResult) {
@@ -1520,7 +1519,8 @@ function runHeadlessStreaming(
   async function installPluginsAndApplyMcpInBackground(): Promise<void> {
     return installPluginsAndApplyMcpInBackgroundRuntime({
       isRemoteMode:
-        isEnvTruthy(process.env.CLAUDE_CODE_REMOTE) || getIsRemoteMode(),
+        isEnvTruthy(process.env.CLAUDE_CODE_REMOTE) ||
+        session.bootstrapStateProvider.getHeadlessControlState().isRemoteMode,
       applyPluginMcpDiff,
     })
   }
@@ -1756,7 +1756,9 @@ function runHeadlessStreaming(
                   type: 'user',
                   content: c.value,
                   message: { role: 'user', content: c.value } as unknown,
-                  session_id: getSessionId(),
+                  session_id:
+                    session.bootstrapStateProvider.getSessionIdentity()
+                      .sessionId,
                   parent_tool_use_id: null,
                   uuid: c.uuid as string,
                   isReplay: true,
@@ -1782,7 +1784,10 @@ function runHeadlessStreaming(
           // (setNotificationHandler replaces, not stacks) and no-ops for
           // non-allowlisted servers (one feature-flag check).
           for (const client of allMcpClients) {
-            reregisterChannelHandlerAfterReconnect(client)
+            reregisterChannelHandlerAfterReconnect(
+              client,
+              session.bootstrapStateProvider,
+            )
           }
 
           const allTools = buildAllTools(appState)
@@ -1870,7 +1875,9 @@ function runHeadlessStreaming(
                           : 0,
                       }
                     : undefined,
-                session_id: getSessionId(),
+                session_id:
+                  session.bootstrapStateProvider.getSessionIdentity()
+                    .sessionId,
                 uuid: randomUUID(),
               })
             }
@@ -1957,7 +1964,10 @@ function runHeadlessStreaming(
                   canUseTool,
                   userSpecifiedModel: activeUserSpecifiedModel,
                   fallbackModel: options.fallbackModel,
-                  jsonSchema: getInitJsonSchema() ?? options.jsonSchema,
+                  jsonSchema:
+                    session.bootstrapStateProvider.getHeadlessControlState()
+                      .initJsonSchema ??
+                    options.jsonSchema,
                   mutableMessages,
                   getReadFileCache: () => managedSession.getReadFileCache(),
                   setReadFileCache: cache =>
@@ -1989,7 +1999,9 @@ function runHeadlessStreaming(
                       type: 'system',
                       subtype: 'status',
                       status: status as 'compacting' | null,
-                      session_id: getSessionId(),
+                      session_id:
+                        session.bootstrapStateProvider.getSessionIdentity()
+                          .sessionId,
                       uuid: randomUUID(),
                     })
                   },
@@ -2071,7 +2083,9 @@ function runHeadlessStreaming(
                 output.enqueue(
                   createFilesPersistedMessage({
                     result: filesResult,
-                    sessionId: getSessionId(),
+                    sessionId:
+                      session.bootstrapStateProvider.getSessionIdentity()
+                        .sessionId,
                   }),
                 )
               },
@@ -2116,7 +2130,9 @@ function runHeadlessStreaming(
                     type: 'prompt_suggestion' as const,
                     suggestion: result.suggestion,
                     uuid: randomUUID(),
-                    session_id: getSessionId(),
+                    session_id:
+                      session.bootstrapStateProvider.getSessionIdentity()
+                        .sessionId,
                   }
                   const lastEmittedEntry = {
                     text: result.suggestion,
@@ -2229,7 +2245,8 @@ function runHeadlessStreaming(
           is_error: true,
           num_turns: 0,
           stop_reason: null,
-          session_id: getSessionId(),
+          session_id:
+            session.bootstrapStateProvider.getSessionIdentity().sessionId,
           total_cost_usd: 0,
           usage: EMPTY_USAGE,
           modelUsage: {},
@@ -2720,6 +2737,7 @@ function runHeadlessStreaming(
             options,
             agents,
             getAppState,
+            session.bootstrapStateProvider,
           )
 
           // Enable prompt suggestions in AppState when SDK consumer opts in.
@@ -2736,7 +2754,9 @@ function runHeadlessStreaming(
             msg.request.agentProgressSummaries &&
             getFeatureValue_CACHED_MAY_BE_STALE('tengu_slate_prism', true)
           ) {
-            setSdkAgentProgressSummariesEnabled(true)
+            session.bootstrapStateProvider.patchHeadlessControlState({
+              sdkAgentProgressSummariesEnabled: true,
+            })
           }
 
           initialized = true
@@ -2768,7 +2788,9 @@ function runHeadlessStreaming(
               ? getDefaultMainLoopModel()
               : requestedModel
           activeUserSpecifiedModel = model
-          setMainLoopModelOverride(model)
+          session.bootstrapStateProvider.patchPromptState({
+            mainLoopModelOverride: model,
+          })
           notifySessionMetadataChanged({ model })
           injectModelSwitchBreadcrumbs(requestedModel, model)
 
@@ -2903,7 +2925,9 @@ function runHeadlessStreaming(
           try {
             if (
               feature('DOWNLOAD_USER_SETTINGS') &&
-              (isEnvTruthy(process.env.CLAUDE_CODE_REMOTE) || getIsRemoteMode())
+              (isEnvTruthy(process.env.CLAUDE_CODE_REMOTE) ||
+                session.bootstrapStateProvider.getHeadlessControlState()
+                  .isRemoteMode)
             ) {
               // Re-pull user settings so enabledPlugins pushed from the
               // user's local CLI take effect before the cache sweep.
@@ -3031,7 +3055,10 @@ function runHeadlessStreaming(
             }
             if (result.client.type === 'connected') {
               registerElicitationHandlers([result.client])
-              reregisterChannelHandlerAfterReconnect(result.client)
+              reregisterChannelHandlerAfterReconnect(
+                result.client,
+                session.bootstrapStateProvider,
+              )
               sendControlResponseSuccess(msg)
             } else {
               const errorMessage =
@@ -3122,7 +3149,10 @@ function runHeadlessStreaming(
             }))
             if (result.client.type === 'connected') {
               registerElicitationHandlers([result.client])
-              reregisterChannelHandlerAfterReconnect(result.client)
+              reregisterChannelHandlerAfterReconnect(
+                result.client,
+                session.bootstrapStateProvider,
+              )
               sendControlResponseSuccess(msg)
             } else {
               const errorMessage =
@@ -3144,6 +3174,7 @@ function runHeadlessStreaming(
               ...dynamicMcpState.clients,
             ],
             output,
+            session.bootstrapStateProvider,
           )
         } else if (req.subtype === 'mcp_authenticate') {
           const serverName = req.serverName as string
@@ -3542,7 +3573,9 @@ function runHeadlessStreaming(
           const prevModel = getMainLoopModel()
 
           // Merge the provided settings into the in-memory flag settings
-          const existing = getFlagSettingsInline() ?? {}
+          const existing =
+            session.bootstrapStateProvider.getHeadlessControlState()
+              .flagSettingsInline ?? {}
           const incoming = msg.request.settings
           // Shallow-merge top-level keys; getSettingsForSource handles
           // the deep merge with file-based flag settings via mergeWith.
@@ -3556,7 +3589,9 @@ function runHeadlessStreaming(
               delete merged[key as keyof typeof merged]
             }
           }
-          setFlagSettingsInline(merged)
+          session.bootstrapStateProvider.patchHeadlessControlState({
+            flagSettingsInline: merged,
+          })
           // Route through notifyChange so fanOut() resets the settings cache
           // before listeners run. The subscriber at :392 calls
           // applySettingsChange for us. Pre-#20625 this was a direct
@@ -3576,9 +3611,13 @@ function runHeadlessStreaming(
           // change is silently ignored (matching set_model at :2811).
           if ('model' in incoming) {
             if (incoming.model != null) {
-              setMainLoopModelOverride(String(incoming.model))
+              session.bootstrapStateProvider.patchPromptState({
+                mainLoopModelOverride: String(incoming.model),
+              })
             } else {
-              setMainLoopModelOverride(undefined)
+              session.bootstrapStateProvider.patchPromptState({
+                mainLoopModelOverride: undefined,
+              })
             }
           }
 
@@ -3640,7 +3679,11 @@ function runHeadlessStreaming(
               const title = await generateSessionTitle(description, titleSignal)
               if (title && persist) {
                 try {
-                  saveAiGeneratedTitle(getSessionId() as UUID, title)
+                  saveAiGeneratedTitle(
+                    session.bootstrapStateProvider.getSessionIdentity()
+                      .sessionId as UUID,
+                    title,
+                  )
                 } catch (e) {
                   logError(e)
                 }
@@ -3784,7 +3827,9 @@ function runHeadlessStreaming(
                     const resolved =
                       model === 'default' ? getDefaultMainLoopModel() : model
                     activeUserSpecifiedModel = resolved
-                    setMainLoopModelOverride(resolved)
+                    session.bootstrapStateProvider.patchPromptState({
+                      mainLoopModelOverride: resolved,
+                    })
                   },
                   onSetMaxThinkingTokens(maxTokens) {
                     if (maxTokens === null) {
@@ -3811,7 +3856,9 @@ function runHeadlessStreaming(
                       state,
                       detail,
                       uuid: randomUUID(),
-                      session_id: getSessionId(),
+                      session_id:
+                        session.bootstrapStateProvider.getSessionIdentity()
+                          .sessionId,
                     } as StdoutMessage)
                   },
                   initialMessages:
@@ -3907,7 +3954,8 @@ function runHeadlessStreaming(
 
       // Check for duplicate user message - skip if already processed
       if (userMsg.uuid) {
-        const sessionId = getSessionId() as UUID
+        const sessionId =
+          session.bootstrapStateProvider.getSessionIdentity().sessionId as UUID
         const existsInSession = await doesMessageExistInSession(
           sessionId,
           userMsg.uuid as UUID,

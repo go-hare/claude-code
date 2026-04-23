@@ -3,14 +3,17 @@ import {
   clearSystemPromptSectionState,
   consumePostCompaction,
   getAfkModeHeaderLatched,
+  getAllowedChannels,
   getCacheEditingHeaderLatched,
   getCachedClaudeMdContent,
   getClientType,
   getCurrentTurnTokenBudget,
   getCwdState,
   getFastModeHeaderLatched,
+  getFlagSettingsInline,
   getInitialMainLoopModel,
   getIsInteractive,
+  getIsRemoteMode,
   getLastAPIRequest,
   getLastAPIRequestMessages,
   getLastApiCompletionTimestamp,
@@ -19,6 +22,7 @@ import {
   getLastInteractionTime,
   getLastMainRequestId,
   getMainLoopModelOverride,
+  getMainThreadAgentType,
   getModelStrings,
   getModelUsage,
   getOriginalCwd,
@@ -28,12 +32,14 @@ import {
   getPromptCache1hEligible,
   getPromptId,
   getSdkBetas,
+  getSdkAgentProgressSummariesEnabled,
   getSessionId,
   getSessionProjectDir,
   getSessionSource,
   getStrictToolResultPairing,
   getSystemPromptSectionCache,
   getThinkingClearLatched,
+  getInitJsonSchema,
   getTotalAPIDuration,
   getTotalAPIDurationWithoutRetries,
   getTotalCostUSD,
@@ -58,6 +64,7 @@ import {
   setCachedClaudeMdContent,
   setCwdState,
   setFastModeHeaderLatched,
+  setAllowedChannels,
   setInitialMainLoopModel,
   setLastAPIRequest,
   setLastAPIRequestMessages,
@@ -66,12 +73,17 @@ import {
   setLastEmittedDate,
   setLastMainRequestId,
   setMainLoopModelOverride,
+  setMainThreadAgentType,
   setModelStrings,
   setProjectRoot,
   setPromptCache1hAllowlist,
   setPromptCache1hEligible,
   setPromptId,
   setSdkBetas,
+  setSdkAgentProgressSummariesEnabled,
+  setFlagSettingsInline,
+  setInitJsonSchema,
+  registerHookCallbacks,
   setSystemPromptSectionCacheEntry,
   setThinkingClearLatched,
   snapshotOutputTokensForTurn,
@@ -264,6 +276,45 @@ export function createBootstrapStateProvider(): RuntimeBootstrapStateProvider {
       ) {
         setLastApiCompletionTimestamp(patch.lastApiCompletionTimestamp)
       }
+    },
+    getHeadlessControlState() {
+      return {
+        initJsonSchema: getInitJsonSchema() ?? undefined,
+        mainThreadAgentType: getMainThreadAgentType(),
+        allowedChannels: [...getAllowedChannels()],
+        isRemoteMode: getIsRemoteMode(),
+        flagSettingsInline: getFlagSettingsInline(),
+        sdkAgentProgressSummariesEnabled:
+          getSdkAgentProgressSummariesEnabled(),
+      }
+    },
+    patchHeadlessControlState(patch) {
+      if (
+        'initJsonSchema' in patch &&
+        patch.initJsonSchema !== undefined
+      ) {
+        setInitJsonSchema(patch.initJsonSchema)
+      }
+      if ('mainThreadAgentType' in patch) {
+        setMainThreadAgentType(patch.mainThreadAgentType)
+      }
+      if ('allowedChannels' in patch && patch.allowedChannels !== undefined) {
+        setAllowedChannels([...patch.allowedChannels])
+      }
+      if ('flagSettingsInline' in patch) {
+        setFlagSettingsInline(patch.flagSettingsInline ?? null)
+      }
+      if (
+        'sdkAgentProgressSummariesEnabled' in patch &&
+        patch.sdkAgentProgressSummariesEnabled !== undefined
+      ) {
+        setSdkAgentProgressSummariesEnabled(
+          patch.sdkAgentProgressSummariesEnabled,
+        )
+      }
+    },
+    registerHookCallbacks(hooks) {
+      registerHookCallbacks(hooks)
     },
     markPostCompaction() {
       markPostCompaction()

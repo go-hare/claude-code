@@ -81,6 +81,18 @@ function createBootstrapStateProviderStub(): RuntimeBootstrapStateProvider {
       }
     },
     patchRequestDebugState() {},
+    getHeadlessControlState() {
+      return {
+        initJsonSchema: undefined,
+        mainThreadAgentType: undefined,
+        allowedChannels: [],
+        isRemoteMode: false,
+        flagSettingsInline: null,
+        sdkAgentProgressSummariesEnabled: false,
+      }
+    },
+    patchHeadlessControlState() {},
+    registerHookCallbacks() {},
     markPostCompaction() {},
     consumePostCompaction() {
       return false

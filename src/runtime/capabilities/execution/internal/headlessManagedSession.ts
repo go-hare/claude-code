@@ -9,8 +9,9 @@ import {
   type FileStateCache,
 } from 'src/utils/fileStateCache.js'
 import { extractReadFilesFromMessages } from 'src/utils/queryHelpers.js'
+import type { RuntimeSessionLifecycle } from '../../../contracts/session.js'
 
-export type HeadlessManagedSession = {
+export type HeadlessManagedSession = RuntimeSessionLifecycle & {
   readonly messages: Message[]
   resumeInterruptedTurn(
     interruptedUserMessage: NormalizedUserMessage,
@@ -26,12 +27,16 @@ export type HeadlessManagedSession = {
 
 export function createHeadlessManagedSession(
   initialMessages: Message[],
-  cwd: string,
+  options: {
+    sessionId: string
+    cwd: string
+  },
 ): HeadlessManagedSession {
   let abortController: AbortController | undefined
+  let isLive = true
   let readFileState = extractReadFilesFromMessages(
     initialMessages,
-    cwd,
+    options.cwd,
     READ_FILE_STATE_CACHE_SIZE,
   )
   const pendingSeeds = createFileStateCacheWithSizeLimit(
@@ -39,6 +44,11 @@ export function createHeadlessManagedSession(
   )
 
   return {
+    id: options.sessionId,
+    workDir: options.cwd,
+    get isLive() {
+      return isLive
+    },
     messages: initialMessages,
     resumeInterruptedTurn(interruptedUserMessage) {
       const interruptedIndex = initialMessages.findIndex(
@@ -60,6 +70,14 @@ export function createHeadlessManagedSession(
     },
     abortActiveTurn(reason) {
       abortController?.abort(reason)
+    },
+    async stopAndWait(force = false) {
+      if (!isLive) {
+        return
+      }
+      isLive = false
+      abortController?.abort(force ? 'shutdown' : 'stop')
+      abortController = undefined
     },
     getCommittedReadFileState() {
       return readFileState

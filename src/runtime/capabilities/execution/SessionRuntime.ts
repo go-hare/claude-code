@@ -90,6 +90,7 @@ import {
   createExecutionStateProviders,
   type RuntimeBootstrapStateProvider,
 } from '../../core/state/index.js'
+import type { RuntimeSessionLifecycle } from '../../contracts/session.js'
 
 // Lazy: MessageSelector.tsx pulls React/ink; only needed for message filtering at query time
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -182,7 +183,7 @@ export type QueryEngineConfig = {
   ) => { messages: Message[]; executed: boolean } | undefined
 }
 
-export interface RuntimeExecutionSession {
+export interface RuntimeExecutionSession extends RuntimeSessionLifecycle {
   submitMessage(
     prompt: string | ContentBlockParam[],
     options?: { uuid?: string; isMeta?: boolean },
@@ -211,6 +212,7 @@ export class SessionRuntime implements RuntimeExecutionSession {
   private totalUsage: NonNullableUsage
   private hasHandledOrphanedPermission = false
   private readFileState: FileStateCache
+  private live = true
   private readonly stateProviders: ReturnType<
     typeof createExecutionStateProviders
   >
@@ -240,6 +242,10 @@ export class SessionRuntime implements RuntimeExecutionSession {
     prompt: string | ContentBlockParam[],
     options?: { uuid?: string; isMeta?: boolean },
   ): AsyncGenerator<SDKMessage, void, unknown> {
+    if (!this.live) {
+      throw new Error('Execution session has been stopped')
+    }
+
     const {
       cwd,
       commands,
@@ -1221,6 +1227,26 @@ export class SessionRuntime implements RuntimeExecutionSession {
     return this.readFileState
   }
 
+  get id(): string {
+    return this.getSessionId()
+  }
+
+  get workDir(): string {
+    return this.config.cwd
+  }
+
+  get isLive(): boolean {
+    return this.live
+  }
+
+  async stopAndWait(force = false): Promise<void> {
+    if (!this.live) {
+      return
+    }
+    this.live = false
+    this.abortController.abort(force ? 'shutdown' : 'stop')
+  }
+
   getStateProviders() {
     return this.stateProviders
   }
@@ -1357,5 +1383,6 @@ export async function* ask({
     })
   } finally {
     setReadFileCache(engine.getReadFileState())
+    await engine.stopAndWait(true)
   }
 }

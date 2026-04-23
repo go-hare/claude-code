@@ -13,7 +13,13 @@ describe('server runtime contracts', () => {
     const content = await readRepoFile(
       'src/runtime/capabilities/server/contracts.ts',
     )
+    const sessionContract = await readRepoFile(
+      'src/runtime/contracts/session.ts',
+    )
 
+    expect(sessionContract).toContain(
+      'export interface RuntimeSessionLifecycle',
+    )
     expect(content).toContain('export interface SessionRuntimeHandle')
     expect(content).toContain('export interface SessionRuntimeSink')
     expect(content).toContain('export interface RuntimeManagedSession')
@@ -21,6 +27,9 @@ describe('server runtime contracts', () => {
     expect(content).toContain('export interface SessionRuntimeBackend')
     expect(content).toContain('export interface SessionLogger')
     expect(content).toContain('export const noopSessionLogger')
+    expect(content).toContain("from '../../contracts/session.js'")
+    expect(content).toContain('extends IndexedRuntimeSession,')
+    expect(content).toContain('RuntimeSessionLifecycle')
   })
 
   test('session manager and direct-connect session depend on contracts, not server implementations', async () => {

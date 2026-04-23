@@ -18,7 +18,7 @@
 
 import type { ServerCapabilities } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod/v4'
-import { type ChannelEntry, getAllowedChannels } from '../../bootstrap/state.js'
+import type { ChannelEntry } from '../../bootstrap/state.js'
 import { CHANNEL_TAG } from '../../constants/xml.js'
 import {
   getSubscriptionType,
@@ -216,6 +216,7 @@ export function gateChannelServer(
   serverName: string,
   capabilities: ServerCapabilities | undefined,
   pluginSource: string | undefined,
+  channels: readonly ChannelEntry[],
 ): ChannelGateResult {
   // Channel servers declare `experimental['claude/channel']: {}` (MCP's
   // presence-signal idiom — same as `tools: {}`). Truthy covers `{}` and
@@ -232,7 +233,7 @@ export function gateChannelServer(
   // User-level session opt-in. A server must be explicitly listed in
   // --channels to push inbound this session — protects against a trusted
   // server surprise-adding the capability.
-  const entry = findChannelEntry(serverName, getAllowedChannels())
+  const entry = findChannelEntry(serverName, channels)
   if (!entry) {
     return {
       action: 'skip',

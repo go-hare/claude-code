@@ -20,7 +20,7 @@ describe('headlessBootstrap import discipline', () => {
       'bootstrapStateProvider: RuntimeBootstrapStateProvider',
     )
     expect(content).toContain(
-      'bootstrapStateProvider.patchPromptState({',
+      'bootstrapStateProvider.getSessionIdentity().sessionId',
     )
   })
 })
