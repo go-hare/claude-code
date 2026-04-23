@@ -16,6 +16,12 @@ import { checkHasTrustDialogAccepted, enableConfigs } from '../utils/config.js'
 import { setCwdState, setOriginalCwd } from '../bootstrap/state.js'
 import { getBootstrapArgs, getScriptPath } from '../utils/cliLaunch.js'
 import { BridgeHeadlessPermanentError, createHeadlessBridgeLogger, type HeadlessBridgeOpts } from '../runtime/capabilities/bridge/HeadlessBridgeRuntime.js'
+import type {
+  BridgeLoopRunner,
+  HeadlessBridgeApiFactoryParams,
+  HeadlessBridgeDeps,
+  HeadlessBridgeInitialSessionParams,
+} from '../runtime/capabilities/bridge/contracts.js'
 import {
   archiveBridgeSessionRuntime,
   createBridgeSessionRuntime,
@@ -33,12 +39,6 @@ import {
 } from '../runtime/capabilities/bridge/BridgeRuntime.js'
 import { runHeadlessBridgeRuntime } from '../runtime/capabilities/bridge/HeadlessBridgeEntry.js'
 
-export type BridgeLoopRunner = Parameters<
-  Parameters<typeof runHeadlessBridgeRuntime>[2]['runBridgeLoop']
->[0] extends never
-  ? never
-  : Parameters<typeof runHeadlessBridgeRuntime>[2]['runBridgeLoop']
-
 function spawnScriptArgs(): string[] {
   const bootstrap = [...getBootstrapArgs()]
   const script = getScriptPath()
@@ -48,7 +48,9 @@ function spawnScriptArgs(): string[] {
   return bootstrap
 }
 
-export function createBridgeHeadlessDeps(runBridgeLoop: BridgeLoopRunner) {
+export function createBridgeHeadlessDeps(
+  runBridgeLoop: BridgeLoopRunner,
+): HeadlessBridgeDeps {
   return {
     bridgeLoginError: BRIDGE_LOGIN_ERROR,
     async getBaseUrl() {
@@ -76,7 +78,12 @@ export function createBridgeHeadlessDeps(runBridgeLoop: BridgeLoopRunner) {
             : hasWorktreeCreateHook() || findGitRoot(dir) !== null,
       }
     },
-    createApi({ baseUrl, getAccessToken, onAuth401, log }: Parameters<Parameters<typeof runHeadlessBridgeRuntime>[2]['createApi']>[0]) {
+    createApi({
+      baseUrl,
+      getAccessToken,
+      onAuth401,
+      log,
+    }: HeadlessBridgeApiFactoryParams) {
       return createBridgeApiClient({
         baseUrl,
         getAccessToken,
@@ -98,7 +105,7 @@ export function createBridgeHeadlessDeps(runBridgeLoop: BridgeLoopRunner) {
       })
     },
     runBridgeLoop,
-    async createInitialSession(params: Parameters<Parameters<typeof runHeadlessBridgeRuntime>[2]['createInitialSession']>[0]) {
+    async createInitialSession(params: HeadlessBridgeInitialSessionParams) {
       return createBridgeSessionRuntime({
         environmentId: params.environmentId,
         title: params.title,
@@ -138,6 +145,7 @@ export {
   type BridgeHeadlessEntry,
   type BridgeRuntimeCapability,
   runHeadlessBridgeRuntime,
+  type BridgeLoopRunner,
   BridgeHeadlessPermanentError,
   createHeadlessBridgeLogger,
   type HeadlessBridgeOpts,

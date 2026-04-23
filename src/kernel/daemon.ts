@@ -10,18 +10,18 @@ import {
   buildRemoteControlWorkerConfigFromEnv,
   runDaemonWorkerRuntime,
   runRemoteControlWorkerRuntime,
-  type HeadlessBridgeRunner,
   type RemoteControlWorkerRuntimeConfig,
 } from '../runtime/capabilities/daemon/DaemonWorkerRuntime.js'
+import type {
+  DaemonWorkerRuntimeDeps,
+  HeadlessBridgeRunner,
+} from '../runtime/capabilities/daemon/contracts.js'
 import {
   BridgeHeadlessPermanentError,
   runBridgeHeadless,
 } from './bridge.js'
 
-export function createDaemonWorkerDeps(): {
-  runBridgeHeadless: HeadlessBridgeRunner
-  isPermanentError: (error: unknown) => boolean
-} {
+export function createDaemonWorkerDeps(): DaemonWorkerRuntimeDeps {
   return {
     runBridgeHeadless,
     isPermanentError: error => error instanceof BridgeHeadlessPermanentError,
@@ -39,5 +39,6 @@ export {
   runDaemonWorkerRuntime,
   runRemoteControlWorkerRuntime,
   type HeadlessBridgeRunner,
+  type DaemonWorkerRuntimeDeps,
   type RemoteControlWorkerRuntimeConfig,
 }

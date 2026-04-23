@@ -1,9 +1,8 @@
 import { hostname } from 'os'
 import { randomUUID } from 'crypto'
 import { errorMessage } from '../../../utils/errors.js'
-import type { BridgeConfig, BridgeLogger } from '../../../bridge/types.js'
-import type { BridgeApiClient, SessionSpawner } from '../../../bridge/types.js'
-import type { BackoffConfig } from '../../../bridge/types.js'
+import type { BridgeConfig } from '../../../bridge/types.js'
+import type { HeadlessBridgeDeps } from './contracts.js'
 import {
   BridgeHeadlessPermanentError,
   createHeadlessBridgeLogger,
@@ -13,50 +12,7 @@ import {
 export async function runHeadlessBridgeRuntime(
   opts: HeadlessBridgeOpts,
   signal: AbortSignal,
-  deps: {
-    bridgeLoginError: string
-    getBaseUrl: () => Promise<string>
-    setWorkingDirectory: (dir: string) => Promise<void>
-    ensureTrustedWorkspace: (dir: string) => Promise<boolean>
-    initRuntimeSinks: () => Promise<void>
-    getGitMetadata: (
-      dir: string,
-      spawnMode: HeadlessBridgeOpts['spawnMode'],
-    ) => Promise<{
-      branch: string
-      gitRepoUrl: string | null
-      worktreeAvailable: boolean
-    }>
-    createApi: (params: {
-      baseUrl: string
-      getAccessToken: () => string | undefined
-      onAuth401: (failedToken: string) => Promise<boolean>
-      log: (message: string) => void
-    }) => BridgeApiClient
-    createSpawner: (opts: HeadlessBridgeOpts) => Promise<SessionSpawner>
-    runBridgeLoop: (
-      config: BridgeConfig,
-      environmentId: string,
-      environmentSecret: string,
-      api: BridgeApiClient,
-      spawner: SessionSpawner,
-      logger: BridgeLogger,
-      signal: AbortSignal,
-      backoffConfig?: BackoffConfig,
-      initialSessionId?: string,
-      getAccessToken?: () => string | undefined | Promise<string | undefined>,
-    ) => Promise<void>
-    createInitialSession: (params: {
-      environmentId: string
-      title?: string
-      gitRepoUrl: string | null
-      branch: string
-      signal: AbortSignal
-      baseUrl: string
-      getAccessToken: () => string | undefined
-      permissionMode?: string
-    }) => Promise<string | null>
-  },
+  deps: HeadlessBridgeDeps,
 ): Promise<void> {
   const { dir, log } = opts
 

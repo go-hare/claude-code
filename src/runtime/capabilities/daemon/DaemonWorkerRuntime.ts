@@ -1,6 +1,10 @@
 import { resolve } from 'path'
 import { getClaudeAIOAuthTokens } from '../../../utils/auth.js'
 import { errorMessage } from '../../../utils/errors.js'
+import type {
+  DaemonWorkerRuntimeDeps,
+  HeadlessBridgeRunner,
+} from './contracts.js'
 
 export const EXIT_CODE_PERMANENT = 78
 export const EXIT_CODE_TRANSIENT = 1
@@ -36,29 +40,9 @@ export function buildRemoteControlWorkerConfigFromEnv(
   }
 }
 
-export type HeadlessBridgeRunner = (
-  opts: {
-    dir: string
-    name?: string
-    spawnMode: 'same-dir' | 'worktree'
-    capacity: number
-    permissionMode?: string
-    sandbox: boolean
-    sessionTimeoutMs?: number
-    createSessionOnStart: boolean
-    getAccessToken: () => string | undefined
-    onAuth401: (failedToken: string) => Promise<boolean>
-    log: (message: string) => void
-  },
-  signal: AbortSignal,
-) => Promise<void>
-
 export async function runDaemonWorkerRuntime(
   kind: string | undefined,
-  deps: {
-    runBridgeHeadless: HeadlessBridgeRunner
-    isPermanentError: (error: unknown) => boolean
-  },
+  deps: DaemonWorkerRuntimeDeps,
 ): Promise<void> {
   if (!kind) {
     console.error('Error: --daemon-worker requires a worker kind')
@@ -76,10 +60,9 @@ export async function runDaemonWorkerRuntime(
   }
 }
 
-export async function runRemoteControlWorkerRuntime(deps: {
-  runBridgeHeadless: HeadlessBridgeRunner
-  isPermanentError: (error: unknown) => boolean
-}): Promise<void> {
+export async function runRemoteControlWorkerRuntime(
+  deps: DaemonWorkerRuntimeDeps,
+): Promise<void> {
   const config = buildRemoteControlWorkerConfigFromEnv(process.env, resolve('.'))
   const controller = new AbortController()
   const onSignal = () => controller.abort()
