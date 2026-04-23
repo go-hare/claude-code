@@ -48,5 +48,5 @@ export {
   type SessionInfo,
   type SessionState,
 } from '../server/types.js'
-export * from './bridge.js'
-export * from './daemon.js'
+export { runBridgeHeadless } from './bridge.js'
+export { runDaemonWorker } from './daemon.js'

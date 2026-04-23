@@ -78,25 +78,7 @@ describe('kernel index surface', () => {
       Object.is(kernel.connectResponseSchema, serverTypes.connectResponseSchema),
     ).toBe(true)
 
-    expect(
-      Object.is(kernel.runHeadlessBridgeRuntime, bridge.runHeadlessBridgeRuntime),
-    ).toBe(true)
     expect(Object.is(kernel.runBridgeHeadless, bridge.runBridgeHeadless)).toBe(true)
-    expect(
-      Object.is(
-        kernel.createBridgeSessionRuntime,
-        bridge.createBridgeSessionRuntime,
-      ),
-    ).toBe(true)
-    expect(
-      Object.is(
-        kernel.BridgeHeadlessPermanentError,
-        bridge.BridgeHeadlessPermanentError,
-      ),
-    ).toBe(true)
-    expect(
-      Object.is(kernel.runDaemonWorkerRuntime, daemon.runDaemonWorkerRuntime),
-    ).toBe(true)
     expect(Object.is(kernel.runDaemonWorker, daemon.runDaemonWorker)).toBe(true)
   })
 })
