@@ -30,29 +30,74 @@ import {
 } from 'src/utils/permissions/permissionSetup.js'
 
 const MAX_RECEIVED_UUIDS = 10_000
-const receivedMessageUuids = new Set<UUID>()
-const receivedMessageUuidsOrder: UUID[] = []
 
-export function trackReceivedMessageUuid(uuid: UUID): boolean {
-  if (receivedMessageUuids.has(uuid)) {
-    return false
-  }
-  receivedMessageUuids.add(uuid)
-  receivedMessageUuidsOrder.push(uuid)
-  if (receivedMessageUuidsOrder.length > MAX_RECEIVED_UUIDS) {
-    const toEvict = receivedMessageUuidsOrder.splice(
-      0,
-      receivedMessageUuidsOrder.length - MAX_RECEIVED_UUIDS,
-    )
-    for (const old of toEvict) {
-      receivedMessageUuids.delete(old)
-    }
-  }
-  return true
+export type HeadlessSessionControl = {
+  trackReceivedMessageUuid(uuid: UUID): boolean
+  hasReceivedMessageUuid(uuid: UUID): boolean
+  handleOrphanedPermissionResponse(args: {
+    message: SDKControlResponse
+    setAppState: (f: (prev: AppState) => AppState) => void
+    onEnqueued?: () => void
+  }): Promise<boolean>
 }
 
-export function hasReceivedMessageUuid(uuid: UUID): boolean {
-  return receivedMessageUuids.has(uuid)
+export type HeadlessSessionContext = {
+  control: HeadlessSessionControl
+  registerCleanup(cleanup: () => void | Promise<void>): void
+  cleanup(): Promise<void>
+}
+
+export function createHeadlessSessionContext(): HeadlessSessionContext {
+  const receivedMessageUuids = new Set<UUID>()
+  const receivedMessageUuidsOrder: UUID[] = []
+  const handledOrphanedToolUseIds = new Set<string>()
+  const cleanupStack: Array<() => void | Promise<void>> = []
+
+  const control: HeadlessSessionControl = {
+    trackReceivedMessageUuid(uuid: UUID): boolean {
+      if (receivedMessageUuids.has(uuid)) {
+        return false
+      }
+      receivedMessageUuids.add(uuid)
+      receivedMessageUuidsOrder.push(uuid)
+      if (receivedMessageUuidsOrder.length > MAX_RECEIVED_UUIDS) {
+        const toEvict = receivedMessageUuidsOrder.splice(
+          0,
+          receivedMessageUuidsOrder.length - MAX_RECEIVED_UUIDS,
+        )
+        for (const old of toEvict) {
+          receivedMessageUuids.delete(old)
+        }
+      }
+      return true
+    },
+
+    hasReceivedMessageUuid(uuid: UUID): boolean {
+      return receivedMessageUuids.has(uuid)
+    },
+
+    handleOrphanedPermissionResponse(args) {
+      return handleOrphanedPermissionResponse({
+        ...args,
+        handledToolUseIds: handledOrphanedToolUseIds,
+      })
+    },
+  }
+
+  return {
+    control,
+    registerCleanup(cleanup) {
+      cleanupStack.push(cleanup)
+    },
+    async cleanup() {
+      while (cleanupStack.length > 0) {
+        const cleanup = cleanupStack.pop()
+        if (cleanup) {
+          await cleanup()
+        }
+      }
+    },
+  }
 }
 
 export function handleSetPermissionMode(

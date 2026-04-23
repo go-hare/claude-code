@@ -6,7 +6,6 @@ import {
   downloadUserSettings,
   redownloadUserSettings,
 } from 'src/services/settingsSync/index.js'
-import { waitForRemoteManagedSettingsToLoad } from 'src/services/remoteManagedSettings/index.js'
 import { StructuredIO } from './io/structuredIO.js'
 import { RemoteIO } from './io/remoteIO.js'
 import {
@@ -14,7 +13,6 @@ import {
   formatDescriptionWithSource,
   getCommandName,
 } from 'src/commands.js'
-import { createStreamlinedTransformer } from 'src/utils/streamlinedTransform.js'
 import { installStreamJsonStdoutGuard } from 'src/utils/streamJsonStdoutGuard.js'
 import type { ToolPermissionContext } from 'src/Tool.js'
 import type { ThinkingConfig } from 'src/utils/thinking.js'
@@ -28,10 +26,7 @@ import {
 } from 'src/services/analytics/index.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from 'src/services/analytics/growthbook.js'
 import { logForDebugging } from 'src/utils/debug.js'
-import {
-  logForDiagnosticsNoPII,
-  withDiagnosticsTiming,
-} from 'src/utils/diagLogs.js'
+import { logForDiagnosticsNoPII } from 'src/utils/diagLogs.js'
 import {
   dedupeToolsByName,
   toolMatchesName,
@@ -247,7 +242,6 @@ import {
 import { getMcpPrefix } from 'src/services/mcp/mcpStringUtils.js'
 import { commandBelongsToServer } from 'src/services/mcp/utils.js'
 import { setupVscodeSdkMcp } from 'src/services/mcp/vscodeSdkMcp.js'
-import { getAllMcpConfigs } from 'src/services/mcp/config.js'
 import {
   isQualifiedForGrove,
   checkGroveForNonInteractive,
@@ -331,12 +325,10 @@ import {
 } from 'src/utils/autonomyRuns.js'
 import { prepareAutonomyTurnPrompt } from 'src/utils/autonomyAuthority.js'
 import {
-  hasReceivedMessageUuid,
+  type HeadlessSessionContext,
   handleChannelEnable,
-  handleOrphanedPermissionResponse,
   handleSetPermissionMode,
   reregisterChannelHandlerAfterReconnect,
-  trackReceivedMessageUuid,
 } from './headlessSessionControl.js'
 import {
   type DynamicMcpState,
@@ -346,6 +338,17 @@ import {
   reconcileMcpServers,
 } from './headlessMcp.js'
 import { buildMcpServerStatusesRuntime } from './headlessMcpRuntime.js'
+import {
+  applyPluginMcpDiffRuntime,
+  installPluginsAndApplyMcpInBackgroundRuntime,
+  refreshPluginStateRuntime,
+} from './headlessPlugins.js'
+import {
+  createFilesPersistedMessage,
+  flushHeldBackResultAndSuggestion,
+} from './headlessPostTurn.js'
+import { emitHeadlessRuntimeMessage } from './headlessStreamEmission.js'
+import { createHeadlessStreamCollector } from './headlessStreaming.js'
 import {
   canBatchWith,
   createCanUseToolWithPermissionPrompt,
@@ -379,9 +382,8 @@ import {
   isEnvTruthy,
   isEnvDefinedFalsy,
 } from '../../../../utils/envUtils.js'
-import { installPluginsForHeadless } from '../../../../utils/plugins/headlessPluginInstall.js'
-import { refreshActivePlugins } from '../../../../utils/plugins/refresh.js'
 import { loadAllPluginsCacheOnly } from '../../../../utils/plugins/pluginLoader.js'
+import { refreshActivePlugins } from '../../../../utils/plugins/refresh.js'
 import {
   isTeamLead,
   hasActiveInProcessTeammates,
@@ -476,6 +478,7 @@ export async function runHeadlessRuntimeLoop(
     sessionStartHooksPromise?: ReturnType<typeof processSessionStartHooks>
     setSDKStatus?: (status: SDKStatus) => void
   },
+  session: HeadlessSessionContext,
 ): Promise<void> {
   if (
     process.env.USER_TYPE === 'ant' &&
@@ -487,6 +490,8 @@ export async function runHeadlessRuntimeLoop(
     // eslint-disable-next-line custom-rules/no-process-exit
     process.exit(0)
   }
+
+  try {
 
   // Fire user settings download now so it overlaps with the MCP/tool setup
   // below. Managed settings already started in main.tsx preAction; this gives
@@ -503,7 +508,7 @@ export async function runHeadlessRuntimeLoop(
   // In headless mode there is no React tree, so the useSettingsChange hook
   // never runs. Subscribe directly so that settings changes (including
   // managed-settings / policy updates) are fully applied.
-  settingsChangeDetector.subscribe(source => {
+  const unsubscribeSettingsChanges = settingsChangeDetector.subscribe(source => {
     applySettingsChange(source, setAppState)
 
     // In headless mode, also sync the denormalized fastMode field from
@@ -516,6 +521,7 @@ export async function runHeadlessRuntimeLoop(
       })
     }
   })
+  session.registerCleanup(unsubscribeSettingsChanges)
 
   // Proactive activation is now handled in main.tsx before getTools() so
   // SleepTool passes isEnabled() filtering. This fallback covers the case
@@ -649,6 +655,9 @@ export async function runHeadlessRuntimeLoop(
         }
       })()
       void structuredIO.write(message)
+    })
+    session.registerCleanup(() => {
+      registerHookEventHandler(null)
     })
   }
 
@@ -816,21 +825,7 @@ export async function runHeadlessRuntimeLoop(
   // UDS inbox store registration is deferred until after `run` is defined
   // so we can pass `run` as the onEnqueue callback (see below).
 
-  // Only `json` + `verbose` needs the full array (jsonStringify(messages) below).
-  // For stream-json (SDK/CCR) and default text output, only the last message is
-  // read for the exit code / final result. Avoid accumulating every message in
-  // memory for the entire session.
-  const needsFullArray = options.outputFormat === 'json' && options.verbose
-  const messages: SDKMessage[] = []
-  let lastMessage: SDKMessage | undefined
-  // Streamlined mode transforms messages when CLAUDE_CODE_STREAMLINED_OUTPUT=true and using stream-json
-  // Build flag gates this out of external builds; env var is the runtime opt-in for ant builds
-  const transformToStreamlined =
-    feature('STREAMLINED_OUTPUT') &&
-    isEnvTruthy(process.env.CLAUDE_CODE_STREAMLINED_OUTPUT) &&
-    options.outputFormat === 'stream-json'
-      ? createStreamlinedTransformer()
-      : null
+  const streamCollector = createHeadlessStreamCollector(options)
 
   headlessProfilerCheckpoint('before_runHeadlessStreaming')
   for await (const message of runHeadlessStreaming(
@@ -845,48 +840,14 @@ export async function runHeadlessRuntimeLoop(
     setAppState,
     agents,
     options,
+    session,
     turnInterruptionState,
   )) {
-    if (transformToStreamlined) {
-      // Streamlined mode: transform messages and stream immediately
-      const transformed = transformToStreamlined(message)
-      if (transformed) {
-        await structuredIO.write(transformed)
-      }
-    } else if (options.outputFormat === 'stream-json' && options.verbose) {
-      await structuredIO.write(message)
-    }
-    // Should not be getting control messages or stream events in non-stream mode.
-    // Also filter out streamlined types since they're only produced by the transformer.
-    // SDK-only system events are excluded so lastMessage stays at the result
-    // (session_state_changed(idle) and any late task_notification drain after
-    // result in the finally block).
-    if (
-      message.type !== 'control_response' &&
-      message.type !== 'control_request' &&
-      message.type !== 'control_cancel_request' &&
-      !(
-        message.type === 'system' &&
-        (message.subtype === 'session_state_changed' ||
-          message.subtype === 'task_notification' ||
-          message.subtype === 'task_started' ||
-          message.subtype === 'task_progress' ||
-          message.subtype === 'post_turn_summary')
-      ) &&
-      message.type !== 'stream_event' &&
-      message.type !== 'keep_alive' &&
-      message.type !== 'streamlined_text' &&
-      message.type !== 'streamlined_tool_use_summary' &&
-      message.type !== 'prompt_suggestion'
-    ) {
-      if (needsFullArray) {
-        messages.push(message)
-      }
-      lastMessage = message
-    }
+    await streamCollector.handleMessage(structuredIO, message)
   }
 
-  writeHeadlessResult(lastMessage, messages, options)
+  const lastMessage = streamCollector.getLastMessage()
+  writeHeadlessResult(lastMessage, streamCollector.getMessages(), options)
 
   // Log headless latency metrics for the final turn
   logHeadlessProfilerTurn()
@@ -901,6 +862,9 @@ export async function runHeadlessRuntimeLoop(
   }
 
   finalizeHeadlessResult(lastMessage)
+  } finally {
+    await session.cleanup()
+  }
 }
 
 function runHeadlessStreaming(
@@ -935,6 +899,7 @@ function runHeadlessStreaming(
     promptSuggestions?: boolean | undefined
     workload?: string | undefined
   },
+  session: HeadlessSessionContext,
   turnInterruptionState?: TurnInterruptionState,
 ): AsyncIterable<StdoutMessage> {
   let running = false
@@ -962,6 +927,9 @@ function runHeadlessStreaming(
     void gracefulShutdown(0)
   }
   process.on('SIGINT', sigintHandler)
+  session.registerCleanup(() => {
+    process.off('SIGINT', sigintHandler)
+  })
 
   // Dump run()'s state at SIGTERM so a stuck session's healthsweep can name
   // the do/while(waitingForAgents) poll without reading the transcript.
@@ -1006,6 +974,9 @@ function runHeadlessStreaming(
         session_id: getSessionId(),
       })
     }
+  })
+  session.registerCleanup(() => {
+    setPermissionModeChangedListener(null)
   })
 
   // Prompt suggestion tracking (push model)
@@ -1068,6 +1039,9 @@ function runHeadlessStreaming(
     }
   }
   statusListeners.add(rateLimitListener)
+  session.registerCleanup(() => {
+    statusListeners.delete(rateLimitListener)
+  })
 
   // Messages for internal tracking, directly mutated by ask(). These messages
   // include Assistant, User, Attachment, and Progress messages.
@@ -1454,6 +1428,9 @@ function runHeadlessStreaming(
       mutableMessages,
     })
   }
+  session.registerCleanup(() => {
+    unsubscribeAuthStatus?.()
+  })
 
   // Helper to apply MCP server changes - used by both mcp_set_servers control message
   // and background plugin installation.
@@ -1544,30 +1521,11 @@ function runHeadlessStreaming(
 
   // NOTE: Nested function required - needs closure access to applyMcpServerChanges and updateSdkMcp
   async function installPluginsAndApplyMcpInBackground(): Promise<void> {
-    try {
-      // Join point for user settings (fired at runHeadless entry) and managed
-      // settings (fired in main.tsx preAction). downloadUserSettings() caches
-      // its promise so this awaits the same in-flight request.
-      await Promise.all([
-        feature('DOWNLOAD_USER_SETTINGS') &&
-        (isEnvTruthy(process.env.CLAUDE_CODE_REMOTE) || getIsRemoteMode())
-          ? withDiagnosticsTiming('headless_user_settings_download', () =>
-              downloadUserSettings(),
-            )
-          : Promise.resolve(),
-        withDiagnosticsTiming('headless_managed_settings_wait', () =>
-          waitForRemoteManagedSettingsToLoad(),
-        ),
-      ])
-
-      const pluginsInstalled = await installPluginsForHeadless()
-
-      if (pluginsInstalled) {
-        await applyPluginMcpDiff()
-      }
-    } catch (error) {
-      logError(error)
-    }
+    return installPluginsAndApplyMcpInBackgroundRuntime({
+      isRemoteMode:
+        isEnvTruthy(process.env.CLAUDE_CODE_REMOTE) || getIsRemoteMode(),
+      applyPluginMcpDiff,
+    })
   }
 
   // Background plugin installation for all headless users
@@ -1600,30 +1558,12 @@ function runHeadlessStreaming(
   // settings were fetched. Without clearing, getCommands() would rebuild
   // from a stale plugin list.
   async function refreshPluginState(): Promise<void> {
-    // refreshActivePlugins handles the full cache sweep (clearAllCaches),
-    // reloads all plugin component loaders, writes AppState.plugins +
-    // AppState.agentDefinitions, registers hooks, and bumps mcp.pluginReconnectKey.
-    const { agentDefinitions: freshAgentDefs } =
-      await refreshActivePlugins(setAppState)
-
-    // Headless-specific: currentCommands/currentAgents are local mutable refs
-    // captured by the query loop (REPL uses AppState instead). getCommands is
-    // fresh because refreshActivePlugins cleared its cache.
-    currentCommands = await getCommands(cwd())
-
-    // Preserve SDK-provided agents (--agents CLI flag or SDK initialize
-    // control_request) — both inject via parseAgentsFromJson with
-    // source='flagSettings'. loadMarkdownFilesForSubdir never assigns this
-    // source, so it cleanly discriminates "injected, not disk-loadable".
-    //
-    // The previous filter used a negative set-diff (!freshAgentTypes.has(a))
-    // which also matched plugin agents that were in the poisoned initial
-    // currentAgents but correctly excluded from freshAgentDefs after managed
-    // settings applied — leaking policy-blocked agents into the init message.
-    // See gh-23085: isBridgeEnabled() at Commander-definition time poisoned
-    // the settings cache before setEligibility(true) ran.
-    const sdkAgents = currentAgents.filter(a => a.source === 'flagSettings')
-    currentAgents = [...freshAgentDefs.allAgents, ...sdkAgents]
+    const nextState = await refreshPluginStateRuntime({
+      setAppState,
+      currentAgents,
+    })
+    currentCommands = nextState.currentCommands
+    currentAgents = nextState.currentAgents
   }
 
   // Re-diff MCP configs after plugin state changes. Filters to
@@ -1632,35 +1572,11 @@ function runHeadlessStreaming(
   // Nested: needs closure access to sdkMcpConfigs, applyMcpServerChanges,
   // updateSdkMcp.
   async function applyPluginMcpDiff(): Promise<void> {
-    const { servers: newConfigs } = await getAllMcpConfigs()
-    const supportedConfigs: Record<string, McpServerConfigForProcessTransport> =
-      {}
-    for (const [name, config] of Object.entries(newConfigs)) {
-      const type = config.type
-      if (
-        type === undefined ||
-        type === 'stdio' ||
-        type === 'sse' ||
-        type === 'http' ||
-        type === 'sdk'
-      ) {
-        supportedConfigs[name] = config as McpServerConfigForProcessTransport
-      }
-    }
-    for (const [name, config] of Object.entries(sdkMcpConfigs)) {
-      if (config.type === 'sdk' && !(name in supportedConfigs)) {
-        supportedConfigs[name] =
-          config as unknown as McpServerConfigForProcessTransport
-      }
-    }
-    const { response, sdkServersChanged } =
-      await applyMcpServerChanges(supportedConfigs)
-    if (sdkServersChanged) {
-      void updateSdkMcp()
-    }
-    logForDebugging(
-      `Headless MCP refresh: added=${response.added.length}, removed=${response.removed.length}`,
-    )
+    return applyPluginMcpDiffRuntime({
+      sdkMcpConfigs,
+      applyMcpServerChanges,
+      updateSdkMcp,
+    })
   }
 
   // Subscribe to skill changes for hot reloading
@@ -1670,6 +1586,7 @@ function runHeadlessStreaming(
       currentCommands = newCommands
     })
   })
+  session.registerCleanup(unsubscribeSkillChanges)
 
   // Proactive mode: schedule a tick to keep the model looping autonomously.
   // setTimeout(0) yields to the event loop so pending stdin messages
@@ -1706,12 +1623,29 @@ function runHeadlessStreaming(
         }
       : undefined
 
+  let didCleanupSession = false
+  const cleanupHeadlessSession = async () => {
+    if (didCleanupSession) {
+      return
+    }
+    didCleanupSession = true
+    if (suggestionState.inflightPromise) {
+      await Promise.race([suggestionState.inflightPromise, sleep(5000)])
+    }
+    suggestionState.abortController?.abort()
+    suggestionState.abortController = null
+    await finalizePendingAsyncHooks()
+    await session.cleanup()
+    output.done()
+  }
+
   // Abort the current operation when a 'now' priority message arrives.
-  subscribeToCommandQueue(() => {
+  const unsubscribeQueueAbort = subscribeToCommandQueue(() => {
     if (abortController && getCommandsByMaxPriority('now').length > 0) {
       abortController.abort('interrupt')
     }
   })
+  session.registerCleanup(unsubscribeQueueAbort)
 
   const run = async () => {
     if (running) {
@@ -2077,37 +2011,20 @@ function runHeadlessStreaming(
                   // while blocked on permission requests.
                   forwardMessagesToBridge()
 
-                  if (message.type === 'result') {
-                    lastResultIsError = !!(message as Record<string, unknown>)
-                      .is_error
-                    // Flush pending SDK events so they appear before result on the stream.
-                    for (const event of drainSdkEvents()) {
-                      output.enqueue(event)
-                    }
-
-                    // Hold-back: don't emit result while background agents are running
-                    const currentState = getAppState()
-                    if (
-                      getRunningTasks(currentState).some(
-                        t =>
-                          (t.type === 'local_agent' ||
-                            t.type === 'local_workflow') &&
-                          isBackgroundTask(t),
-                      )
-                    ) {
-                      heldBackResult = message as StdoutMessage
-                    } else {
-                      heldBackResult = null
-                      output.enqueue(message as StdoutMessage)
-                    }
-                  } else {
-                    // Flush SDK events (task_started, task_progress) so background
-                    // agent progress is streamed in real-time, not batched until result.
-                    for (const event of drainSdkEvents()) {
-                      output.enqueue(event)
-                    }
-                    output.enqueue(message as StdoutMessage)
-                  }
+                  const emission = emitHeadlessRuntimeMessage({
+                    message: message as StdoutMessage,
+                    output,
+                    drainSdkEvents,
+                    hasBackgroundTasks: getRunningTasks(getAppState()).some(
+                      task =>
+                        (task.type === 'local_agent' ||
+                          task.type === 'local_workflow') &&
+                        isBackgroundTask(task),
+                    ),
+                    heldBackResult,
+                  })
+                  heldBackResult = emission.heldBackResult
+                  lastResultIsError = emission.lastResultIsError
                 }
               },
             ) // end runWithWorkload
@@ -2163,15 +2080,12 @@ function runHeadlessStreaming(
                   persistedFiles: { filename: string; file_id: string }[]
                   failedFiles: { filename: string; error: string }[]
                 }
-                output.enqueue({
-                  type: 'system' as const,
-                  subtype: 'files_persisted' as const,
-                  files: filesResult.persistedFiles,
-                  failed: filesResult.failedFiles,
-                  processed_at: new Date().toISOString(),
-                  uuid: randomUUID(),
-                  session_id: getSessionId(),
-                })
+                output.enqueue(
+                  createFilesPersistedMessage({
+                    result: filesResult,
+                    sessionId: getSessionId(),
+                  }),
+                )
               },
             )
           }
@@ -2310,22 +2224,11 @@ function runHeadlessStreaming(
         }
       } while (waitingForAgents)
 
-      if (heldBackResult) {
-        output.enqueue(heldBackResult)
-        heldBackResult = null
-        if (suggestionState.pendingSuggestion) {
-          output.enqueue(suggestionState.pendingSuggestion)
-          // Now that the suggestion is actually delivered, record it for acceptance tracking
-          if (suggestionState.pendingLastEmittedEntry) {
-            suggestionState.lastEmitted = {
-              ...suggestionState.pendingLastEmittedEntry,
-              emittedAt: Date.now(),
-            }
-            suggestionState.pendingLastEmittedEntry = null
-          }
-          suggestionState.pendingSuggestion = null
-        }
-      }
+      heldBackResult = flushHeldBackResultAndSuggestion({
+        output,
+        heldBackResult,
+        suggestionState,
+      })
     } catch (error) {
       // Emit error result message before shutting down
       // Write directly to structuredIO to ensure immediate delivery
@@ -2570,17 +2473,7 @@ function runHeadlessStreaming(
         })
         void run()
       } else {
-        // Wait for any in-flight push suggestion before closing the output stream.
-        if (suggestionState.inflightPromise) {
-          await Promise.race([suggestionState.inflightPromise, sleep(5000)])
-        }
-        suggestionState.abortController?.abort()
-        suggestionState.abortController = null
-        await finalizePendingAsyncHooks()
-        unsubscribeSkillChanges()
-        unsubscribeAuthStatus?.()
-        statusListeners.delete(rateLimitListener)
-        output.done()
+        await cleanupHeadlessSession()
       }
     }
   }
@@ -2709,14 +2602,10 @@ function runHeadlessStreaming(
     })
   }
 
-  // Handle unexpected permission responses by looking up the unresolved tool
-  // call in the transcript and executing it
-  const handledOrphanedToolUseIds = new Set<string>()
   structuredIO.setUnexpectedResponseCallback(async message => {
-    await handleOrphanedPermissionResponse({
+    await session.control.handleOrphanedPermissionResponse({
       message,
       setAppState,
-      handledToolUseIds: handledOrphanedToolUseIds,
       onEnqueued: () => {
         // The first message of a session might be the orphaned permission
         // check rather than a user prompt, so kick off the loop.
@@ -4038,7 +3927,10 @@ function runHeadlessStreaming(
         )
 
         // Check both historical duplicates (from file) and runtime duplicates (this session)
-        if (existsInSession || hasReceivedMessageUuid(userMsg.uuid as UUID)) {
+        if (
+          existsInSession ||
+          session.control.hasReceivedMessageUuid(userMsg.uuid as UUID)
+        ) {
           logForDebugging(`Skipping duplicate user message: ${userMsg.uuid}`)
           // Send acknowledgment for duplicate message if replay mode is enabled
           if (options.replayUserMessages) {
@@ -4067,7 +3959,7 @@ function runHeadlessStreaming(
         }
 
         // Track this UUID to prevent runtime duplicates
-        trackReceivedMessageUuid(userMsg.uuid as UUID)
+        session.control.trackReceivedMessageUuid(userMsg.uuid as UUID)
       }
 
       enqueue({
@@ -4099,18 +3991,7 @@ function runHeadlessStreaming(
     inputClosed = true
     cronScheduler?.stop()
     if (!running) {
-      // If a push-suggestion is in-flight, wait for it to emit before closing
-      // the output stream (5 s safety timeout to prevent hanging).
-      if (suggestionState.inflightPromise) {
-        await Promise.race([suggestionState.inflightPromise, sleep(5000)])
-      }
-      suggestionState.abortController?.abort()
-      suggestionState.abortController = null
-      await finalizePendingAsyncHooks()
-      unsubscribeSkillChanges()
-      unsubscribeAuthStatus?.()
-      statusListeners.delete(rateLimitListener)
-      output.done()
+      await cleanupHeadlessSession()
     }
   })()
 

@@ -193,7 +193,35 @@
 
 ### 半完成
 
-#### 1. headless 实现收口：主链已切到 runtime，内部 seam 已成型
+#### 1. runtime contracts 仍未完全覆盖全部能力域
+
+`server` 这块已经完成第一轮 contracts 下沉，但 `bridge / daemon / 其他 capability` 还没有全部完成同等级的 contracts 收敛。
+
+这意味着：
+
+- `server/direct-connect` 这块已经开始从 façade 升级为轻编排层
+- `bridge/daemon` 这块也已经开始从 façade 升级为轻编排层
+- 更深一层的 runtime contract 化还没有完全覆盖所有域
+
+#### 2. 测试护栏已建立，但还不是完整 contract / integration 体系
+
+当前已经有最小 contract / surface 护栏，但还不等于已经具备完整的长期稳定矩阵。
+
+尤其还缺更强的：
+
+- end-to-end kernel headless smoke tests
+- direct-connect / server 的 kernel-only 使用链路回归
+- 更大范围的 consumer/import 组合回归
+
+#### 3. kernel 已有发布入口，但“长期发布级稳定面”仍在沉淀
+
+从工程动作上说，package-level kernel 入口已经有了。
+
+但从长期 API 承诺角度说，它目前更准确的口径仍然是“第一轮包级发布面已建立”，还不是已经被充分回归和长期 consumer 证明过的成熟稳定 API。
+
+### 已完成补充
+
+#### 8. headless 实现收口：主链已切到 runtime，session / streaming / post-turn seam 已完成
 
 `main.tsx` 和 `src/kernel/headless.ts` 已统一经过 runtime 级 `HeadlessRuntime` 入口。
 
@@ -205,9 +233,9 @@
 
 - `HeadlessRuntime -> internal/headlessSession.ts -> internal/headlessRuntimeLoop.ts`
 
-同时，`headlessSession.ts` 已不再是纯 barrel，而是成为显式 session boundary，对外导出 `runHeadless()`，再委托给 `headlessRuntimeLoop.ts`。
+同时，`headlessSession.ts` 已不再是纯 barrel，而是成为显式 session boundary；它现在负责创建 per-session context，并把 session-local cleanup / 去重状态显式传给 `headlessRuntimeLoop.ts`。
 
-虽然 `runHeadlessStreaming(...)` 与主执行循环仍集中在 `headlessRuntimeLoop.ts`，但 `loadInitialMessages(...)`、`handleInitializeRequest(...)`、`handleRewindFiles(...)`、权限控制、channel 控制和 MCP diff 都已经分别下沉到
+`runHeadlessStreaming(...)` 与主执行循环虽然仍在同一个文件中，但和它直接相关的可复用细分职责已经继续下沉到以下 runtime internal seams：
 
 - `headlessBootstrap.ts`
 - `headlessControl.ts`
@@ -216,36 +244,14 @@
 - `headlessMcp.ts`
 - `headlessBridgeForwarding.ts`
 - `headlessMcpRuntime.ts`
+- `headlessPlugins.ts`
+- `headlessStreaming.ts`
+- `headlessStreamEmission.ts`
+- `headlessPostTurn.ts`
 
-同时，`HeadlessCore.ts` 已经退出主链并被删除；原先挂在其中的 MCP diff helper 已独立到 `headlessMcp.ts`。
+同时，`HeadlessCore.ts` 已经退出主链并被删除；原先挂在其中的 MCP diff helper 已独立到 `headlessMcp.ts`，而 outer streaming / result emission / post-turn flush 也已经从 `headlessRuntimeLoop.ts` 大块内联逻辑中抽出。
 
-也就是说，当前已经完成“先改依赖方向”和“把 CLI 共享实现迁出 CLI 私有路径”；剩余更多是后续是否继续压平 `headlessRuntimeLoop.ts` 的实现粒度问题，而不是 runtime 继续落回 CLI 私有层。
-
-#### 2. runtime contracts 仍未完全覆盖全部能力域
-
-`server` 这块已经完成第一轮 contracts 下沉，但 `bridge / daemon / 其他 capability` 还没有全部完成同等级的 contracts 收敛。
-
-这意味着：
-
-- `server/direct-connect` 这块已经开始从 façade 升级为轻编排层
-- `bridge/daemon` 这块也已经开始从 façade 升级为轻编排层
-- 更深一层的 runtime contract 化还没有完全覆盖所有域
-
-#### 3. 测试护栏已建立，但还不是完整 contract / integration 体系
-
-当前已经有最小 contract / surface 护栏，但还不等于已经具备完整的长期稳定矩阵。
-
-尤其还缺更强的：
-
-- end-to-end kernel headless smoke tests
-- direct-connect / server 的 kernel-only 使用链路回归
-- 更大范围的 consumer/import 组合回归
-
-#### 4. kernel 已有发布入口，但“长期发布级稳定面”仍在沉淀
-
-从工程动作上说，package-level kernel 入口已经有了。
-
-但从长期 API 承诺角度说，它目前更准确的口径仍然是“第一轮包级发布面已建立”，还不是已经被充分回归和长期 consumer 证明过的成熟稳定 API。
+也就是说，当前已经完成“先改依赖方向”“把 CLI 共享实现迁出 CLI 私有路径”，并把 headless 主链继续压平到 session / streaming / post-turn 的 runtime-owned seams；剩余已不再是内核化主线阻塞项，而更多是局部实现粒度和长期测试矩阵问题。
 
 ### 未完成
 
@@ -277,6 +283,7 @@
 - 已通过：`bun test src/kernel/__tests__/bridge.test.ts src/kernel/__tests__/daemon.test.ts src/kernel/__tests__/importDiscipline.test.ts src/kernel/__tests__/packageEntry.test.ts`
 - 已通过：`bun test tests/integration/kernel-package-smoke.test.ts`
 - 已通过：`bun test src/runtime/capabilities/server/__tests__/contracts.test.ts src/runtime/capabilities/bridge/__tests__/contracts.test.ts`
+- 已通过：`bun test src/runtime/capabilities/execution/internal/__tests__/headlessBridgeForwarding.test.ts src/runtime/capabilities/execution/internal/__tests__/headlessMcpRuntime.test.ts src/runtime/capabilities/execution/internal/__tests__/headlessSessionControl.test.ts src/runtime/capabilities/execution/internal/__tests__/headlessStreaming.test.ts src/runtime/capabilities/execution/internal/__tests__/headlessStreamEmission.test.ts src/runtime/capabilities/execution/internal/__tests__/headlessPostTurn.test.ts`
 - 已通过：`src/cli/print.ts` wrapper 导入 smoke
 - 已通过：`bun run build`
 - 已通过：包级导入 smoke（`@go-hare/hare-code/kernel`）
@@ -311,8 +318,10 @@
 - `headlessControl` / `headlessBootstrap` / `headlessSession` seam 已立起来
 - `headlessSessionControl` / `headlessRuntimeLoop` / `headlessMcp` 已继续将会话控制、运行循环和 MCP diff 拆开
 - `headlessHostIO` 已将 `headlessRuntimeLoop` 中最明显的 host IO 职责抽离
+- `headlessPlugins` / `headlessStreaming` / `headlessStreamEmission` / `headlessPostTurn` 已继续把 plugin lifecycle、outer streaming、mid-turn emission、post-turn flush 从 loop 中拆出
 - `HeadlessCore.ts` 已退出主链并删除
 - `headlessSession.ts` 已成为显式 session boundary，而不是纯 barrel
+- session-local cleanup / UUID 去重 / orphaned permission 状态已变为 per-session context
 - `StructuredIO` / `RemoteIO` / transport / `ndjsonSafeStringify` 已迁到 runtime internal `io/*`
 - `installOAuthTokens` 已迁到非 CLI 的共享 service 路径
 
@@ -321,7 +330,7 @@
 - `HeadlessRuntime.ts` 不再直接 import `src/cli/print.ts`
 - runtime internal 不再直接 import `src/cli/*`
 - `cli/print.ts` 退为 compatibility wrapper
-- headless 核心按 runtime internal seam 拆开，而不是继续堆在历史 CLI 私有路径中
+- headless 核心按 runtime internal seam 拆开，session / streaming / post-turn seam 已完成，主线不再堆在历史 CLI 私有路径中
 
 ### Phase 2
 
