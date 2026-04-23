@@ -387,12 +387,7 @@ import { migrateSonnet1mToSonnet45 } from "./migrations/migrateSonnet1mToSonnet4
 import { migrateSonnet45ToSonnet46 } from "./migrations/migrateSonnet45ToSonnet46.js";
 import { resetAutoModeOptInForDefaultOffer } from "./migrations/resetAutoModeOptInForDefaultOffer.js";
 import { resetProToOpusDefault } from "./migrations/resetProToOpusDefault.js";
-import {
-	connectDefaultKernelHeadlessMcp,
-	createDefaultKernelHeadlessEnvironment,
-	prepareKernelHeadlessStartup,
-	runKernelHeadless,
-} from "./kernel/index.js";
+import { runHeadlessLaunch } from "./hosts/cli/launchers/headlessLauncher.js";
 import {
 	connectDirectHostSession,
 	getDirectConnectErrorMessage,
@@ -3838,23 +3833,6 @@ async function run(): Promise<CommanderCommand> {
 					process.exit(1);
 				}
 
-				const headlessEnvironment = createDefaultKernelHeadlessEnvironment({
-					commands,
-					disableSlashCommands,
-					tools,
-					sdkMcpConfigs,
-					agents: agentDefinitions.activeAgents,
-					mcpClients,
-					mcpCommands,
-					mcpTools,
-					toolPermissionContext,
-					effortArgument: options.effort,
-					modelForFastMode: effectiveModel ?? null,
-					advisorModel,
-					kairosEnabled,
-				});
-				const headlessStore = headlessEnvironment.store;
-
 				// Await all MCP configs — print mode is often single-turn, so
 				// "late-connecting servers visible next turn" doesn't help. SDK init
 				// message and turn-1 tool list both need configured MCP tools present.
@@ -3863,58 +3841,68 @@ async function run(): Promise<CommanderCommand> {
 				// (processBatched with Promise.all). claude.ai is awaited too — its
 				// fetch was kicked off early (line ~2558) so only residual time blocks
 				// here. --bare skips claude.ai entirely for perf-sensitive scripts.
-				profileCheckpoint("before_connectMcp");
-				await connectDefaultKernelHeadlessMcp({
-					store: headlessStore,
+				await runHeadlessLaunch({
+					inputPrompt,
+					environment: {
+						commands,
+						disableSlashCommands,
+						tools,
+						sdkMcpConfigs,
+						agents: agentDefinitions.activeAgents,
+						mcpClients,
+						mcpCommands,
+						mcpTools,
+						toolPermissionContext,
+						effortArgument: options.effort,
+						modelForFastMode: effectiveModel ?? null,
+						advisorModel,
+						kairosEnabled,
+					},
 					regularMcpConfigs,
 					claudeaiConfigPromise,
-				});
-				profileCheckpoint("after_connectMcp");
-				profileCheckpoint("after_connectMcp_claudeai");
-
-				await prepareKernelHeadlessStartup(
-					{
+					startup: {
 						sessionPersistenceDisabled:
 							options.sessionPersistence === false,
 						betas,
 						bareMode: isBareMode(),
 						userType: process.env.USER_TYPE,
 					},
-					{
+					startupDeps: {
 						startDeferredPrefetches,
 						logSessionTelemetry,
 					},
-				);
-				void runKernelHeadless(inputPrompt, headlessEnvironment, {
-					continue: options.continue,
-					resume: options.resume,
-					verbose: verbose,
-					outputFormat: outputFormat,
-					jsonSchema,
-					permissionPromptToolName: options.permissionPromptTool,
-					allowedTools,
-					thinkingConfig,
-					maxTurns: options.maxTurns,
-					maxBudgetUsd: options.maxBudgetUsd,
-					taskBudget: options.taskBudget
-						? { total: options.taskBudget }
-						: undefined,
-					systemPrompt,
-					appendSystemPrompt,
-					userSpecifiedModel: effectiveModel,
-					fallbackModel: userSpecifiedFallbackModel,
-					teleport,
-					sdkUrl,
-					replayUserMessages: effectiveReplayUserMessages,
-					includePartialMessages: effectiveIncludePartialMessages,
-					forkSession: options.forkSession || false,
-					resumeSessionAt: options.resumeSessionAt || undefined,
-					rewindFiles: options.rewindFiles,
-					enableAuthStatus: options.enableAuthStatus,
-					agent: agentCli,
-					workload: options.workload,
-					setupTrigger: setupTrigger ?? undefined,
-					sessionStartHooksPromise,
+					runOptions: {
+						continue: options.continue,
+						resume: options.resume,
+						verbose: verbose,
+						outputFormat: outputFormat,
+						jsonSchema,
+						permissionPromptToolName: options.permissionPromptTool,
+						allowedTools,
+						thinkingConfig,
+						maxTurns: options.maxTurns,
+						maxBudgetUsd: options.maxBudgetUsd,
+						taskBudget: options.taskBudget
+							? { total: options.taskBudget }
+							: undefined,
+						systemPrompt,
+						appendSystemPrompt,
+						userSpecifiedModel: effectiveModel,
+						fallbackModel: userSpecifiedFallbackModel,
+						teleport,
+						sdkUrl,
+						replayUserMessages: effectiveReplayUserMessages,
+						includePartialMessages: effectiveIncludePartialMessages,
+						forkSession: options.forkSession || false,
+						resumeSessionAt: options.resumeSessionAt || undefined,
+						rewindFiles: options.rewindFiles,
+						enableAuthStatus: options.enableAuthStatus,
+						agent: agentCli,
+						workload: options.workload,
+						setupTrigger: setupTrigger ?? undefined,
+						sessionStartHooksPromise,
+					},
+					profileCheckpoint,
 				});
 				return;
 			}

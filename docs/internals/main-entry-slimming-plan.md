@@ -4,7 +4,7 @@
 
 当前内核化主线已经基本完成，`main.tsx` 的主要问题不再是“越过 kernel 边界”，而是**宿主启动编排职责过重**。
 
-本阶段的目标不是继续做 kernelization，而是把 [src/main.tsx](D:/work/py/reachy_code/claude-code/src/main.tsx:1) 从“大宿主编排器”压成“模式分发入口”。
+本阶段的目标不是继续做 kernelization，而是把 [`src/main.tsx`](../../src/main.tsx) 从“大宿主编排器”压成“模式分发入口”。
 
 最终希望 `main.tsx` 只负责：
 
@@ -18,7 +18,7 @@
 
 典型例子：
 
-- headless 主链虽然已经改走 kernel surface，但 [src/main.tsx](D:/work/py/reachy_code/claude-code/src/main.tsx:3841) 这一段仍然自己串了：
+- headless 主链虽然已经改走 kernel surface，但 `src/main.tsx` 里对应 headless 分支这一段仍然自己串了：
   - `createDefaultKernelHeadlessEnvironment(...)`
   - `connectDefaultKernelHeadlessMcp(...)`
   - `prepareKernelHeadlessStartup(...)`
@@ -41,6 +41,31 @@
 4. 不把 `main.tsx` 的复杂度转移到一个新的“大而全 launcher”
 5. launcher 只做 mode-specific orchestration，不重复 kernel 内部装配
 
+## 执行约束
+
+这一阶段以**完成任务**为第一优先级，不以“继续追求更漂亮的架构”作为默认目标。
+
+具体约束：
+
+1. 先完成当前 phase，再决定是否进入下一 phase
+2. 只解决当前 phase 明确阻塞实现的问题，不顺手扩写相邻层
+3. 只要 `main.tsx` 的对应模式启动编排已经明显变薄、行为保持稳定，就视为本轮达标
+4. 不为了目录完整、命名完美或理论分层一致性，提前抽取额外抽象
+5. 若出现“还可以再抽一层”“还可以再统一一点”这类冲动，默认先停下来，优先交付可验证结果
+6. 只要任务天然可拆且边界清楚，就优先并行推进，而不是默认串行慢慢做
+7. 能明确切块的子任务，直接交给子 agent 负责；主线程负责集成、验收和收口
+8. 每个 phase 一旦达到验收条件，立即收口并切到下一阶段，不因为还能继续优化而停留
+
+## 并行与收口策略
+
+执行时默认采用下面的策略：
+
+1. 先判断当前 phase 是否能拆成 2 到 4 个边界清晰、互不冲突的子任务
+2. 能拆开时优先并行，不能拆开时再串行，不为了“形式上并行”制造额外协调成本
+3. 子 agent 只负责自己明确拥有的任务块，不跨界顺手改其他块
+4. 主线程不和子 agent 抢同一块实现，主线程负责公共边界、最终集成、验证与推进下一阶段
+5. 某个 phase 一旦验收通过，就停止该 phase 的继续打磨，直接进入下一阶段或最终收尾
+
 ## 分层口径
 
 ### `main.tsx`
@@ -57,7 +82,7 @@
 - 各模式独立的前置准备细节
 - 深层 runtime / server / bridge 细节
 
-### `hosts/cli/launchers/*`
+### `src/hosts/cli/launchers/*`
 
 负责：
 
@@ -79,7 +104,7 @@
 
 建议新增：
 
-- [src/hosts/cli/launchers/](D:/work/py/reachy_code/claude-code/src/hosts/cli/launchers:1)
+- [`src/hosts/cli/launchers/`](../../src/hosts/cli/launchers)
   - `headlessLauncher.ts`
   - `directConnectLauncher.ts`
   - `serverLauncher.ts`
@@ -103,7 +128,7 @@
 
 建议新增：
 
-- [src/hosts/cli/launchers/headlessLauncher.ts](D:/work/py/reachy_code/claude-code/src/hosts/cli/launchers/headlessLauncher.ts:1)
+- [`src/hosts/cli/launchers/headlessLauncher.ts`](../../src/hosts/cli/launchers/headlessLauncher.ts)
 
 建议收进去的内容：
 
@@ -124,6 +149,8 @@ return
 - `main.tsx` 不再自己串 headless 四段式启动
 - headless 行为不变
 - `modeDispatch.test.ts` 和 headless 相关 smoke 保持通过
+- 达到以上三条后，本 phase 直接收口，不继续追求额外抽象
+- 若该 phase 存在可独立拆分的测试补强、适配清理、调用点接线，可并行处理；主线以最终集成为准
 
 ### Phase B：抽 direct-connect launcher
 
@@ -131,7 +158,7 @@ return
 
 建议新增：
 
-- [src/hosts/cli/launchers/directConnectLauncher.ts](D:/work/py/reachy_code/claude-code/src/hosts/cli/launchers/directConnectLauncher.ts:1)
+- [`src/hosts/cli/launchers/directConnectLauncher.ts`](../../src/hosts/cli/launchers/directConnectLauncher.ts)
 
 建议收进去的内容：
 
@@ -143,6 +170,7 @@ return
 
 - `main.tsx` 不再保留 direct-connect 的完整启动细节
 - direct-connect 继续只认 kernel helper
+- 达标后直接收口，不继续顺手统一其他未阻塞路径
 
 ### Phase C：抽 server launcher
 
@@ -150,7 +178,7 @@ return
 
 建议新增：
 
-- [src/hosts/cli/launchers/serverLauncher.ts](D:/work/py/reachy_code/claude-code/src/hosts/cli/launchers/serverLauncher.ts:1)
+- [`src/hosts/cli/launchers/serverLauncher.ts`](../../src/hosts/cli/launchers/serverLauncher.ts)
 
 建议收进去的内容：
 
@@ -161,6 +189,7 @@ return
 
 - `main.tsx` 不再保留 server 启动编排
 - server 模式仍以 kernel 作为稳定宿主入口
+- 达标后直接收口，不为追求目录对称性追加多余抽象
 
 ### Phase D：抽 shared startup
 
@@ -168,7 +197,7 @@ return
 
 建议新增：
 
-- [src/hosts/cli/launchers/sharedStartup.ts](D:/work/py/reachy_code/claude-code/src/hosts/cli/launchers/sharedStartup.ts:1)
+- [`src/hosts/cli/launchers/sharedStartup.ts`](../../src/hosts/cli/launchers/sharedStartup.ts)
 
 建议收进去的内容：
 
@@ -179,6 +208,7 @@ return
 注意：
 
 这一阶段只在确实出现 launcher 之间重复时才做，不要为了“目录完整”提前抽象。
+如果 Phase A/B/C 已经满足交付目标，而重复还不足以形成真实负担，则可以不做这一阶段。
 
 ## 不做的事
 
@@ -198,6 +228,8 @@ return
 2. headless / direct-connect / server 各自有独立 launcher
 3. launcher 不绕过 kernel
 4. 现有 mode / kernel 相关测试保持通过
+5. 没有为了“更漂亮”继续引入与交付无关的抽象层
+6. 能并行的部分已经并行处理，未并行的部分有明确理由而不是惯性串行
 
 ## 当前推荐起点
 
@@ -258,3 +290,8 @@ return
 
 - 让 `bridgeMain.ts` 退回成桥接宿主入口
 - 不再继续充当 bridge 全功能中心
+
+备注：
+
+- 这不是当前 `main.tsx` 瘦身任务的完成前置条件
+- 只有在前面阶段已经完成、且它明确阻塞后续交付时，才进入这里
