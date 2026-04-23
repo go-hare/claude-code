@@ -1,0 +1,124 @@
+import type { AgentDefinition } from '@go-hare/builtin-tools/tools/AgentTool/loadAgentsDir.js'
+
+import { query } from 'src/query.js'
+import type { Message } from 'src/types/message.js'
+import type { EffortValue } from 'src/utils/effort.js'
+import type { ProcessUserInputContext } from 'src/utils/processUserInput/processUserInput.js'
+import { fetchSystemPromptParts } from 'src/utils/queryContext.js'
+import { buildEffectiveSystemPrompt } from 'src/utils/systemPrompt.js'
+import type { SystemPrompt } from 'src/utils/systemPromptType.js'
+
+type QueryArgs = Parameters<typeof query>[0]
+
+type AsyncGeneratorYield<T> = T extends AsyncGenerator<infer TValue, any, any>
+  ? TValue
+  : never
+
+export type ReplQueryRuntimeEvent = AsyncGeneratorYield<ReturnType<typeof query>>
+
+export type PreparedReplRuntimeQuery = {
+  toolUseContext: ProcessUserInputContext
+  systemPrompt: SystemPrompt
+  userContext: Record<string, string>
+  systemContext: Record<string, string>
+}
+
+type ReplQueryRuntimeDeps = {
+  fetchSystemPromptParts: typeof fetchSystemPromptParts
+  buildEffectiveSystemPrompt: typeof buildEffectiveSystemPrompt
+  queryFn: typeof query
+}
+
+const defaultDeps: ReplQueryRuntimeDeps = {
+  fetchSystemPromptParts,
+  buildEffectiveSystemPrompt,
+  queryFn: query,
+}
+
+export async function prepareReplRuntimeQuery({
+  toolUseContext,
+  mainThreadAgentDefinition,
+  extraUserContext,
+  effort,
+  deps = defaultDeps,
+}: {
+  toolUseContext: ProcessUserInputContext
+  mainThreadAgentDefinition: AgentDefinition | undefined
+  extraUserContext?: Record<string, string>
+  effort?: EffortValue
+  deps?: ReplQueryRuntimeDeps
+}): Promise<PreparedReplRuntimeQuery> {
+  if (effort !== undefined) {
+    const previousGetAppState = toolUseContext.getAppState
+    toolUseContext.getAppState = () => ({
+      ...previousGetAppState(),
+      effortValue: effort,
+    })
+  }
+
+  const appState = toolUseContext.getAppState()
+  const {
+    defaultSystemPrompt,
+    userContext: baseUserContext,
+    systemContext,
+  } = await deps.fetchSystemPromptParts({
+    tools: toolUseContext.options.tools,
+    mainLoopModel: toolUseContext.options.mainLoopModel,
+    additionalWorkingDirectories: Array.from(
+      appState.toolPermissionContext.additionalWorkingDirectories.keys(),
+    ),
+    mcpClients: toolUseContext.options.mcpClients,
+    customSystemPrompt: toolUseContext.options.customSystemPrompt,
+  })
+
+  const systemPrompt = deps.buildEffectiveSystemPrompt({
+    mainThreadAgentDefinition,
+    toolUseContext,
+    customSystemPrompt: toolUseContext.options.customSystemPrompt,
+    defaultSystemPrompt,
+    appendSystemPrompt: toolUseContext.options.appendSystemPrompt,
+  })
+  toolUseContext.renderedSystemPrompt = systemPrompt
+
+  return {
+    toolUseContext,
+    systemPrompt,
+    userContext: {
+      ...baseUserContext,
+      ...(extraUserContext ?? {}),
+    },
+    systemContext,
+  }
+}
+
+export async function runReplRuntimeQuery({
+  preparedQuery,
+  messages,
+  canUseTool,
+  querySource,
+  onQueryEvent,
+  ...prepareOptions
+}: {
+  preparedQuery?: PreparedReplRuntimeQuery
+  messages: Message[]
+  canUseTool: QueryArgs['canUseTool']
+  querySource: QueryArgs['querySource']
+  onQueryEvent: (event: ReplQueryRuntimeEvent) => void | Promise<void>
+} & Parameters<typeof prepareReplRuntimeQuery>[0]): Promise<PreparedReplRuntimeQuery> {
+  const prepared = preparedQuery ?? (await prepareReplRuntimeQuery(prepareOptions))
+  const queryFn = prepareOptions.deps?.queryFn ?? defaultDeps.queryFn
+
+  for await (const event of queryFn({
+    messages,
+    systemPrompt: prepared.systemPrompt,
+    userContext: prepared.userContext,
+    systemContext: prepared.systemContext,
+    canUseTool,
+    toolUseContext: prepared.toolUseContext,
+    querySource,
+  })) {
+    await onQueryEvent(event)
+  }
+
+  return prepared
+}

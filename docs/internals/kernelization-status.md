@@ -379,7 +379,9 @@
 - session core 和 transport adapter 的分界已经开始形成，但 outward protocol transport-neutralization 还没开始做
 - manager 这一层已经开始从“知道具体 session 类怎么构造”转成“只编排 lifecycle contract”，但 shared session core 仍未覆盖 CLI/headless 一侧
 - CLI/headless 一侧虽然还没和 server 合成同一套 session core，但 execution session owner 也开始从具体类实例化转成 contract + factory 模式
-- headless 侧当前仍保留 cleanup stack / continue-resume bootstrap / command queue 在 loop 外层，shared session core 还只是沿 execution seam 前进，没有进入 REPL split 阶段
+- shared session core 这一段已经收到了可提交 stop point；REPL split 也已经开始第一刀，`replQueryRuntime` helper 进入 `runtime/capabilities/execution/internal/*`
+- `REPL.tsx` 不再自己保留全部 query-param 装配逻辑；本地 turn 主链、background query 和 partial compact 已开始共用同一条 runtime-side query-preparation seam
+- REPL split 第二刀也已开始：`replTurnShell` 已接管 session title、allowed-tools sync、non-query short-circuit、companion refresh 与 API metrics 这类 host-shell 副作用，`onQueryImpl` 继续向“宿主编排壳”收缩
 - headless bootstrap ownership 虽然开始走 session seam，但 hydration / resume 数据装载本身仍在 `loadInitialMessages()`，还没和 REPL 侧统一
 - headless 的 loaded-conversation adoption 现在已经从 `loadInitialMessages()` 挪回 loop + session bootstrap seam，但 teleport / coordinator-mode refresh / startup hooks 这些 host-adjacent 行为还没继续下沉
 - headless 的 interrupted-turn replay 已经不是 loop 私有逻辑，但 command queue / startup hooks / coordinator refresh 仍在 loop 或 bootstrap 路径外层

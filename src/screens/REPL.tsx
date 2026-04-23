@@ -143,9 +143,6 @@ import { SkillImprovementSurvey } from '../components/SkillImprovementSurvey.js'
 import { useSkillImprovementSurvey } from '../hooks/useSkillImprovementSurvey.js';
 import { useMoreRight } from '../moreright/useMoreRight.js';
 import { SpinnerWithVerb, BriefIdleStatus, type SpinnerMode } from '../components/Spinner.js';
-import { getSystemPrompt } from '../constants/prompts.js';
-import { buildEffectiveSystemPrompt } from '../utils/systemPrompt.js';
-import { getSystemContext, getUserContext } from '../context.js';
 import { getMemoryFiles } from '../utils/claudemd.js';
 import { startBackgroundHousekeeping } from '../utils/backgroundHousekeeping.js';
 import { getTotalCost, saveCurrentSessionCosts, resetCostState, getStoredSessionCosts } from '../cost-tracker.js';
@@ -218,7 +215,7 @@ import { WEB_FETCH_TOOL_NAME } from '@go-hare/builtin-tools/tools/WebFetchTool/p
 import { SLEEP_TOOL_NAME } from '@go-hare/builtin-tools/tools/SleepTool/prompt.js';
 import { clearSpeculativeChecks } from '@go-hare/builtin-tools/tools/BashTool/bashPermissions.js';
 import type { AutoUpdaterResult } from '../utils/autoUpdater.js';
-import { getGlobalConfig, saveGlobalConfig, getGlobalConfigWriteCount } from '../utils/config.js';
+import { getGlobalConfig, saveGlobalConfig } from '../utils/config.js';
 import { hasConsoleBillingAccess } from '../utils/billing.js';
 import {
   logEvent,
@@ -237,13 +234,12 @@ import {
   createAssistantMessage,
   createTurnDurationMessage,
   createAgentsKilledMessage,
-  createApiMetricsMessage,
   createSystemMessage,
   createCommandInputMessage,
   formatCommandInputTags,
 } from '../utils/messages.js';
 import { generateSessionTitle } from '../utils/sessionTitle.js';
-import { BASH_INPUT_TAG, COMMAND_MESSAGE_TAG, COMMAND_NAME_TAG, LOCAL_COMMAND_STDOUT_TAG } from '../constants/xml.js';
+import { LOCAL_COMMAND_STDOUT_TAG } from '../constants/xml.js';
 import { escapeXml } from '../utils/xml.js';
 import type { ThinkingConfig } from '../utils/thinking.js';
 import { gracefulShutdownSync } from '../utils/gracefulShutdown.js';
@@ -258,7 +254,6 @@ import type {
   HookResultMessage,
   PartialCompactDirection,
 } from '../types/message.js';
-import { query } from '../query.js';
 import { mergeClients, useMergedClients } from '../hooks/useMergedClients.js';
 import { getQuerySourceForREPL } from '../utils/promptCategory.js';
 import { useMergedTools } from '../hooks/useMergedTools.js';
@@ -278,6 +273,17 @@ import { randomUUID, type UUID } from 'crypto';
 import { processSessionStartHooks } from '../utils/sessionStart.js';
 import { executeSessionEndHooks, getSessionEndHookTimeoutMs } from '../utils/hooks.js';
 import { type IDESelection, useIdeSelection } from '../hooks/useIdeSelection.js';
+import {
+  prepareReplRuntimeQuery,
+  runReplRuntimeQuery,
+} from '../runtime/capabilities/execution/internal/replQueryRuntime.js';
+import {
+  appendReplApiMetricsMessage,
+  maybeGenerateReplSessionTitle,
+  maybeRefreshCompanionReaction,
+  shortCircuitReplNonQueryTurn,
+  syncReplAllowedToolsForTurn,
+} from './replTurnShell.js';
 import { getTools, assembleToolPool } from '../tools.js';
 import type { AgentDefinition } from '@go-hare/builtin-tools/tools/AgentTool/loadAgentsDir.js';
 import { resolveAgentTools } from '@go-hare/builtin-tools/tools/AgentTool/agentToolUtils.js';
@@ -510,16 +516,6 @@ const HISTORY_STUB = { maybeLoadOlder: (_: ScrollBoxHandle) => {} };
 // up to read the start → start typing → before this fix, snapped to bottom.
 // https://anthropic.slack.com/archives/C07VBSHV7EV/p1773545449871739
 const RECENT_SCROLL_REPIN_WINDOW_MS = 3000;
-
-// Use LRU cache to prevent unbounded memory growth
-// 100 files should be sufficient for most coding sessions while preventing
-// memory issues when working across many files in large projects
-
-function median(values: number[]): number {
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0 ? Math.round((sorted[mid - 1]! + sorted[mid]!) / 2) : sorted[mid]!;
-}
 
 /** less-style / bar. 1-row, same border-top styling as TranscriptModeFooter
  *  so swapping them in the bottom slot doesn't shift ScrollBox height.
@@ -2899,26 +2895,15 @@ export function REPL({
 
     void (async () => {
       const toolUseContext = getToolUseContext(messagesRef.current, [], new AbortController(), mainLoopModel);
-
-      const [defaultSystemPrompt, userContext, systemContext] = await Promise.all([
-        getSystemPrompt(
-          toolUseContext.options.tools,
-          mainLoopModel,
-          Array.from(toolPermissionContext.additionalWorkingDirectories.keys()),
-          toolUseContext.options.mcpClients,
-        ),
-        getUserContext(),
-        getSystemContext(),
-      ]);
-
-      const systemPrompt = buildEffectiveSystemPrompt({
-        mainThreadAgentDefinition,
+      const {
+        toolUseContext: preparedContext,
+        systemPrompt,
+        userContext,
+        systemContext,
+      } = await prepareReplRuntimeQuery({
         toolUseContext,
-        customSystemPrompt,
-        defaultSystemPrompt,
-        appendSystemPrompt,
+        mainThreadAgentDefinition,
       });
-      toolUseContext.renderedSystemPrompt = systemPrompt;
 
       const notificationAttachments = await getQueuedCommandAttachments(removedNotifications).catch(() => []);
       const notificationMessages = notificationAttachments.map(createAttachmentMessage);
@@ -2952,7 +2937,7 @@ export function REPL({
           userContext,
           systemContext,
           canUseTool,
-          toolUseContext,
+          toolUseContext: preparedContext,
           querySource: getQuerySourceForREPL(),
         },
         description: terminalTitle,
@@ -3136,42 +3121,15 @@ export function REPL({
       // Mark onboarding as complete when any user message is sent to Claude
       void maybeMarkProjectOnboardingComplete();
 
-      // Extract a session title from the first real user message. One-shot
-      // via ref (was tengu_birch_mist experiment: first-message-only to save
-      // Haiku calls). The ref replaces the old `messages.length <= 1` check,
-      // which was broken by SessionStart hook messages (prepended via
-      // useDeferredHookMessages) and attachment messages (appended by
-      // processTextPrompt) — both pushed length past 1 on turn one, so the
-      // title silently fell through to the "Claude Code" default.
-      if (!titleDisabled && !sessionTitle && !agentTitle && !haikuTitleAttemptedRef.current) {
-        const firstUserMessage = newMessages.find(m => m.type === 'user' && !m.isMeta);
-        const text =
-          firstUserMessage?.type === 'user'
-            ? getContentText(firstUserMessage.message!.content as string | ContentBlockParam[])
-            : null;
-        // Skip synthetic breadcrumbs — slash-command output, prompt-skill
-        // expansions (/commit → <command-message>), local-command headers
-        // (/help → <command-name>), and bash-mode (!cmd → <bash-input>).
-        // None of these are the user's topic; wait for real prose.
-        if (
-          text &&
-          !text.startsWith(`<${LOCAL_COMMAND_STDOUT_TAG}>`) &&
-          !text.startsWith(`<${COMMAND_MESSAGE_TAG}>`) &&
-          !text.startsWith(`<${COMMAND_NAME_TAG}>`) &&
-          !text.startsWith(`<${BASH_INPUT_TAG}>`)
-        ) {
-          haikuTitleAttemptedRef.current = true;
-          void generateSessionTitle(text, new AbortController().signal).then(
-            title => {
-              if (title) setHaikuTitle(title);
-              else haikuTitleAttemptedRef.current = false;
-            },
-            () => {
-              haikuTitleAttemptedRef.current = false;
-            },
-          );
-        }
-      }
+      maybeGenerateReplSessionTitle({
+        newMessages,
+        titleDisabled,
+        sessionTitle,
+        agentTitle,
+        haikuTitleAttemptedRef,
+        generateSessionTitle,
+        setHaikuTitle,
+      });
 
       // Apply slash-command-scoped allowedTools (from skill frontmatter) to the
       // store once per turn. This also covers the reset: the next non-skill turn
@@ -3183,42 +3141,30 @@ export function REPL({
       // (~85 calls/turn); hoisting it here makes getAppState a pure read and stops
       // ephemeral contexts (permission dialog, BackgroundTasksDialog) from
       // accidentally clearing it mid-turn.
-      store.setState(prev => {
-        const cur = prev.toolPermissionContext.alwaysAllowRules.command;
-        if (
-          cur === additionalAllowedTools ||
-          (cur?.length === additionalAllowedTools.length && cur.every((v, i) => v === additionalAllowedTools[i]))
-        ) {
-          return prev;
-        }
-        return {
-          ...prev,
-          toolPermissionContext: {
-            ...prev.toolPermissionContext,
-            alwaysAllowRules: {
-              ...prev.toolPermissionContext.alwaysAllowRules,
-              command: additionalAllowedTools,
-            },
-          },
-        };
+      syncReplAllowedToolsForTurn({
+        setStoreState: updater => {
+          store.setState(updater);
+        },
+        additionalAllowedTools,
       });
 
-      // The last message is an assistant message if the user input was a bash command,
-      // or if the user input was an invalid slash command.
-      if (!shouldQuery) {
-        // Manual /compact sets messages directly (shouldQuery=false) bypassing
-        // handleMessageFromStream. Clear context-blocked if a compact boundary
-        // is present so proactive ticks resume after compaction.
-        if (newMessages.some(isCompactBoundaryMessage)) {
-          // Bump conversationId so Messages.tsx row keys change and
-          // stale memoized rows remount with post-compact content.
-          setConversationId(randomUUID());
-          if (feature('PROACTIVE') || feature('KAIROS')) {
-            proactiveModule?.setContextBlocked(false);
-          }
-        }
-        resetLoadingState();
-        setAbortController(null);
+      if (
+        shortCircuitReplNonQueryTurn({
+          shouldQuery,
+          newMessages,
+          bumpConversationId: () => {
+            setConversationId(randomUUID());
+          },
+          clearContextBlocked:
+            feature('PROACTIVE') || feature('KAIROS')
+              ? () => {
+                  proactiveModule?.setContextBlocked(false);
+                }
+              : undefined,
+          resetLoadingState,
+          setAbortController,
+        })
+      ) {
         return;
       }
 
@@ -3228,93 +3174,72 @@ export function REPL({
         abortController,
         mainLoopModelParam,
       );
-      // getToolUseContext reads tools/mcpClients fresh from store.getState()
-      // (via computeTools/mergeClients). Use those rather than the closure-
-      // captured `tools`/`mcpClients` — useManageMCPConnections may have
-      // flushed new MCP state between the render that captured this closure
-      // and now. Turn 1 via processInitialMessage is the main beneficiary.
-      const { tools: freshTools, mcpClients: freshMcpClients } = toolUseContext.options;
-
-      // Scope the skill's effort override to this turn's context only —
-      // wrapping getAppState keeps the override out of the global store so
-      // background agents and UI subscribers (Spinner, LogoV2) never see it.
-      if (effort !== undefined) {
-        const previousGetAppState = toolUseContext.getAppState;
-        toolUseContext.getAppState = () => ({
-          ...previousGetAppState(),
-          effortValue: effort,
-        });
-      }
 
       queryCheckpoint('query_context_loading_start');
-      const [, , defaultSystemPrompt, baseUserContext, systemContext] = await Promise.all([
+      await Promise.all([
         // IMPORTANT: do this after setMessages() above, to avoid UI jank
         undefined,
         // Fast-mode circuit breaker check
         feature('TRANSCRIPT_CLASSIFIER')
           ? checkAndDisableAutoModeIfNeeded(toolPermissionContext, setAppState, store.getState().fastMode)
           : undefined,
-        getSystemPrompt(
-          freshTools,
-          mainLoopModelParam,
-          Array.from(toolPermissionContext.additionalWorkingDirectories.keys()),
-          freshMcpClients,
-        ),
-        getUserContext(),
-        getSystemContext(),
       ]);
-      const userContext = {
-        ...baseUserContext,
-        ...getCoordinatorUserContext(freshMcpClients, isScratchpadEnabled() ? getScratchpadDir() : undefined),
-        ...((feature('PROACTIVE') || feature('KAIROS')) &&
-        proactiveModule?.isProactiveActive() &&
-        !terminalFocusRef.current
-          ? {
-              terminalFocus: 'The terminal is unfocused \u2014 the user is not actively watching.',
-            }
-          : {}),
-      };
-      queryCheckpoint('query_context_loading_end');
-
-      const systemPrompt = buildEffectiveSystemPrompt({
-        mainThreadAgentDefinition,
+      const preparedQuery = await prepareReplRuntimeQuery({
         toolUseContext,
-        customSystemPrompt,
-        defaultSystemPrompt,
-        appendSystemPrompt,
+        mainThreadAgentDefinition,
+        effort,
+        extraUserContext: {
+          ...getCoordinatorUserContext(
+            toolUseContext.options.mcpClients,
+            isScratchpadEnabled() ? getScratchpadDir() : undefined,
+          ),
+          ...((feature('PROACTIVE') || feature('KAIROS')) &&
+          proactiveModule?.isProactiveActive() &&
+          !terminalFocusRef.current
+            ? {
+                terminalFocus: 'The terminal is unfocused \u2014 the user is not actively watching.',
+              }
+            : {}),
+        },
       });
-      toolUseContext.renderedSystemPrompt = systemPrompt;
-
+      queryCheckpoint('query_context_loading_end');
       queryCheckpoint('query_query_start');
       resetTurnHookDuration();
       resetTurnToolDuration();
       resetTurnClassifierDuration();
-
-      for await (const event of query({
+      await runReplRuntimeQuery({
+        preparedQuery,
         messages: messagesIncludingNewMessages,
-        systemPrompt,
-        userContext,
-        systemContext,
         canUseTool,
-        toolUseContext,
         querySource: getQuerySourceForREPL(),
-      })) {
-        onQueryEvent(event);
-      }
+        onQueryEvent,
+        toolUseContext,
+        mainThreadAgentDefinition,
+        effort,
+      });
 
-      if (feature('BUDDY') && typeof (globalThis as Record<string, unknown>).fireCompanionObserver === 'function') {
-        const _fireCompanionObserver = (globalThis as Record<string, unknown>).fireCompanionObserver as (
-          msgs: unknown,
-          cb: (r: unknown) => void,
-        ) => void;
-        void _fireCompanionObserver(messagesRef.current, reaction =>
-          setAppState(prev =>
-            prev.companionReaction === (reaction as typeof prev.companionReaction)
+      maybeRefreshCompanionReaction({
+        fireCompanionObserver:
+          feature('BUDDY') &&
+          typeof (globalThis as Record<string, unknown>).fireCompanionObserver === 'function'
+            ? ((globalThis as Record<string, unknown>).fireCompanionObserver as (
+                messages: MessageType[],
+                callback: (reaction: unknown) => void,
+              ) => void)
+            : undefined,
+        messages: messagesRef.current,
+        setCompanionReaction: updater => {
+          setAppState(prev => {
+            const nextReaction = updater(prev.companionReaction);
+            return nextReaction === prev.companionReaction
               ? prev
-              : { ...prev, companionReaction: reaction as typeof prev.companionReaction },
-          ),
-        );
-      }
+              : {
+                  ...prev,
+                  companionReaction: nextReaction as typeof prev.companionReaction,
+                };
+          });
+        },
+      });
 
       queryCheckpoint('query_end');
 
@@ -3331,42 +3256,39 @@ export function REPL({
       // Capture ant-only API metrics before resetLoadingState clears the ref.
       // For multi-request turns (tool use loops), compute P50 across all requests.
       if (process.env.USER_TYPE === 'ant' && apiMetricsRef.current.length > 0) {
-        const entries = apiMetricsRef.current;
-
-        const ttfts = entries.map(e => e.ttftMs);
-        // Compute per-request OTPS using only active streaming time and
-        // streaming-only content. endResponseLength tracks content added by
-        // streaming deltas only, excluding subagent/compaction inflation.
-        const otpsValues = entries.map(e => {
-          const delta = Math.round((e.endResponseLength - e.responseLengthBaseline) / 4);
-          const samplingMs = e.lastTokenTime - e.firstTokenTime;
-          return samplingMs > 0 ? Math.round(delta / (samplingMs / 1000)) : 0;
-        });
-
-        const isMultiRequest = entries.length > 1;
         const hookMs = getTurnHookDurationMs();
         const hookCount = getTurnHookCount();
         const toolMs = getTurnToolDurationMs();
         const toolCount = getTurnToolCount();
         const classifierMs = getTurnClassifierDurationMs();
         const classifierCount = getTurnClassifierCount();
-        const turnMs = Date.now() - loadingStartTimeRef.current;
-        setMessages(prev => [
-          ...prev,
-          createApiMetricsMessage({
-            ttftMs: isMultiRequest ? median(ttfts) : ttfts[0]!,
-            otps: isMultiRequest ? median(otpsValues) : otpsValues[0]!,
-            isP50: isMultiRequest,
-            hookDurationMs: hookMs > 0 ? hookMs : undefined,
-            hookCount: hookCount > 0 ? hookCount : undefined,
-            turnDurationMs: turnMs > 0 ? turnMs : undefined,
-            toolDurationMs: toolMs > 0 ? toolMs : undefined,
-            toolCount: toolCount > 0 ? toolCount : undefined,
-            classifierDurationMs: classifierMs > 0 ? classifierMs : undefined,
-            classifierCount: classifierCount > 0 ? classifierCount : undefined,
-            configWriteCount: getGlobalConfigWriteCount(),
-          }),
-        ]);
+        appendReplApiMetricsMessage({
+          entries: apiMetricsRef.current,
+          loadingStartTimeMs: loadingStartTimeRef.current,
+          setMessages: updater => {
+          setMessages(prev => {
+            const withBaseMetrics = updater(prev);
+            const apiMetricsMessage = withBaseMetrics.at(-1);
+            if (
+              apiMetricsMessage?.type !== 'system' ||
+              apiMetricsMessage.subtype !== 'api_metrics'
+            ) {
+              return withBaseMetrics;
+            }
+            const nextMessages = withBaseMetrics.slice();
+            nextMessages[nextMessages.length - 1] = {
+              ...apiMetricsMessage,
+              hookDurationMs: hookMs > 0 ? hookMs : undefined,
+              hookCount: hookCount > 0 ? hookCount : undefined,
+              toolDurationMs: toolMs > 0 ? toolMs : undefined,
+              toolCount: toolCount > 0 ? toolCount : undefined,
+              classifierDurationMs: classifierMs > 0 ? classifierMs : undefined,
+              classifierCount: classifierCount > 0 ? classifierCount : undefined,
+            };
+            return nextMessages;
+            });
+          },
+        });
       }
 
       resetLoadingState();
@@ -5890,21 +5812,10 @@ export function REPL({
 
               const newAbortController = createAbortController();
               const context = getToolUseContext(compactMessages, [], newAbortController, mainLoopModel);
-              const appState = context.getAppState();
-              const defaultSysPrompt = await getSystemPrompt(
-                context.options.tools,
-                context.options.mainLoopModel,
-                Array.from(appState.toolPermissionContext.additionalWorkingDirectories.keys()),
-                context.options.mcpClients,
-              );
-              const systemPrompt = buildEffectiveSystemPrompt({
-                mainThreadAgentDefinition: undefined,
+              const { systemPrompt, userContext, systemContext } = await prepareReplRuntimeQuery({
                 toolUseContext: context,
-                customSystemPrompt: context.options.customSystemPrompt,
-                defaultSystemPrompt: defaultSysPrompt,
-                appendSystemPrompt: context.options.appendSystemPrompt,
+                mainThreadAgentDefinition: undefined,
               });
-              const [userContext, systemContext] = await Promise.all([getUserContext(), getSystemContext()]);
 
               const result = await partialCompactConversation(
                 compactMessages,
