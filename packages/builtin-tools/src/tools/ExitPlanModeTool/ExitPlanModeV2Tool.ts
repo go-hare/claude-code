@@ -251,6 +251,11 @@ export const ExitPlanModeV2Tool: Tool<InputSchema, Output> = buildTool({
     const inputPlan =
       'plan' in input && typeof input.plan === 'string' ? input.plan : undefined
     const plan = inputPlan ?? getPlan(context.agentId)
+    const shouldTrackPlanVerification =
+      process.env.CLAUDE_CODE_VERIFY_PLAN === 'true' &&
+      !isAgent &&
+      typeof plan === 'string' &&
+      plan.trim().length > 0
 
     // Sync disk so VerifyPlanExecution / Read see the edit. Re-snapshot
     // after: the only other persistFileSnapshotIfRemote call (api.ts) runs
@@ -394,6 +399,13 @@ export const ExitPlanModeV2Tool: Tool<InputSchema, Output> = buildTool({
       }
       return {
         ...prev,
+        pendingPlanVerification: shouldTrackPlanVerification
+          ? {
+              plan,
+              verificationStarted: false,
+              verificationCompleted: false,
+            }
+          : undefined,
         toolPermissionContext: {
           ...baseContext,
           mode: restoreMode,

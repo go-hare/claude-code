@@ -35,6 +35,23 @@ const defaultDeps: ReplQueryRuntimeDeps = {
   queryFn: query,
 }
 
+function withEffortScopedToolUseContext(
+  toolUseContext: ProcessUserInputContext,
+  effort?: EffortValue,
+): ProcessUserInputContext {
+  if (effort === undefined) {
+    return toolUseContext
+  }
+
+  return {
+    ...toolUseContext,
+    getAppState: () => ({
+      ...toolUseContext.getAppState(),
+      effortValue: effort,
+    }),
+  }
+}
+
 export async function prepareReplRuntimeQuery({
   toolUseContext,
   mainThreadAgentDefinition,
@@ -48,40 +65,37 @@ export async function prepareReplRuntimeQuery({
   effort?: EffortValue
   deps?: ReplQueryRuntimeDeps
 }): Promise<PreparedReplRuntimeQuery> {
-  if (effort !== undefined) {
-    const previousGetAppState = toolUseContext.getAppState
-    toolUseContext.getAppState = () => ({
-      ...previousGetAppState(),
-      effortValue: effort,
-    })
-  }
+  const preparedToolUseContext = withEffortScopedToolUseContext(
+    toolUseContext,
+    effort,
+  )
 
-  const appState = toolUseContext.getAppState()
+  const appState = preparedToolUseContext.getAppState()
   const {
     defaultSystemPrompt,
     userContext: baseUserContext,
     systemContext,
   } = await deps.fetchSystemPromptParts({
-    tools: toolUseContext.options.tools,
-    mainLoopModel: toolUseContext.options.mainLoopModel,
+    tools: preparedToolUseContext.options.tools,
+    mainLoopModel: preparedToolUseContext.options.mainLoopModel,
     additionalWorkingDirectories: Array.from(
       appState.toolPermissionContext.additionalWorkingDirectories.keys(),
     ),
-    mcpClients: toolUseContext.options.mcpClients,
-    customSystemPrompt: toolUseContext.options.customSystemPrompt,
+    mcpClients: preparedToolUseContext.options.mcpClients,
+    customSystemPrompt: preparedToolUseContext.options.customSystemPrompt,
   })
 
   const systemPrompt = deps.buildEffectiveSystemPrompt({
     mainThreadAgentDefinition,
-    toolUseContext,
-    customSystemPrompt: toolUseContext.options.customSystemPrompt,
+    toolUseContext: preparedToolUseContext,
+    customSystemPrompt: preparedToolUseContext.options.customSystemPrompt,
     defaultSystemPrompt,
-    appendSystemPrompt: toolUseContext.options.appendSystemPrompt,
+    appendSystemPrompt: preparedToolUseContext.options.appendSystemPrompt,
   })
-  toolUseContext.renderedSystemPrompt = systemPrompt
+  preparedToolUseContext.renderedSystemPrompt = systemPrompt
 
   return {
-    toolUseContext,
+    toolUseContext: preparedToolUseContext,
     systemPrompt,
     userContext: {
       ...baseUserContext,

@@ -18,6 +18,7 @@ import { createTaskStateBase } from '../../Task.js'
 import type { Tools } from '../../Tool.js'
 import { findToolByName } from '../../Tool.js'
 import type { AgentToolResult } from '@go-hare/builtin-tools/tools/AgentTool/agentToolUtils.js'
+import { VERIFICATION_AGENT_TYPE } from '@go-hare/builtin-tools/tools/AgentTool/constants.js'
 import type { AgentDefinition } from '@go-hare/builtin-tools/tools/AgentTool/loadAgentsDir.js'
 import { SYNTHETIC_OUTPUT_TOOL_NAME } from '@go-hare/builtin-tools/tools/SyntheticOutputTool/SyntheticOutputTool.js'
 import { asAgentId } from '../../types/ids.js'
@@ -30,6 +31,12 @@ import { registerCleanup } from '../../utils/cleanupRegistry.js'
 import { getToolSearchOrReadInfo } from '../../utils/collapseReadSearch.js'
 import { enqueuePendingNotification } from '../../utils/messageQueueManager.js'
 import { getAgentTranscriptPath } from '../../utils/sessionStorage.js'
+import {
+  getTaskExecutionMetadata,
+  getTaskListId,
+  listTasks,
+  markTaskCompletionSuggested,
+} from '../../utils/tasks.js'
 import {
   evictTaskOutput,
   getTaskOutputPath,
@@ -270,7 +277,37 @@ export function drainPendingMessages(
 /**
  * Enqueue an agent notification to the message queue.
  */
-export function enqueueAgentNotification({
+async function getLinkedTaskCompletionHint(
+  taskId: string,
+  status: 'completed' | 'failed' | 'killed',
+): Promise<string | undefined> {
+  if (status !== 'completed') {
+    return undefined
+  }
+
+  const taskListId = getTaskListId()
+  const taskList = await listTasks(taskListId)
+  const linkedTask = taskList.find(task => {
+    const metadata = getTaskExecutionMetadata(task)
+    return metadata?.linkedBackgroundTaskId === taskId
+  })
+  if (!linkedTask || linkedTask.status !== 'in_progress') {
+    return undefined
+  }
+
+  const shouldSuggest = await markTaskCompletionSuggested(
+    taskListId,
+    linkedTask.id,
+    taskId,
+  )
+  if (!shouldSuggest) {
+    return undefined
+  }
+
+  return `Background task for task #${linkedTask.id} has completed. If the work is done, call TaskUpdate with status: "completed" before proceeding.`
+}
+
+export async function enqueueAgentNotification({
   taskId,
   description,
   status,
@@ -296,16 +333,18 @@ export function enqueueAgentNotification({
   toolUseId?: string
   worktreePath?: string
   worktreeBranch?: string
-}): void {
+}): Promise<void> {
   // Atomically check and set notified flag to prevent duplicate notifications.
   // If the task was already marked as notified (e.g., by TaskStopTool), skip
   // enqueueing to avoid sending redundant messages to the model.
   let shouldEnqueue = false
+  let shouldCompletePlanVerification = false
   updateTaskState<LocalAgentTaskState>(taskId, setAppState, task => {
     if (task.notified) {
       return task
     }
     shouldEnqueue = true
+    shouldCompletePlanVerification = task.agentType === VERIFICATION_AGENT_TYPE
     return {
       ...task,
       notified: true,
@@ -321,6 +360,27 @@ export function enqueueAgentNotification({
   // preserved; only the pre-computed response is discarded.
   abortSpeculation(setAppState)
 
+  if (shouldCompletePlanVerification) {
+    setAppState(prev => {
+      const pending = prev.pendingPlanVerification
+      if (
+        !pending ||
+        !pending.verificationStarted ||
+        pending.verificationCompleted
+      ) {
+        return prev
+      }
+
+      return {
+        ...prev,
+        pendingPlanVerification: {
+          ...pending,
+          verificationCompleted: true,
+        },
+      }
+    })
+  }
+
   const summary =
     status === 'completed'
       ? `Agent "${description}" completed`
@@ -332,7 +392,15 @@ export function enqueueAgentNotification({
   const toolUseIdLine = toolUseId
     ? `\n<${TOOL_USE_ID_TAG}>${toolUseId}</${TOOL_USE_ID_TAG}>`
     : ''
-  const validatedResult = validateWorkerResult(finalMessage, status, description)
+  const completionHint = await getLinkedTaskCompletionHint(taskId, status)
+  const resultWithHint = completionHint
+    ? [finalMessage, completionHint].filter(Boolean).join('\n\n')
+    : finalMessage
+  const validatedResult = validateWorkerResult(
+    resultWithHint,
+    status,
+    description,
+  )
   const resultSection = `\n<result>${validatedResult.result}</result>`
   const usageSection = usage
     ? `\n<usage><total_tokens>${usage.totalTokens}</total_tokens><tool_uses>${usage.toolUses}</tool_uses><duration_ms>${usage.durationMs}</duration_ms></usage>`

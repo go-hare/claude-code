@@ -31,6 +31,17 @@ describe('SessionRuntime contracts', () => {
     expect(content).toContain('export const createExecutionSessionRuntime')
   })
 
+  test('keeps MessageSelector optional at the runtime boundary', () => {
+    expect(content).toContain(
+      "(): typeof import('src/components/MessageSelector.js') | null",
+    )
+    expect(content).toContain('return null')
+    expect(content).toContain('function selectableUserMessagesFilter')
+    expect(content).toContain(
+      'selectableUserMessagesFilter(message as Message) ?? true',
+    )
+  })
+
   test('headless managed session shares the runtime session lifecycle contract', () => {
     expect(headlessManagedSessionContent).toContain(
       "from '../../../contracts/session.js'",

@@ -1,34 +1,37 @@
-import { beforeEach, describe, expect, test } from 'bun:test'
-import { mkdtemp, rm } from 'fs/promises'
-import { join } from 'path'
-import { tmpdir } from 'os'
+import { describe, expect, test } from 'bun:test'
 import {
   createTask,
+  getActiveTaskExecutionContext,
   getTask,
   getTaskExecutionMetadata,
-  getActiveTaskExecutionContext,
+  getTaskOwnedFiles,
   linkTaskToBackgroundTask,
   markTaskCompletionSuggested,
   runWithActiveTaskExecutionContext,
+  updateTask,
 } from '../tasks.js'
 
-describe('task execution metadata helpers', () => {
-  let configDir: string
+const taskListId = `task-execution-test-${Date.now()}`
 
-  beforeEach(async () => {
-    configDir = await mkdtemp(join(tmpdir(), 'claude-task-exec-'))
-    process.env.CLAUDE_CONFIG_DIR = configDir
+async function createTrackedTask() {
+  const taskId = await createTask(taskListId, {
+    subject: 'Track worker',
+    description: 'Link a background worker to this task',
+    status: 'in_progress',
+    owner: undefined,
+    blocks: [],
+    blockedBy: [],
+    metadata: {
+      ownedFiles: ['src/app.ts', 'src/app.ts', 'src/server.ts'],
+    },
   })
 
-  test('links a task to a background task and marks completion suggested', async () => {
-    const taskListId = 'task-exec-test'
-    const taskId = await createTask(taskListId, {
-      subject: 'Test task',
-      description: 'Task description',
-      status: 'in_progress',
-      blocks: [],
-      blockedBy: [],
-    })
+  return taskId
+}
+
+describe('task execution metadata', () => {
+  test('links a tracked task to a background task', async () => {
+    const taskId = await createTrackedTask()
 
     await linkTaskToBackgroundTask(taskListId, taskId, {
       backgroundTaskId: 'a123',
@@ -36,8 +39,8 @@ describe('task execution metadata helpers', () => {
       agentId: 'a123',
     })
 
-    let task = await getTask(taskListId, taskId)
-    expect(task).toBeTruthy()
+    const task = await getTask(taskListId, taskId)
+    expect(task).not.toBeNull()
     expect(getTaskExecutionMetadata(task!)).toEqual({
       linkedBackgroundTaskId: 'a123',
       linkedBackgroundTaskType: 'local_agent',
@@ -45,68 +48,49 @@ describe('task execution metadata helpers', () => {
       completionSuggestedAt: undefined,
       completionSuggestedByBackgroundTaskId: undefined,
     })
+    expect(getTaskOwnedFiles(task!)).toEqual(['src/app.ts', 'src/server.ts'])
+  })
 
-    const suggested = await markTaskCompletionSuggested(taskListId, taskId, 'a123')
-    expect(suggested).toBe(true)
+  test('marks completion suggestion only for the linked background task', async () => {
+    const taskId = await createTrackedTask()
 
-    task = await getTask(taskListId, taskId)
+    await linkTaskToBackgroundTask(taskListId, taskId, {
+      backgroundTaskId: 'a123',
+      backgroundTaskType: 'local_agent',
+    })
+
+    expect(await markTaskCompletionSuggested(taskListId, taskId, 'other')).toBe(
+      false,
+    )
+    expect(await markTaskCompletionSuggested(taskListId, taskId, 'a123')).toBe(
+      true,
+    )
+    expect(await markTaskCompletionSuggested(taskListId, taskId, 'a123')).toBe(
+      false,
+    )
+
+    const task = await getTask(taskListId, taskId)
     const metadata = getTaskExecutionMetadata(task!)
     expect(metadata?.completionSuggestedByBackgroundTaskId).toBe('a123')
     expect(typeof metadata?.completionSuggestedAt).toBe('string')
-
-    await rm(configDir, { recursive: true, force: true })
   })
 
-  test('does not mark completion suggested for a different background task', async () => {
-    const taskListId = 'task-exec-test-2'
-    const taskId = await createTask(taskListId, {
-      subject: 'Test task',
-      description: 'Task description',
-      status: 'in_progress',
-      blocks: [],
-      blockedBy: [],
-    })
+  test('clears suggestion when task is no longer in progress', async () => {
+    const taskId = await createTrackedTask()
 
     await linkTaskToBackgroundTask(taskListId, taskId, {
       backgroundTaskId: 'a123',
       backgroundTaskType: 'local_agent',
     })
+    await updateTask(taskListId, taskId, { status: 'completed' })
 
-    const suggested = await markTaskCompletionSuggested(taskListId, taskId, 'other')
-    expect(suggested).toBe(false)
-
-    const task = await getTask(taskListId, taskId)
-    const metadata = getTaskExecutionMetadata(task!)
-    expect(metadata?.completionSuggestedByBackgroundTaskId).toBeUndefined()
-
-    await rm(configDir, { recursive: true, force: true })
+    expect(await markTaskCompletionSuggested(taskListId, taskId, 'a123')).toBe(
+      false,
+    )
   })
+})
 
-  test('marks completion suggestion only once per linked background task', async () => {
-    const taskListId = 'task-exec-test-3'
-    const taskId = await createTask(taskListId, {
-      subject: 'Test task',
-      description: 'Task description',
-      status: 'in_progress',
-      blocks: [],
-      blockedBy: [],
-    })
-
-    await linkTaskToBackgroundTask(taskListId, taskId, {
-      backgroundTaskId: 'a123',
-      backgroundTaskType: 'local_agent',
-    })
-
-    expect(await markTaskCompletionSuggested(taskListId, taskId, 'a123')).toBe(true)
-    expect(await markTaskCompletionSuggested(taskListId, taskId, 'a123')).toBe(false)
-
-    const task = await getTask(taskListId, taskId)
-    const metadata = getTaskExecutionMetadata(task!)
-    expect(metadata?.completionSuggestedByBackgroundTaskId).toBe('a123')
-
-    await rm(configDir, { recursive: true, force: true })
-  })
-
+describe('active task execution context', () => {
   test('isolates active task execution context per async chain', async () => {
     const result = await Promise.all([
       runWithActiveTaskExecutionContext(

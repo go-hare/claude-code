@@ -408,8 +408,9 @@ export type AppState = DeepImmutable<{
     // Session-scoped permission rules from plan mode (e.g., "run tests", "install dependencies")
     allowedPrompts?: AllowedPrompt[]
   } | null
-  // Pending plan verification state (set when exiting plan mode)
-  // Used by VerifyPlanExecution tool to trigger background verification
+  // Pending explicit plan verification state (set when exiting plan mode),
+  // advanced when VerifyPlanExecution is called, and completed when the
+  // background verification worker finishes.
   pendingPlanVerification?: {
     plan: string
     verificationStarted: boolean

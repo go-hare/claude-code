@@ -6,6 +6,8 @@ mock.module("src/utils/thinking.js", () => ({
 }));
 mock.module("src/utils/settings/settings.js", () => ({
   getInitialSettings: () => ({}),
+  getSettings_DEPRECATED: () => ({}),
+  getSettingsForSource: () => ({}),
 }));
 mock.module("src/utils/auth.js", () => ({
   isProSubscriber: () => false,
@@ -25,15 +27,19 @@ const {
   isValidNumericEffort,
   convertEffortValueToLevel,
   getEffortLevelDescription,
+  getEffortSuffix,
+  resolveAppliedEffort,
   resolvePickerEffortPersistence,
+  shouldShowEffortUI,
+  toPersistableEffort,
   EFFORT_LEVELS,
 } = await import("src/utils/effort.js");
 
 // ─── EFFORT_LEVELS constant ────────────────────────────────────────────
 
 describe("EFFORT_LEVELS", () => {
-  test("contains the four canonical levels", () => {
-    expect(EFFORT_LEVELS).toEqual(["low", "medium", "high", "max"]);
+  test("contains the canonical levels", () => {
+    expect(EFFORT_LEVELS).toEqual(["low", "medium", "high", "max", "xhigh"]);
   });
 });
 
@@ -54,6 +60,10 @@ describe("isEffortLevel", () => {
 
   test("returns true for 'max'", () => {
     expect(isEffortLevel("max")).toBe(true);
+  });
+
+  test("returns true for 'xhigh'", () => {
+    expect(isEffortLevel("xhigh")).toBe(true);
   });
 
   test("returns false for 'invalid'", () => {
@@ -89,6 +99,7 @@ describe("parseEffortValue", () => {
     expect(parseEffortValue("medium")).toBe("medium");
     expect(parseEffortValue("high")).toBe("high");
     expect(parseEffortValue("max")).toBe("max");
+    expect(parseEffortValue("xhigh")).toBe("xhigh");
   });
 
   test("parses numeric string to number", () => {
@@ -146,6 +157,7 @@ describe("convertEffortValueToLevel", () => {
     expect(convertEffortValueToLevel("medium")).toBe("medium");
     expect(convertEffortValueToLevel("high")).toBe("high");
     expect(convertEffortValueToLevel("max")).toBe("max");
+    expect(convertEffortValueToLevel("xhigh")).toBe("xhigh");
   });
 
   test("returns 'high' for unknown string", () => {
@@ -222,6 +234,107 @@ describe("getEffortLevelDescription", () => {
   test("returns description for 'max'", () => {
     const desc = getEffortLevelDescription("max");
     expect(desc).toContain("Maximum");
+  });
+
+  test("returns description for 'xhigh'", () => {
+    const desc = getEffortLevelDescription("xhigh");
+    expect(desc).toContain("OpenAI");
+  });
+});
+
+// ─── persistence and applied effort ────────────────────────────────────
+
+describe("toPersistableEffort", () => {
+  test("does not persist xhigh", () => {
+    expect(toPersistableEffort("xhigh")).toBeUndefined();
+  });
+});
+
+describe("resolveAppliedEffort", () => {
+  const saved = {
+    CLAUDE_CODE_EFFORT_LEVEL: process.env.CLAUDE_CODE_EFFORT_LEVEL,
+    CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
+  };
+
+  afterEach(() => {
+    if (saved.CLAUDE_CODE_EFFORT_LEVEL === undefined) {
+      delete process.env.CLAUDE_CODE_EFFORT_LEVEL;
+    } else {
+      process.env.CLAUDE_CODE_EFFORT_LEVEL = saved.CLAUDE_CODE_EFFORT_LEVEL;
+    }
+    if (saved.CLAUDE_CODE_USE_OPENAI === undefined) {
+      delete process.env.CLAUDE_CODE_USE_OPENAI;
+    } else {
+      process.env.CLAUDE_CODE_USE_OPENAI = saved.CLAUDE_CODE_USE_OPENAI;
+    }
+  });
+
+  test("preserves xhigh for OpenAI provider", () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = "1";
+    expect(resolveAppliedEffort("gpt-5", "xhigh")).toBe("xhigh");
+  });
+
+  test("downgrades xhigh outside OpenAI provider", () => {
+    delete process.env.CLAUDE_CODE_USE_OPENAI;
+    expect(resolveAppliedEffort("claude-sonnet-4-6", "xhigh")).toBe("high");
+  });
+});
+
+describe("shouldShowEffortUI", () => {
+  const saved = {
+    CLAUDE_CODE_EFFORT_LEVEL: process.env.CLAUDE_CODE_EFFORT_LEVEL,
+    CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
+  };
+
+  afterEach(() => {
+    if (saved.CLAUDE_CODE_EFFORT_LEVEL === undefined) {
+      delete process.env.CLAUDE_CODE_EFFORT_LEVEL;
+    } else {
+      process.env.CLAUDE_CODE_EFFORT_LEVEL = saved.CLAUDE_CODE_EFFORT_LEVEL;
+    }
+    if (saved.CLAUDE_CODE_USE_OPENAI === undefined) {
+      delete process.env.CLAUDE_CODE_USE_OPENAI;
+    } else {
+      process.env.CLAUDE_CODE_USE_OPENAI = saved.CLAUDE_CODE_USE_OPENAI;
+    }
+  });
+
+  test("shows effort UI for explicit OpenAI env override on custom model", () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = "1";
+    process.env.CLAUDE_CODE_EFFORT_LEVEL = "xhigh";
+    expect(shouldShowEffortUI("gpt-5.5", undefined)).toBe(true);
+  });
+
+  test("hides effort UI for unsupported 3P custom model without explicit override", () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = "1";
+    delete process.env.CLAUDE_CODE_EFFORT_LEVEL;
+    expect(shouldShowEffortUI("gpt-5.5", undefined)).toBe(false);
+  });
+});
+
+describe("getEffortSuffix", () => {
+  const saved = {
+    CLAUDE_CODE_EFFORT_LEVEL: process.env.CLAUDE_CODE_EFFORT_LEVEL,
+    CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
+  };
+
+  afterEach(() => {
+    if (saved.CLAUDE_CODE_EFFORT_LEVEL === undefined) {
+      delete process.env.CLAUDE_CODE_EFFORT_LEVEL;
+    } else {
+      process.env.CLAUDE_CODE_EFFORT_LEVEL = saved.CLAUDE_CODE_EFFORT_LEVEL;
+    }
+    if (saved.CLAUDE_CODE_USE_OPENAI === undefined) {
+      delete process.env.CLAUDE_CODE_USE_OPENAI;
+    } else {
+      process.env.CLAUDE_CODE_USE_OPENAI = saved.CLAUDE_CODE_USE_OPENAI;
+    }
+  });
+
+  test("shows env-driven suffix for OpenAI custom model", () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = "1";
+    process.env.CLAUDE_CODE_EFFORT_LEVEL = "xhigh";
+    expect(getEffortSuffix("gpt-5.5", undefined)).toBe(" with xhigh effort");
   });
 });
 

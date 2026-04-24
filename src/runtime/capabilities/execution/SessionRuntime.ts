@@ -58,6 +58,7 @@ import {
   cloneFileStateCache,
   type FileStateCache,
 } from '../../../utils/fileStateCache.js'
+import { getActiveTaskExecutionContext } from '../../../utils/tasks.js'
 import { headlessProfilerCheckpoint } from '../../../utils/headlessProfiler.js'
 import { registerStructuredOutputEnforcement } from '../../../utils/hooks/hookHelpers.js'
 import { getInMemoryErrors } from '../../../utils/log.js'
@@ -95,8 +96,19 @@ import type { RuntimeSessionLifecycle } from '../../contracts/session.js'
 // Lazy: MessageSelector.tsx pulls React/ink; only needed for message filtering at query time
 /* eslint-disable @typescript-eslint/no-require-imports */
 const messageSelector =
-  (): typeof import('src/components/MessageSelector.js') =>
-    require('src/components/MessageSelector.js')
+  (): typeof import('src/components/MessageSelector.js') | null => {
+    try {
+      return require('src/components/MessageSelector.js')
+    } catch {
+      return null
+    }
+  }
+
+function selectableUserMessagesFilter(message: unknown): boolean {
+  return (
+    messageSelector()?.selectableUserMessagesFilter(message as Message) ?? true
+  )
+}
 
 import {
   localCommandOutputToSDKAssistantMessage,
@@ -422,6 +434,7 @@ export class SessionRuntime implements RuntimeExecutionSession {
         this.stateProviders.app.updateAttribution(updater)
       },
       setSDKStatus,
+      activeTaskExecutionContext: getActiveTaskExecutionContext(),
     }
 
     // Handle orphaned permission (only once per engine lifetime)
@@ -498,7 +511,7 @@ export class SessionRuntime implements RuntimeExecutionSession {
         (msg.type === 'user' &&
           !msg.isMeta && // Skip synthetic caveat messages
           !msg.toolUseResult && // Skip tool results (they'll be acked from query)
-          messageSelector().selectableUserMessagesFilter(msg)) || // Skip non-user-authored messages (task notifications, etc.)
+          selectableUserMessagesFilter(msg)) || // Skip non-user-authored messages (task notifications, etc.)
         (msg.type === 'system' && msg.subtype === 'compact_boundary'), // Always ack compact boundaries
     )
     const messagesToAck = replayUserMessages ? replayableMessages : []
@@ -551,6 +564,7 @@ export class SessionRuntime implements RuntimeExecutionSession {
       updateFileHistoryState: processUserInputContext.updateFileHistoryState,
       updateAttributionState: processUserInputContext.updateAttributionState,
       setSDKStatus,
+      activeTaskExecutionContext: getActiveTaskExecutionContext(),
     }
 
     headlessProfilerCheckpoint('before_skills_plugins')
@@ -668,7 +682,7 @@ export class SessionRuntime implements RuntimeExecutionSession {
 
     if (fileHistoryEnabled() && persistSession) {
       messagesFromUserInput
-        .filter(messageSelector().selectableUserMessagesFilter)
+        .filter(selectableUserMessagesFilter)
         .forEach(message => {
           void fileHistoryMakeSnapshot(
             (updater: (prev: FileHistoryState) => FileHistoryState) => {

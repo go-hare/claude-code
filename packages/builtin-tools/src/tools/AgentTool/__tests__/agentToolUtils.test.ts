@@ -1,4 +1,4 @@
-import { mock, describe, expect, test } from "bun:test";
+import { afterEach, mock, describe, expect, test } from "bun:test";
 
 // ─── Mocks for agentToolUtils.ts dependencies ───
 // Only mock modules that are truly unavailable or cause side effects.
@@ -6,14 +6,18 @@ import { mock, describe, expect, test } from "bun:test";
 // corrupting the module cache for other test files in the same Bun process.
 
 const noop = () => {};
+const allAgentDisallowedTools = new Set<string>();
+const asyncAgentAllowedTools = new Set<string>();
+const customAgentDisallowedTools = new Set<string>();
+const inProcessTeammateAllowedTools = new Set<string>();
 
 mock.module("bun:bundle", () => ({ feature: () => false }));
 
 mock.module("src/constants/tools.js", () => ({
-  ALL_AGENT_DISALLOWED_TOOLS: new Set(),
-  ASYNC_AGENT_ALLOWED_TOOLS: new Set(),
-  CUSTOM_AGENT_DISALLOWED_TOOLS: new Set(),
-  IN_PROCESS_TEAMMATE_ALLOWED_TOOLS: new Set(),
+  ALL_AGENT_DISALLOWED_TOOLS: allAgentDisallowedTools,
+  ASYNC_AGENT_ALLOWED_TOOLS: asyncAgentAllowedTools,
+  CUSTOM_AGENT_DISALLOWED_TOOLS: customAgentDisallowedTools,
+  IN_PROCESS_TEAMMATE_ALLOWED_TOOLS: inProcessTeammateAllowedTools,
 }));
 
 mock.module("src/services/AgentSummary/agentSummary.js", () => ({
@@ -114,11 +118,15 @@ mock.module("src/utils/errors.js", () => ({
   hasExactErrorMessage: () => false,
   toError: (e: any) => e instanceof Error ? e : new Error(String(e)),
   errorMessage: (e: any) => String(e),
-  getErrnoCode: () => undefined,
-  isENOENT: () => false,
+  getErrnoCode: (e: any) =>
+    e && typeof e === 'object' && typeof e.code === 'string'
+      ? e.code
+      : undefined,
+  isENOENT: (e: any) => e?.code === 'ENOENT',
   getErrnoPath: () => undefined,
   shortErrorStack: () => "",
-  isFsInaccessible: () => false,
+  isFsInaccessible: (e: any) =>
+    ['ENOENT', 'EACCES', 'EPERM', 'ENOTDIR', 'ELOOP'].includes(e?.code),
   classifyAxiosError: () => ({ category: "unknown" }),
 }));
 
@@ -165,7 +173,15 @@ mock.module("src/tools/AgentTool/AgentTool.tsx", () => ({
 const {
   countToolUses,
   getLastToolUseName,
+  resolveAgentTools,
 } = await import("../agentToolUtils");
+
+afterEach(() => {
+  allAgentDisallowedTools.clear();
+  asyncAgentAllowedTools.clear();
+  customAgentDisallowedTools.clear();
+  inProcessTeammateAllowedTools.clear();
+});
 
 function makeAssistantMessage(content: any[]): any {
   return { type: "assistant", message: { content } };
@@ -249,5 +265,46 @@ describe("getLastToolUseName", () => {
   test("handles message with null content", () => {
     const msg = { type: "assistant", message: { content: null } } as any;
     expect(getLastToolUseName(msg)).toBeUndefined();
+  });
+});
+
+describe("resolveAgentTools", () => {
+  test("applies all-agent filtering for main-thread agents too", () => {
+    allAgentDisallowedTools.add("Danger");
+
+    const definition = {
+      tools: ["Safe", "Danger"],
+      disallowedTools: [],
+      source: "built-in",
+      permissionMode: "default",
+    } as any;
+    const availableTools = [{ name: "Safe" }, { name: "Danger" }] as any;
+
+    const mainThread = resolveAgentTools(definition, availableTools, false, true);
+    const subAgent = resolveAgentTools(definition, availableTools, false, false);
+
+    expect(mainThread.resolvedTools.map((tool: any) => tool.name)).toEqual(["Safe"]);
+    expect(subAgent.resolvedTools.map((tool: any) => tool.name)).toEqual(["Safe"]);
+    expect(mainThread.invalidTools).toContain("Danger");
+  });
+
+  test("applies custom-agent disallowed tools for main-thread agents", () => {
+    customAgentDisallowedTools.add("CustomOnlyDanger");
+
+    const definition = {
+      tools: ["Safe", "CustomOnlyDanger"],
+      disallowedTools: [],
+      source: "projectSettings",
+      permissionMode: "default",
+    } as any;
+    const availableTools = [
+      { name: "Safe" },
+      { name: "CustomOnlyDanger" },
+    ] as any;
+
+    const mainThread = resolveAgentTools(definition, availableTools, false, true);
+
+    expect(mainThread.resolvedTools.map((tool: any) => tool.name)).toEqual(["Safe"]);
+    expect(mainThread.invalidTools).toContain("CustomOnlyDanger");
   });
 });

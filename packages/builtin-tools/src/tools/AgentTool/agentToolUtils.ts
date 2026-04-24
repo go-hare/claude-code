@@ -12,6 +12,7 @@ import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
   logEvent,
 } from 'src/services/analytics/index.js'
+import { releaseAgentLocks } from 'src/coordinator/fileLockManager.js'
 import { clearDumpState } from 'src/services/api/dumpPrompts.js'
 import type { AppState } from 'src/state/AppState.js'
 import type {
@@ -134,17 +135,12 @@ export function resolveAgentTools(
     source,
     permissionMode,
   } = agentDefinition
-  // When isMainThread is true, skip filterToolsForAgent entirely — the main
-  // thread's tool pool is already properly assembled by useMergedTools(), so
-  // the sub-agent disallow lists shouldn't apply.
-  const filteredAvailableTools = isMainThread
-    ? availableTools
-    : filterToolsForAgent({
-        tools: availableTools,
-        isBuiltIn: source === 'built-in',
-        isAsync,
-        permissionMode,
-      })
+  const filteredAvailableTools = filterToolsForAgent({
+    tools: availableTools,
+    isBuiltIn: source === 'built-in',
+    isAsync,
+    permissionMode,
+  })
 
   // Create a set of disallowed tool names for quick lookup
   const disallowedToolSet = new Set(
@@ -622,7 +618,7 @@ export async function runAsyncAgentLifecycle({
 
     const worktreeResult = await getWorktreeResult()
 
-    enqueueAgentNotification({
+    await enqueueAgentNotification({
       taskId,
       description,
       status: 'completed',
@@ -657,7 +653,7 @@ export async function runAsyncAgentLifecycle({
       })
       const worktreeResult = await getWorktreeResult()
       const partialResult = extractPartialResult(agentMessages)
-      enqueueAgentNotification({
+      await enqueueAgentNotification({
         taskId,
         description,
         status: 'killed',
@@ -671,7 +667,7 @@ export async function runAsyncAgentLifecycle({
     const msg = errorMessage(error)
     failAsyncAgent(taskId, msg, rootSetAppState)
     const worktreeResult = await getWorktreeResult()
-    enqueueAgentNotification({
+    await enqueueAgentNotification({
       taskId,
       description,
       status: 'failed',
@@ -681,6 +677,7 @@ export async function runAsyncAgentLifecycle({
       ...worktreeResult,
     })
   } finally {
+    releaseAgentLocks(agentIdForCleanup)
     clearInvokedSkillsForAgent(agentIdForCleanup)
     clearDumpState(agentIdForCleanup)
   }

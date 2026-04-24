@@ -8,7 +8,7 @@ import {
   type EffortLevel,
   type EffortValue,
   getDisplayedEffortLevel,
-  modelSupportsEffort,
+  shouldShowEffortUI,
 } from '../utils/effort.js'
 
 /**
@@ -19,7 +19,7 @@ export function getEffortNotificationText(
   effortValue: EffortValue | undefined,
   model: string,
 ): string | undefined {
-  if (!modelSupportsEffort(model)) return undefined
+  if (!shouldShowEffortUI(model, effortValue)) return undefined
   const level = getDisplayedEffortLevel(model, effortValue)
   return `${effortLevelToSymbol(level)} ${level} · /effort`
 }
@@ -33,6 +33,7 @@ export function effortLevelToSymbol(level: EffortLevel): string {
     case 'high':
       return EFFORT_HIGH
     case 'max':
+    case 'xhigh':
       return EFFORT_MAX
     default:
       // Defensive: level can originate from remote config. If an unknown

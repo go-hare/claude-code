@@ -223,4 +223,65 @@ describe('buildOpenAIRequestBody — thinking params', () => {
     expect(body.tools).toBeUndefined()
     expect(body.tool_choice).toBeUndefined()
   })
+
+  test('includes reasoning_effort for xhigh', () => {
+    const body = buildOpenAIRequestBody({
+      ...baseParams,
+      enableThinking: false,
+      effortValue: 'xhigh',
+    })
+    expect(body.reasoning_effort).toBe('xhigh')
+  })
+
+  test('maps max to no OpenAI reasoning_effort', () => {
+    const body = buildOpenAIRequestBody({
+      ...baseParams,
+      enableThinking: false,
+      effortValue: 'max',
+    })
+    expect(body.reasoning_effort).toBeUndefined()
+  })
+
+  test('maps outputFormat json_schema to OpenAI response_format', () => {
+    const body = buildOpenAIRequestBody({
+      ...baseParams,
+      enableThinking: false,
+      outputFormat: {
+        type: 'json_schema',
+        schema: {
+          title: 'Buddy Reaction',
+          type: 'object',
+          properties: {
+            reaction: { type: 'string' },
+          },
+          required: ['reaction'],
+          additionalProperties: false,
+        },
+      },
+    })
+    expect(body.response_format).toEqual({
+      type: 'json_schema',
+      json_schema: {
+        name: 'buddy_reaction',
+        schema: {
+          title: 'Buddy Reaction',
+          type: 'object',
+          properties: {
+            reaction: { type: 'string' },
+          },
+          required: ['reaction'],
+          additionalProperties: false,
+        },
+        strict: true,
+      },
+    })
+  })
+
+  test('omits response_format when outputFormat is absent', () => {
+    const body = buildOpenAIRequestBody({
+      ...baseParams,
+      enableThinking: false,
+    })
+    expect(body.response_format).toBeUndefined()
+  })
 })

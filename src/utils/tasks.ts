@@ -92,6 +92,7 @@ export type Task = z.infer<ReturnType<typeof TaskSchema>>
 export type ActiveTaskExecutionContext = {
   taskListId: string
   taskId: string
+  ownedFiles?: string[]
 }
 
 export type TaskExecutionMetadata = {
@@ -116,6 +117,18 @@ export function getActiveTaskExecutionContext():
   | ActiveTaskExecutionContext
   | undefined {
   return taskExecutionContextStorage.getStore()
+}
+
+export function getTaskOwnedFiles(task: Task): string[] | undefined {
+  const value = task.metadata?.ownedFiles
+  if (!Array.isArray(value)) {
+    return undefined
+  }
+  const ownedFiles = value.filter(
+    (candidate): candidate is string =>
+      typeof candidate === 'string' && candidate.trim().length > 0,
+  )
+  return ownedFiles.length > 0 ? uniq(ownedFiles) : undefined
 }
 
 export function getTaskExecutionMetadata(

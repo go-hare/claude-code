@@ -1,10 +1,3 @@
-/**
- * File lock manager for coordinator mode.
- *
- * Prevents multiple coordinator workers from writing the same file at the same
- * time inside a single process.
- */
-
 import { realpathSync } from 'fs'
 import { basename, dirname, join, resolve } from 'path'
 

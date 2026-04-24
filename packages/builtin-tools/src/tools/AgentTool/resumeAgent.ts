@@ -191,6 +191,7 @@ export async function resumeAgentBackground({
     // Re-persist so metadata survives runAgent's writeAgentMetadata overwrite
     worktreePath: resumedWorktreePath,
     description: meta?.description,
+    ownedFiles: meta?.ownedFiles,
     contentReplacementState: resumedReplacementState,
   }
 
@@ -222,6 +223,7 @@ export async function resumeAgentBackground({
     invokingRequestId,
     invocationKind: 'resume' as const,
     invocationEmitted: false,
+    ownedFiles: meta?.ownedFiles,
   }
 
   const wrapWithCwd = <T>(fn: () => T): T =>

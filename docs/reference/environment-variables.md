@@ -28,6 +28,7 @@
 | --- | --- | --- |
 | `CLAUDE_CONFIG_DIR` | 用户级配置目录 | 默认行为依赖用户 home 目录 |
 | `CLAUDE_PROJECT_CONFIG_DIR_NAME` | 项目级配置目录名 | 必须是目录名，不能带路径分隔符 |
+| `CLAUDE_CODE_EFFORT_LEVEL` | 覆盖当前 session 的 effort | 支持 `low` / `medium` / `high` / `max` / `xhigh`，其中 `xhigh` 仅 OpenAI 路径保留 |
 
 示例：
 
@@ -37,6 +38,12 @@ $env:CLAUDE_PROJECT_CONFIG_DIR_NAME = ".hare"
 hare
 ```
 
+说明：
+
+- `CLAUDE_CODE_EFFORT_LEVEL` 会影响请求层实际发送的 effort
+- 底部 `/effort` 提示和模型旁 effort 后缀会跟随该变量显示
+- `auto` / `unset` 会清空 env override，回退到 settings 或模型默认值
+
 ### 2. First-party / Anthropic 直连
 
 | 变量 | 用途 | 备注 |
@@ -44,11 +51,13 @@ hare
 | `ANTHROPIC_API_KEY` | 直连 API key | 普通 CLI / 非托管场景优先使用 |
 | `ANTHROPIC_AUTH_TOKEN` | 直连 bearer token | 更偏高级 / 托管场景 |
 | `ANTHROPIC_BASE_URL` | 自定义 Anthropic-compatible endpoint | 会影响 provider routing |
+| `ANTHROPIC_MODEL` | 覆盖当前主模型 | 启动 banner、状态面板、`/model` 当前显示都会跟随它 |
 
 说明：
 
 - 默认 provider 为 `firstParty`
 - 如果同时设置第三方 provider 开关，provider 选择会切到对应第三方路径
+- `ANTHROPIC_MODEL` 也是 Bedrock / Vertex / Foundry 路径下用于主模型显示与默认选择的 env
 
 ### 3. OpenAI-compatible provider
 
@@ -68,6 +77,8 @@ hare
 - `OPENAI_MODEL` 优先于 `OPENAI_DEFAULT_*`
 - `ANTHROPIC_DEFAULT_*_MODEL` 仍是兼容 fallback，但用 OpenAI 时更推荐显式写
   `OPENAI_DEFAULT_*_MODEL`
+- 启动 banner、状态面板、`/model` 当前显示会跟随 `OPENAI_MODEL`；不要再指望
+  `ANTHROPIC_MODEL` 去驱动 OpenAI provider 的显示
 
 ### 4. Gemini provider
 
@@ -85,6 +96,7 @@ hare
 
 - `GEMINI_MODEL` 优先于 `GEMINI_DEFAULT_*`
 - `ANTHROPIC_DEFAULT_*_MODEL` 仍是兼容 fallback，但不建议继续作为 Gemini 的主配置方式
+- 启动 banner、状态面板、`/model` 当前显示会跟随 `GEMINI_MODEL`
 
 ### 5. Grok provider
 
@@ -98,6 +110,11 @@ hare
 | `GROK_DEFAULT_SONNET_MODEL` | 覆盖 sonnet family |
 | `GROK_DEFAULT_OPUS_MODEL` | 覆盖 opus family |
 | `GROK_MODEL_MAP` | JSON 字符串，覆盖 family 到模型名的映射 |
+
+说明：
+
+- `GROK_MODEL` 优先于 `GROK_DEFAULT_*` / `GROK_MODEL_MAP`
+- 启动 banner、状态面板、`/model` 当前显示会跟随 `GROK_MODEL`
 
 ### 6. Bedrock / Vertex / Foundry
 

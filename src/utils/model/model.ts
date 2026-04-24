@@ -34,6 +34,21 @@ export type ModelShortName = string
 export type ModelName = string
 export type ModelSetting = ModelName | ModelAlias | null
 
+export function getProviderModelEnvSetting(): ModelSetting | undefined {
+  const provider = getAPIProvider()
+
+  switch (provider) {
+    case 'openai':
+      return process.env.OPENAI_MODEL
+    case 'gemini':
+      return process.env.GEMINI_MODEL
+    case 'grok':
+      return process.env.GROK_MODEL
+    default:
+      return process.env.ANTHROPIC_MODEL
+  }
+}
+
 export function getSmallFastModel(): ModelName {
   const provider = getAPIProvider()
   // Provider-specific small fast model
@@ -65,7 +80,7 @@ export function isNonCustomOpusModel(model: ModelName): boolean {
  * Priority order within this function:
  * 1. Model override during session (from /model command) - highest priority
  * 2. Model override at startup (from --model flag)
- * 3. ANTHROPIC_MODEL environment variable
+ * 3. Provider-specific model environment variable
  * 4. Settings (from user's saved settings)
  */
 export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
@@ -76,7 +91,7 @@ export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
     specifiedModel = modelOverride
   } else {
     const settings = getSettings_DEPRECATED() || {}
-    specifiedModel = process.env.ANTHROPIC_MODEL || settings.model || undefined
+    specifiedModel = getProviderModelEnvSetting() || settings.model || undefined
   }
 
   // Ignore the user-specified model if it's not in the availableModels allowlist.
@@ -93,7 +108,7 @@ export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
  * Model Selection Priority Order:
  * 1. Model override during session (from /model command) - highest priority
  * 2. Model override at startup (from --model flag)
- * 3. ANTHROPIC_MODEL environment variable
+ * 3. Provider-specific model environment variable
  * 4. Settings (from user's saved settings)
  * 5. Built-in default
  *

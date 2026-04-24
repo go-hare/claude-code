@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { buildTool, getEmptyToolPermissionContext } from '../../Tool.js'
 import { assembleToolPool } from '../../runtime/capabilities/tools/ToolPolicy.js'
-import { mergeAndFilterTools } from '../toolPool.js'
+import { applyCoordinatorToolFilter, mergeAndFilterTools, resolveReplToolState } from '../toolPool.js'
 
 function makeTool(
   name: string,
@@ -47,6 +47,37 @@ describe('mergeAndFilterTools', () => {
   })
 })
 
+describe('applyCoordinatorToolFilter', () => {
+  test('keeps coordinator orchestration and task tracking tools', () => {
+    const agent = makeTool('Agent')
+    const sendMessage = makeTool('SendMessage')
+    const taskCreate = makeTool('TaskCreate')
+    const taskGet = makeTool('TaskGet')
+    const taskList = makeTool('TaskList')
+    const taskUpdate = makeTool('TaskUpdate')
+    const bash = makeTool('Bash')
+
+    expect(
+      applyCoordinatorToolFilter([
+        agent,
+        sendMessage,
+        taskCreate,
+        taskGet,
+        taskList,
+        taskUpdate,
+        bash,
+      ]).map(tool => tool.name),
+    ).toEqual([
+      'Agent',
+      'SendMessage',
+      'TaskCreate',
+      'TaskGet',
+      'TaskList',
+      'TaskUpdate',
+    ])
+  })
+})
+
 describe('assembleToolPool', () => {
   test('keeps the built-in tool when an MCP tool collides with its primary name', () => {
     const conflictingMcpTool = makeTool('Bash', {
@@ -59,5 +90,26 @@ describe('assembleToolPool', () => {
     )
 
     expect(tools.find(tool => tool.name === 'Bash')?.mcpInfo).toBeUndefined()
+  })
+})
+
+describe('resolveReplToolState', () => {
+  test('resolves main-thread tools from the shared REPL assembly path', () => {
+    const remoteOnlyTool = makeTool('RemoteOnlyTool')
+
+    const result = resolveReplToolState({
+      initialTools: [remoteOnlyTool],
+      mcpTools: [],
+      toolPermissionContext: getEmptyToolPermissionContext(),
+      mainThreadAgentDefinition: {
+        tools: ['RemoteOnlyTool'],
+        disallowedTools: [],
+        source: 'built-in',
+        permissionMode: 'default',
+      } as any,
+    })
+
+    expect(result.tools).toEqual([remoteOnlyTool])
+    expect(result.allowedAgentTypes).toBeUndefined()
   })
 })

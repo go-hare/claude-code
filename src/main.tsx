@@ -231,6 +231,7 @@ import { logError } from "./utils/log.js";
 import { getModelDeprecationWarning } from "./utils/model/deprecation.js";
 import {
 	getDefaultMainLoopModel,
+	getProviderModelEnvSetting,
 	getUserSpecifiedModelSetting,
 	normalizeModelStringForAPI,
 	parseUserSpecifiedModel,
@@ -3907,8 +3908,8 @@ async function run(): Promise<CommanderCommand> {
 			logEvent("tengu_startup_manual_model_config", {
 				cli_flag:
 					options.model as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-				env_var: process.env
-					.ANTHROPIC_MODEL as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+				env_var:
+					getProviderModelEnvSetting() as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
 				settings_file: (getInitialSettings() || {})
 					.model as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
 				subscriptionType:

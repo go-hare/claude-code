@@ -3518,7 +3518,6 @@ async function getUnifiedTaskAttachments(
   const taskListId = getTaskListId()
   const taskList = await listTasks(taskListId)
 
-  // Convert TaskAttachment to Attachment format
   return Promise.all(
     attachments.map(async taskAttachment => {
       const linkedTask = taskList.find(task => {
@@ -3992,10 +3991,7 @@ async function getVerifyPlanReminderAttachment(
   messages: Message[] | undefined,
   toolUseContext: ToolUseContext,
 ): Promise<Attachment[]> {
-  if (
-    process.env.USER_TYPE !== 'ant' ||
-    !isEnvTruthy(process.env.CLAUDE_CODE_VERIFY_PLAN)
-  ) {
+  if (!isEnvTruthy(process.env.CLAUDE_CODE_VERIFY_PLAN)) {
     return []
   }
 

@@ -442,6 +442,7 @@ function configureEffortParams(
     betas.push(EFFORT_BETA_HEADER)
   } else if (typeof effortValue === 'string') {
     // Send string effort level as is
+    if (effortValue === 'xhigh') return
     outputConfig.effort = effortValue as "high" | "medium" | "low" | "max"
     betas.push(EFFORT_BETA_HEADER)
   } else if (process.env.USER_TYPE === 'ant') {

@@ -253,8 +253,7 @@ import type {
 } from '../types/message.js';
 import { mergeClients, useMergedClients } from '../hooks/useMergedClients.js';
 import { getQuerySourceForREPL } from '../utils/promptCategory.js';
-import { useMergedTools } from '../hooks/useMergedTools.js';
-import { mergeAndFilterTools } from '../utils/toolPool.js';
+import { resolveReplToolState } from '../utils/toolPool.js';
 import { useMergedCommands } from '../hooks/useMergedCommands.js';
 import { useSkillsChange } from '../hooks/useSkillsChange.js';
 import { useManagePlugins } from '../hooks/useManagePlugins.js';
@@ -290,9 +289,8 @@ import { runReplBackgroundQueryController } from './repl/controllers/runReplBack
 import { runReplInitialMessageController } from './repl/controllers/runReplInitialMessageController.js';
 import { runReplQueryTurnController } from './repl/controllers/runReplQueryTurnController.js';
 import { runReplForegroundQueryController } from './repl/controllers/runReplForegroundQueryController.js';
-import { getTools, assembleToolPool } from '../tools.js';
+import { getTools } from '../tools.js';
 import type { AgentDefinition } from '@go-hare/builtin-tools/tools/AgentTool/loadAgentsDir.js';
-import { resolveAgentTools } from '@go-hare/builtin-tools/tools/AgentTool/agentToolUtils.js';
 import { resumeAgentBackground } from '@go-hare/builtin-tools/tools/AgentTool/resumeAgent.js';
 import { useMainLoopModel } from '../hooks/useMainLoopModel.js';
 import { useAppState, useSetAppState, useAppStateStore } from '../state/AppState.js';
@@ -377,6 +375,7 @@ const usePipeRouter = feature('UDS_INBOX')
 /* eslint-enable @typescript-eslint/no-require-imports */
 import { isAgentSwarmsEnabled } from '../utils/agentSwarmsEnabled.js';
 import { useTaskListWatcher } from '../hooks/useTaskListWatcher.js';
+import { getActiveTaskExecutionContext } from '../utils/tasks.js';
 import type { SandboxAskCallback, NetworkHostPattern } from '../utils/sandbox/sandbox-adapter.js';
 
 import {
@@ -951,8 +950,8 @@ export function REPL({
   const { recommendation: lspRecommendation, handleResponse: handleLspResponse } = useLspPluginRecommendation();
   const { recommendation: hintRecommendation, handleResponse: handleHintResponse } = useClaudeCodeHintRecommendation();
 
-  // Memoize the combined initial tools array to prevent reference changes
-  const combinedInitialTools = useMemo(() => {
+  // Remote transports still need a snapshot of built-in + startup tools.
+  const transportTools = useMemo(() => {
     return [...localTools, ...initialTools];
   }, [localTools, initialTools]);
 
@@ -984,22 +983,16 @@ export function REPL({
     enabled: !isRemoteSession,
   });
 
-  const mergedTools = useMergedTools(combinedInitialTools, mcp.tools, toolPermissionContext);
-
-  // Apply agent tool restrictions if mainThreadAgentDefinition is set
-  const { tools, allowedAgentTypes } = useMemo(() => {
-    if (!mainThreadAgentDefinition) {
-      return {
-        tools: mergedTools,
-        allowedAgentTypes: undefined as string[] | undefined,
-      };
-    }
-    const resolved = resolveAgentTools(mainThreadAgentDefinition, mergedTools, false, true);
-    return {
-      tools: resolved.resolvedTools,
-      allowedAgentTypes: resolved.allowedAgentTypes,
-    };
-  }, [mainThreadAgentDefinition, mergedTools]);
+  const { tools, allowedAgentTypes } = useMemo(
+    () =>
+      resolveReplToolState({
+        initialTools,
+        mcpTools: mcp.tools,
+        toolPermissionContext,
+        mainThreadAgentDefinition,
+      }),
+    [initialTools, mcp.tools, toolPermissionContext, mainThreadAgentDefinition],
+  );
 
   // Merge commands from local state, plugins, and MCP
   const commandsWithPlugins = useMergedCommands(localCommands, plugins.commands as Command[]);
@@ -1603,7 +1596,7 @@ export function REPL({
     setIsLoading: setIsExternalLoading,
     onInit: handleRemoteInit,
     setToolUseConfirmQueue,
-    tools: combinedInitialTools,
+    tools: transportTools,
     setStreamingToolUses,
     setStreamMode,
     setInProgressToolUseIDs,
@@ -1615,7 +1608,7 @@ export function REPL({
     setMessages,
     setIsLoading: setIsExternalLoading,
     setToolUseConfirmQueue,
-    tools: combinedInitialTools,
+    tools: transportTools,
   });
 
   // SSH session hook - manages ssh child process for `claude ssh` mode.
@@ -1626,7 +1619,7 @@ export function REPL({
     setMessages,
     setIsLoading: setIsExternalLoading,
     setToolUseConfirmQueue,
-    tools: combinedInitialTools,
+    tools: transportTools,
   });
 
   // Use whichever remote mode is active
@@ -2742,17 +2735,19 @@ export function REPL({
       // for mid-query tool list updates.
       const computeTools = () => {
         const state = store.getState();
-        const assembled = assembleToolPool(state.toolPermissionContext, state.mcp.tools);
-        const merged = mergeAndFilterTools(combinedInitialTools, assembled, state.toolPermissionContext.mode);
-        if (!mainThreadAgentDefinition) return merged;
-        return resolveAgentTools(mainThreadAgentDefinition, merged, false, true).resolvedTools;
+        return resolveReplToolState({
+          initialTools,
+          mcpTools: state.mcp.tools,
+          toolPermissionContext: state.toolPermissionContext,
+          mainThreadAgentDefinition,
+        }).tools;
       };
 
       return {
         abortController,
         options: {
           commands,
-          tools: computeTools(),
+          tools,
           debug,
           verbose: s.verbose,
           mainLoopModel,
@@ -2857,11 +2852,13 @@ export function REPL({
         setConversationId,
         requestPrompt: feature('HOOK_PROMPTS') ? requestPrompt : undefined,
         contentReplacementState: contentReplacementStateRef.current,
+        activeTaskExecutionContext: getActiveTaskExecutionContext(),
       };
     },
     [
       commands,
-      combinedInitialTools,
+      initialTools,
+      tools,
       mainThreadAgentDefinition,
       debug,
       initialMcpClients,
@@ -5425,7 +5422,7 @@ export function REPL({
                 setInputValue={setInputValue}
               />
             )}
-            {process.env.USER_TYPE === 'ant' && skillImprovementSurvey.suggestion && (
+            {skillImprovementSurvey.suggestion && (
               <SkillImprovementSurvey
                 isOpen={skillImprovementSurvey.isOpen}
                 skillName={skillImprovementSurvey.suggestion.skillName}

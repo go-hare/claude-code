@@ -254,6 +254,7 @@ import {
   modelSupportsMaxEffort,
   EFFORT_LEVELS,
   resolveAppliedEffort,
+  shouldShowEffortUI,
 } from 'src/utils/effort.js'
 import { modelSupportsAdaptiveThinking } from 'src/utils/thinking.js'
 import { modelSupportsAutoMode } from 'src/utils/betas.js'
@@ -1130,9 +1131,12 @@ function runHeadlessStreaming(
       description: option.description,
       ...(hasEffort && {
         supportsEffort: true,
-        supportedEffortLevels: modelSupportsMaxEffort(resolvedModel)
-          ? [...EFFORT_LEVELS]
-          : EFFORT_LEVELS.filter(l => l !== 'max'),
+        supportedEffortLevels:
+          getAPIProvider() === 'openai'
+            ? EFFORT_LEVELS.filter(l => l !== 'max')
+            : modelSupportsMaxEffort(resolvedModel)
+              ? EFFORT_LEVELS.filter(l => l !== 'xhigh')
+              : EFFORT_LEVELS.filter(l => l !== 'max' && l !== 'xhigh'),
       }),
       ...(hasAdaptiveThinking && { supportsAdaptiveThinking: true }),
       ...(hasFastMode && { supportsFastMode: true }),
@@ -2048,7 +2052,9 @@ function runHeadlessStreaming(
                     heldBackResult,
                   })
                   heldBackResult = emission.heldBackResult
-                  lastResultIsError = emission.lastResultIsError
+                  if (emission.lastResultIsError !== undefined) {
+                    lastResultIsError = emission.lastResultIsError
+                  }
                 }
               },
             ) // end runWithWorkload
@@ -3665,9 +3671,10 @@ function runHeadlessStreaming(
         } else if (msg.request.subtype === 'get_settings') {
           const currentAppState = getAppState()
           const model = getMainLoopModel()
-          // modelSupportsEffort gate matches claude.ts — applied.effort must
-          // mirror what actually goes to the API, not just what's configured.
-          const effort = modelSupportsEffort(model)
+          // OpenAI-compatible paths can apply explicit reasoning_effort to
+          // custom model strings (e.g. gpt-5.5), so surface the same value that
+          // the runtime would actually send.
+          const effort = shouldShowEffortUI(model, currentAppState.effortValue)
             ? resolveAppliedEffort(model, currentAppState.effortValue)
             : undefined
           sendControlResponseSuccess(msg, {

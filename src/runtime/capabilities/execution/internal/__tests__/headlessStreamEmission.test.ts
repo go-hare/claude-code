@@ -37,7 +37,41 @@ describe('emitHeadlessRuntimeMessage', () => {
     ])
     expect(result).toEqual({
       heldBackResult: null,
-      lastResultIsError: false,
+    })
+  })
+
+  test('does not reset a prior result error state for non-result messages', () => {
+    const emitted: unknown[] = []
+    const result = emitHeadlessRuntimeMessage({
+      message: {
+        type: 'system',
+        subtype: 'task_progress',
+      } as never,
+      output: {
+        enqueue(message) {
+          emitted.push(message)
+        },
+      },
+      drainSdkEvents: () => [] as never,
+      hasBackgroundTasks: true,
+      heldBackResult: {
+        type: 'result',
+        subtype: 'error_during_execution',
+        is_error: true,
+      } as never,
+    })
+
+    expect(emitted).toEqual([
+      {
+        type: 'system',
+        subtype: 'task_progress',
+      },
+    ])
+    expect(result.lastResultIsError).toBeUndefined()
+    expect(result.heldBackResult).toMatchObject({
+      type: 'result',
+      subtype: 'error_during_execution',
+      is_error: true,
     })
   })
 

@@ -6,11 +6,11 @@
  * to generate a short companion reaction shown in the CompanionSprite bubble.
  */
 import { getCompanion } from './companion.js'
+import { parseStructuredJSONObject } from './structuredResponse.js'
 import { getGlobalConfig } from '../utils/config.js'
 import type { Message } from '../types/message.js'
 import { queryWithModel } from '../services/api/claude.js'
 import { extractTextContent } from '../utils/messages.js'
-import { safeParseJSON } from '../utils/json.js'
 import { asSystemPrompt } from '../utils/systemPromptType.js'
 import {
   getMainLoopModel,
@@ -69,6 +69,26 @@ export function getBuddyReactionModel(): string {
   }
 
   return getMainLoopModel()
+}
+
+export function parseBuddyReactionResponse(text: string): string | null {
+  const trimmed = text.trim()
+  if (!trimmed) {
+    return null
+  }
+
+  const parsed = parseStructuredJSONObject(trimmed)
+  if (parsed && typeof parsed === 'object') {
+    const reaction = (parsed as { reaction?: unknown }).reaction
+    return typeof reaction === 'string' ? reaction.trim() || null : null
+  }
+
+  const plainText = trimmed.replace(/```(?:json)?|```/gi, '').replace(/\s+/g, ' ').trim()
+  if (!plainText || /[{}[\]]/.test(plainText)) {
+    return null
+  }
+
+  return plainText.length > 140 ? `${plainText.slice(0, 139)}…` : plainText
 }
 
 /**
@@ -209,17 +229,11 @@ async function generateBuddyReaction(
       },
     })
 
-    const parsed = safeParseJSON(
+    return parseBuddyReactionResponse(
       extractTextContent(
         result.message.content as readonly { readonly type: string }[],
-      ),
+      ) ?? '',
     )
-    if (!parsed || typeof parsed !== 'object') {
-      return null
-    }
-
-    const reaction = (parsed as { reaction?: unknown }).reaction
-    return typeof reaction === 'string' ? reaction.trim() || null : null
   } catch {
     return null
   }

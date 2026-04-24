@@ -1,16 +1,13 @@
 // biome-ignore-all assist/source/organizeImports: ANT-ONLY import markers must not be reordered
 import { useMemo } from 'react'
 import type { Tools, ToolPermissionContext } from '../Tool.js'
-import { assembleToolPool } from '../tools.js'
-import { useAppState } from '../state/AppState.js'
-import { mergeAndFilterTools } from '../utils/toolPool.js'
+import { resolveReplToolState } from '../utils/toolPool.js'
 
 /**
  * React hook that assembles the full tool pool for the REPL.
  *
- * Uses assembleToolPool() (the shared pure function used by both REPL and runAgent)
- * to combine built-in tools with MCP tools, applying deny rules and deduplication.
- * Any extra initialTools are merged on top.
+ * Uses the shared REPL tool assembly path so render-time and execution-time
+ * tool resolution stay aligned.
  *
  * @param initialTools - Extra tools to include (built-in + startup MCP from props).
  *   These are merged with the assembled pool and take precedence in deduplication.
@@ -25,15 +22,11 @@ export function useMergedTools(
   let replBridgeEnabled = false
   let replBridgeOutboundOnly = false
   return useMemo(() => {
-    // assembleToolPool is the shared function that both REPL and runAgent use.
-    // It handles: getTools() + MCP deny-rule filtering + dedup + MCP CLI exclusion.
-    const assembled = assembleToolPool(toolPermissionContext, mcpTools)
-
-    return mergeAndFilterTools(
+    return resolveReplToolState({
       initialTools,
-      assembled,
-      toolPermissionContext.mode,
-    )
+      mcpTools,
+      toolPermissionContext,
+    }).mergedTools
   }, [
     initialTools,
     mcpTools,

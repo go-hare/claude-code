@@ -1,6 +1,9 @@
 import { feature } from 'bun:bundle'
 import partition from 'lodash-es/partition.js'
+import type { AgentDefinition } from '@go-hare/builtin-tools/tools/AgentTool/loadAgentsDir.js'
+import { resolveAgentTools } from '@go-hare/builtin-tools/tools/AgentTool/agentToolUtils.js'
 import { COORDINATOR_MODE_ALLOWED_TOOLS } from '../constants/tools.js'
+import { assembleToolPool } from '../runtime/capabilities/tools/ToolPolicy.js'
 import { isMcpTool } from '../services/mcp/utils.js'
 import {
   dedupeToolsByName,
@@ -81,4 +84,51 @@ export function mergeAndFilterTools(
   }
 
   return tools
+}
+
+export type ResolvedReplToolState = {
+  mergedTools: Tools
+  tools: Tools
+  allowedAgentTypes?: string[]
+}
+
+export function resolveReplToolState({
+  initialTools,
+  mcpTools,
+  toolPermissionContext,
+  mainThreadAgentDefinition,
+}: {
+  initialTools: Tools
+  mcpTools: Tools
+  toolPermissionContext: ToolPermissionContext
+  mainThreadAgentDefinition?: Pick<
+    AgentDefinition,
+    'tools' | 'disallowedTools' | 'source' | 'permissionMode'
+  >
+}): ResolvedReplToolState {
+  const mergedTools = mergeAndFilterTools(
+    initialTools,
+    assembleToolPool(toolPermissionContext, mcpTools),
+    toolPermissionContext.mode,
+  )
+
+  if (!mainThreadAgentDefinition) {
+    return {
+      mergedTools,
+      tools: mergedTools,
+    }
+  }
+
+  const resolved = resolveAgentTools(
+    mainThreadAgentDefinition,
+    mergedTools,
+    false,
+    true,
+  )
+
+  return {
+    mergedTools,
+    tools: resolved.resolvedTools,
+    allowedAgentTypes: resolved.allowedAgentTypes,
+  }
 }

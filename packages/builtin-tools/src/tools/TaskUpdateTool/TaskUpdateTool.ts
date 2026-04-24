@@ -12,6 +12,7 @@ import {
   blockTask,
   deleteTask,
   getTask,
+  getTaskOwnedFiles,
   getTaskListId,
   isTodoV2Enabled,
   listTasks,
@@ -271,6 +272,25 @@ export const TaskUpdateTool = buildTool({
 
     if (Object.keys(updates).length > 0) {
       await updateTask(taskListId, taskId, updates)
+    }
+
+    const latestMetadata = {
+      ...(existingTask.metadata ?? {}),
+      ...(updates.metadata ?? {}),
+    }
+    const latestTask =
+      Object.keys(updates).length > 0
+        ? { ...existingTask, ...updates, metadata: latestMetadata }
+        : existingTask
+
+    if (updates.status === 'in_progress' || latestTask.status === 'in_progress') {
+      context.activeTaskExecutionContext = {
+        taskListId,
+        taskId,
+        ownedFiles: getTaskOwnedFiles(latestTask),
+      }
+    } else if (context.activeTaskExecutionContext?.taskId === taskId) {
+      context.activeTaskExecutionContext = undefined
     }
 
     // Notify new owner via mailbox when ownership changes

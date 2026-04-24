@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import {
   getBuddyReactionModel,
   installCompanionObserver,
+  parseBuddyReactionResponse,
   triggerCompanionReaction,
 } from '../companionReact.js'
 
@@ -61,5 +62,25 @@ describe('companionReact', () => {
     process.env.OPENAI_SMALL_FAST_MODEL = 'gpt-4.1-mini'
 
     expect(getBuddyReactionModel()).toBe('gpt-4.1-mini')
+  })
+
+  test('parses strict JSON reaction payload', () => {
+    expect(
+      parseBuddyReactionResponse('{"reaction":"你好呀，今天也别熬太晚。"}'),
+    ).toBe('你好呀，今天也别熬太晚。')
+  })
+
+  test('parses fenced JSON reaction payload', () => {
+    expect(
+      parseBuddyReactionResponse(
+        '```json\n{"reaction":"小家伙先围观一下。"}\n```',
+      ),
+    ).toBe('小家伙先围观一下。')
+  })
+
+  test('falls back to plain-text reaction when JSON formatting is ignored', () => {
+    expect(
+      parseBuddyReactionResponse('我这小仙人掌先不扎人，等你写坐代码再说。'),
+    ).toBe('我这小仙人掌先不扎人，等你写坐代码再说。')
   })
 })

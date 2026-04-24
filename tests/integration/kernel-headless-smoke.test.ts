@@ -56,6 +56,10 @@ describe('kernel headless smoke', () => {
     expect(environment.store.getState().mcp.tools).toEqual([
       { name: 'mcp-tool' },
     ])
+    expect(environment.store.getState().agentDefinitions).toEqual({
+      allAgents: [{ agentType: 'default', source: 'builtin' }],
+      activeAgents: [{ agentType: 'default', source: 'builtin' }],
+    })
 
     const session = createKernelHeadlessSession(environment)
     await session.run('hello from kernel', {

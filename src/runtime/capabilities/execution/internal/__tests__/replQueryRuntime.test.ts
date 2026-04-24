@@ -65,10 +65,12 @@ describe('replQueryRuntime', () => {
     })
     expect(prepared.systemContext).toEqual({ system: 'ctx' })
     expect(prepared.systemPrompt).toEqual(asSystemPrompt(['effective prompt']))
-    expect(toolUseContext.renderedSystemPrompt).toEqual(
+    expect(prepared.toolUseContext.renderedSystemPrompt).toEqual(
       asSystemPrompt(['effective prompt']),
     )
-    expect(toolUseContext.getAppState().effortValue).toBe('high')
+    expect(toolUseContext.getAppState().effortValue).toBeUndefined()
+    expect(prepared.toolUseContext.getAppState().effortValue).toBe('high')
+    expect(prepared.toolUseContext).not.toBe(toolUseContext)
   })
 
   test('runs the prepared REPL query and forwards streamed events', async () => {

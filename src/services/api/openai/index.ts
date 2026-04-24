@@ -24,6 +24,7 @@ import { logForDebugging } from '../../../utils/debug.js'
 import { addToTotalSessionCost } from '../../../cost-tracker.js'
 import { calculateUSDCost } from '../../../utils/modelCost.js'
 import { isOpenAIThinkingEnabled, resolveOpenAIMaxTokens, buildOpenAIRequestBody } from './requestBody.js'
+import { resolveAppliedEffort } from '../../../utils/effort.js'
 import { recordLLMObservation } from '../../../services/langfuse/tracing.js'
 import { convertMessagesToLangfuse, convertOutputToLangfuse, convertToolsToLangfuse } from '../../../services/langfuse/convert.js'
 export { isOpenAIThinkingEnabled, resolveOpenAIMaxTokens, buildOpenAIRequestBody }
@@ -236,6 +237,8 @@ export async function* queryModelOpenAI(
       enableThinking,
       maxTokens,
       temperatureOverride: options.temperatureOverride,
+      effortValue: resolveAppliedEffort(options.model, options.effortValue),
+      outputFormat: options.outputFormat,
     })
     const stream = await client.chat.completions.create(
       requestBody,

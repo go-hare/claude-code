@@ -269,6 +269,8 @@ export type AgentMetadata = {
    * resumed agent's notification can show the original description instead
    * of a placeholder. Optional — older metadata files lack this field. */
   description?: string
+  /** Coordinator-assigned write ownership carried across resume. */
+  ownedFiles?: string[]
 }
 
 /**

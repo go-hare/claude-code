@@ -17,9 +17,11 @@ export const EFFORT_LEVELS = [
   'medium',
   'high',
   'max',
+  'xhigh',
 ] as const satisfies readonly EffortLevel[]
 
 export type EffortValue = EffortLevel | number
+type PersistableEffortLevel = Exclude<EffortLevel, 'xhigh'>
 
 // @[MODEL LAUNCH]: Add the new model to the allowlist if it supports the effort parameter.
 export function modelSupportsEffort(model: string): boolean {
@@ -96,7 +98,7 @@ export function parseEffortValue(value: unknown): EffortValue | undefined {
  */
 export function toPersistableEffort(
   value: EffortValue | undefined,
-): EffortLevel | undefined {
+): PersistableEffortLevel | undefined {
   if (value === 'low' || value === 'medium' || value === 'high') {
     return value
   }
@@ -106,7 +108,7 @@ export function toPersistableEffort(
   return undefined
 }
 
-export function getInitialEffortSetting(): EffortLevel | undefined {
+export function getInitialEffortSetting(): PersistableEffortLevel | undefined {
   // toPersistableEffort filters 'max' for non-ants on read, so a manually
   // edited settings.json doesn't leak session-scoped max into a fresh session.
   return toPersistableEffort(getInitialSettings().effortLevel)
@@ -128,7 +130,7 @@ export function getInitialEffortSetting(): EffortLevel | undefined {
 export function resolvePickerEffortPersistence(
   picked: EffortLevel | undefined,
   modelDefault: EffortLevel,
-  priorPersisted: EffortLevel | undefined,
+  priorPersisted: PersistableEffortLevel | undefined,
   toggledInPicker: boolean,
 ): EffortLevel | undefined {
   const hadExplicit = priorPersisted !== undefined || toggledInPicker
@@ -161,6 +163,9 @@ export function resolveAppliedEffort(
   }
   const resolved =
     envOverride ?? appStateEffortValue ?? getDefaultEffortForModel(model)
+  if (resolved === 'xhigh' && getAPIProvider() !== 'openai') {
+    return modelSupportsMaxEffort(model) ? 'max' : 'high'
+  }
   // API rejects 'max' on non-Opus-4.6 models — downgrade to 'high'.
   if (resolved === 'max' && !modelSupportsMaxEffort(model)) {
     return 'high'
@@ -182,6 +187,28 @@ export function getDisplayedEffortLevel(
 }
 
 /**
+ * Whether effort-related UI should be shown for the current model.
+ *
+ * OpenAI-compatible requests can carry explicit `reasoning_effort` even for
+ * custom model strings such as `gpt-5.5`, so an explicit env or session
+ * override must remain visible in the UI even when the Claude-family heuristic
+ * cannot classify the model as "supports effort".
+ */
+export function shouldShowEffortUI(
+  model: string,
+  appStateEffort: EffortValue | undefined,
+): boolean {
+  if (modelSupportsEffort(model)) {
+    return true
+  }
+  if (getAPIProvider() === 'openai') {
+    const envOverride = getEffortEnvOverride()
+    return envOverride !== undefined || appStateEffort !== undefined
+  }
+  return false
+}
+
+/**
  * Build the ` with {level} effort` suffix shown in Logo/Spinner.
  * Returns empty string if the user hasn't explicitly set an effort value.
  * Delegates to resolveAppliedEffort() so the displayed level matches what
@@ -191,7 +218,9 @@ export function getEffortSuffix(
   model: string,
   effortValue: EffortValue | undefined,
 ): string {
-  if (effortValue === undefined) return ''
+  const envOverride = getEffortEnvOverride()
+  if (effortValue === undefined && envOverride === undefined) return ''
+  if (!shouldShowEffortUI(model, effortValue)) return ''
   const resolved = resolveAppliedEffort(model, effortValue)
   if (resolved === undefined) return ''
   return ` with ${convertEffortValueToLevel(resolved)} effort`
@@ -233,6 +262,8 @@ export function getEffortLevelDescription(level: EffortLevel): string {
       return 'Comprehensive implementation with extensive testing and documentation'
     case 'max':
       return 'Maximum capability with deepest reasoning (Opus 4.6 only)'
+    case 'xhigh':
+      return 'Extra-high reasoning effort (OpenAI only, this session only)'
   }
 }
 

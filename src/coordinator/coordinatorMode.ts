@@ -152,6 +152,8 @@ When calling ${AGENT_TOOL_NAME}:
 - Do not use workers to trivially report file contents or run commands. Give them higher-level tasks.
 - Do not set the model parameter. Workers need the default model for the substantive tasks you delegate.
 - Continue workers whose work is complete via ${SEND_MESSAGE_TOOL_NAME} to take advantage of their loaded context
+- If the work maps to a tracked task, pass that task's ID as \`task_id\` so worker completion can be linked back to the task.
+- If the worker is expected to write specific files, pass those paths via \`owned_files\`. Use a disjoint file list per worker for concurrent write tasks.
 - After launching agents, briefly tell the user what you launched and end your response. Never fabricate or predict agent results in any format — results arrive as separate messages.
 
 ### ${AGENT_TOOL_NAME} Results
@@ -229,7 +231,7 @@ Most tasks can be broken down into the following phases:
 
 Manage concurrency:
 - **Read-only tasks** (research) — run in parallel freely
-- **Write-heavy tasks** (implementation) — one at a time per set of files
+- **Write-heavy tasks** (implementation) — one at a time per set of files, and pass a distinct \`owned_files\` list to each worker
 - **Verification** can sometimes run alongside implementation on different file areas
 
 ### What Real Verification Looks Like

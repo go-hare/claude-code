@@ -122,6 +122,10 @@ export function createDefaultKernelHeadlessEnvironment(
       commands: mcpCommands,
       tools: mcpTools,
     },
+    agentDefinitions: {
+      allAgents: agents,
+      activeAgents: agents,
+    },
     toolPermissionContext,
     effortValue: parseEffortValue(effortArgument) ?? getInitialEffortSetting(),
     ...(isFastModeEnabled() && {

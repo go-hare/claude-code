@@ -16,7 +16,7 @@ export function emitHeadlessRuntimeMessage({
   heldBackResult: StdoutMessage | null
 }): {
   heldBackResult: StdoutMessage | null
-  lastResultIsError: boolean
+  lastResultIsError?: boolean
 } {
   const sdkEvents = drainSdkEvents()
   for (const event of sdkEvents) {
@@ -42,6 +42,5 @@ export function emitHeadlessRuntimeMessage({
   output.enqueue(message)
   return {
     heldBackResult,
-    lastResultIsError: false,
   }
 }
