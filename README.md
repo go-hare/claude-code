@@ -97,6 +97,10 @@ hare
 - [Bun](https://bun.sh/) >= 1.3.11
 - 你自己的 provider 配置
 
+环境变量参考见：
+
+- [docs/reference/environment-variables.md](docs/reference/environment-variables.md)
+
 ### 安装依赖
 
 ```bash
@@ -169,6 +173,10 @@ $env:CLAUDE_CONFIG_DIR = "$HOME\\.hare"
 $env:CLAUDE_PROJECT_CONFIG_DIR_NAME = ".hare"
 hare
 ```
+
+更完整的环境变量分类与稳定性口径见：
+
+- [docs/reference/environment-variables.md](docs/reference/environment-variables.md)
 
 ## 项目结构
 

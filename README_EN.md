@@ -94,6 +94,10 @@ Releases are packaged as standard npm tarballs. The CLI entry points to `dist/cl
 - [Bun](https://bun.sh/) >= 1.3.11
 - your own provider configuration
 
+Environment variable reference:
+
+- [docs/reference/environment-variables.md](docs/reference/environment-variables.md)
+
 ### Install dependencies
 
 ```bash
@@ -167,6 +171,10 @@ $env:CLAUDE_CONFIG_DIR = "$HOME\\.hare"
 $env:CLAUDE_PROJECT_CONFIG_DIR_NAME = ".hare"
 hare
 ```
+
+For the full environment variable split and stability policy, see:
+
+- [docs/reference/environment-variables.md](docs/reference/environment-variables.md)
 
 ## Project Structure
 

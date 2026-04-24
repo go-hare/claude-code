@@ -1,5 +1,9 @@
 # Kernel Examples
 
+运行示例前，建议先看环境变量参考：
+
+- [../docs/reference/environment-variables.md](../docs/reference/environment-variables.md)
+
 ## `kernel-headless-embed.ts`
 
 Minimal external embedding example for the public kernel headless API.
