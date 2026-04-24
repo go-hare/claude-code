@@ -4,7 +4,9 @@ import { RuntimeSessionRegistry } from '../SessionRegistry.js'
 
 type FakeSession = {
   id: string
+  workDir: string
   isLive: boolean
+  stopAndWait(force?: boolean): Promise<void>
   toIndexEntry(): {
     sessionId: string
     transcriptSessionId: string
@@ -20,7 +22,9 @@ function createSession(
 ): FakeSession {
   return {
     id,
+    workDir: `/tmp/${id}`,
     isLive,
+    async stopAndWait() {},
     toIndexEntry() {
       return {
         sessionId: id,

@@ -9,7 +9,7 @@ import {
   type SessionRuntimeBackend,
   type SessionRuntimeSink,
 } from './contracts.js'
-import { RuntimeSessionRegistry } from './SessionRegistry.js'
+import { RuntimeSessionRegistry } from '../../core/session/RuntimeSessionRegistry.js'
 
 type SessionManagerOptions = {
   idleTimeoutMs?: number

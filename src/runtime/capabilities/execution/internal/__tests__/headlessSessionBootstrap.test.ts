@@ -202,4 +202,51 @@ describe('createHeadlessSessionBootstrap', () => {
     expect(setAppState).toHaveBeenCalledTimes(1)
     expect(saveMode).toHaveBeenCalledWith('coordinator')
   })
+
+  test('routes session metadata persistence through the bootstrap owner seam', () => {
+    const patchPromptState = mock(() => {})
+    const notifySessionMetadataChanged = mock(() => {})
+    const saveAgentSetting = mock(() => {})
+    const saveAiGeneratedTitle = mock(() => {})
+
+    const bootstrap = createHeadlessSessionBootstrap(
+      {
+        getSessionIdentity: () => ({
+          sessionId: '550e8400-e29b-41d4-a716-446655440000',
+          cwd: null,
+        }),
+        patchPromptState,
+        switchSession: () => {},
+        isSessionPersistenceDisabled: () => false,
+      } as any,
+      {
+        resetSessionFilePointer: async () => {},
+        resetSessionMetadataForResume: () => {},
+        restoreSessionMetadata: () => {},
+        restoreSessionStateFromLog: () => {},
+        notifySessionMetadataChanged,
+        saveAgentSetting,
+        saveAiGeneratedTitle,
+      },
+    )
+
+    bootstrap.applyModelChange({
+      mainLoopModelOverride: 'claude-sonnet-4-6',
+      resolvedModel: 'claude-sonnet-4-6',
+    })
+    bootstrap.persistAgentSetting('reviewer')
+    bootstrap.persistGeneratedTitle('generated title')
+
+    expect(patchPromptState).toHaveBeenCalledWith({
+      mainLoopModelOverride: 'claude-sonnet-4-6',
+    })
+    expect(notifySessionMetadataChanged).toHaveBeenCalledWith({
+      model: 'claude-sonnet-4-6',
+    })
+    expect(saveAgentSetting).toHaveBeenCalledWith('reviewer')
+    expect(saveAiGeneratedTitle).toHaveBeenCalledWith(
+      '550e8400-e29b-41d4-a716-446655440000',
+      'generated title',
+    )
+  })
 })

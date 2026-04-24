@@ -8,6 +8,10 @@ import type { InternalPermissionMode } from 'src/types/permissions.js'
 import type { MCPServerConnection } from 'src/services/mcp/types.js'
 import type { AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS } from 'src/services/analytics/index.js'
 import type {
+  IndexedRuntimeSession,
+  RuntimeSessionIndexStore,
+} from '../../../contracts/session.js'
+import type {
   RuntimeAllowedChannelEntry,
   RuntimeBootstrapStateProvider,
 } from '../../../core/state/providers.js'
@@ -35,6 +39,7 @@ import {
   createHeadlessSessionBootstrap,
   type HeadlessSessionBootstrap,
 } from './headlessSessionBootstrap.js'
+import { RuntimeSessionRegistry } from '../../../core/session/RuntimeSessionRegistry.js'
 
 const MAX_RECEIVED_UUIDS = 10_000
 
@@ -52,17 +57,29 @@ export type HeadlessSessionContext = {
   control: HeadlessSessionControl
   bootstrapStateProvider: RuntimeBootstrapStateProvider
   bootstrap: HeadlessSessionBootstrap
+  getIndexedSession(sessionId: string): IndexedRuntimeSession | null
+  listIndexedSessions(): IndexedRuntimeSession[]
+  liveIndexedSessionCount(): number
+  registerIndexedSession(session: IndexedRuntimeSession): Promise<void>
+  syncIndexedSession(session: IndexedRuntimeSession): void
+  removeIndexedSession(sessionId: string): Promise<void>
   registerCleanup(cleanup: () => void | Promise<void>): void
   cleanup(): Promise<void>
 }
 
 export function createHeadlessSessionContext(
   bootstrapStateProvider: RuntimeBootstrapStateProvider,
+  options: {
+    indexStore?: RuntimeSessionIndexStore
+  } = {},
 ): HeadlessSessionContext {
   const receivedMessageUuids = new Set<UUID>()
   const receivedMessageUuidsOrder: UUID[] = []
   const handledOrphanedToolUseIds = new Set<string>()
   const cleanupStack: Array<() => void | Promise<void>> = []
+  const registry = new RuntimeSessionRegistry<IndexedRuntimeSession>(
+    options.indexStore,
+  )
 
   const control: HeadlessSessionControl = {
     trackReceivedMessageUuid(uuid: UUID): boolean {
@@ -99,6 +116,24 @@ export function createHeadlessSessionContext(
     control,
     bootstrapStateProvider,
     bootstrap: createHeadlessSessionBootstrap(bootstrapStateProvider),
+    getIndexedSession(sessionId) {
+      return registry.get(sessionId)
+    },
+    listIndexedSessions() {
+      return [...registry.values()]
+    },
+    liveIndexedSessionCount() {
+      return registry.liveCount()
+    },
+    registerIndexedSession(session) {
+      return registry.add(session)
+    },
+    syncIndexedSession(session) {
+      registry.sync(session)
+    },
+    removeIndexedSession(sessionId) {
+      return registry.remove(sessionId)
+    },
     registerCleanup(cleanup) {
       cleanupStack.push(cleanup)
     },

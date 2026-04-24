@@ -1,24 +1,13 @@
 import { mkdir, readFile, writeFile } from 'fs/promises'
 import { homedir } from 'os'
 import { dirname, join } from 'path'
+import type {
+  RuntimeSessionIndex,
+  RuntimeSessionIndexEntry,
+  RuntimeSessionIndexStore,
+} from '../../contracts/session.js'
 
-export type RuntimeSessionIndexEntry = {
-  sessionId: string
-  transcriptSessionId: string
-  cwd: string
-  permissionMode?: string
-  createdAt: number
-  lastActiveAt: number
-}
-
-export type RuntimeSessionIndex = Record<string, RuntimeSessionIndexEntry>
-
-export interface ServerSessionIndexStore {
-  load(): Promise<RuntimeSessionIndex>
-  list(): Promise<Array<[string, RuntimeSessionIndexEntry]>>
-  upsert(key: string, entry: RuntimeSessionIndexEntry): Promise<void>
-  remove(key: string): Promise<void>
-}
+export type ServerSessionIndexStore = RuntimeSessionIndexStore
 
 function isFsInaccessible(error: unknown): boolean {
   const code =

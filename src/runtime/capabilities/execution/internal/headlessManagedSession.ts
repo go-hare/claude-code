@@ -1,5 +1,6 @@
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/messages.mjs'
 import type { Message, NormalizedUserMessage } from 'src/types/message.js'
+import type { StdoutMessage } from 'src/entrypoints/sdk/controlTypes.js'
 import { createAbortController } from 'src/utils/abortController.js'
 import {
   createFileStateCacheWithSizeLimit,
@@ -9,10 +10,20 @@ import {
   type FileStateCache,
 } from 'src/utils/fileStateCache.js'
 import { extractReadFilesFromMessages } from 'src/utils/queryHelpers.js'
-import type { RuntimeSessionLifecycle } from '../../../contracts/session.js'
+import type {
+  AttachableRuntimeSession,
+  IndexedRuntimeSession,
+  RuntimeSessionIndexEntry,
+  RuntimeSessionLifecycle,
+  RuntimeSessionSink,
+} from '../../../contracts/session.js'
 
-export type HeadlessManagedSession = RuntimeSessionLifecycle & {
+export type HeadlessManagedSession = RuntimeSessionLifecycle &
+  IndexedRuntimeSession &
+  AttachableRuntimeSession<HeadlessManagedSessionSink> & {
   readonly messages: Message[]
+  emitOutput(message: StdoutMessage): void
+  appendMessages(messages: Message[]): void
   resumeInterruptedTurn(
     interruptedUserMessage: NormalizedUserMessage,
   ): string | ContentBlockParam[]
@@ -25,15 +36,22 @@ export type HeadlessManagedSession = RuntimeSessionLifecycle & {
   seedReadFileState(path: string, fileState: FileState): void
 }
 
+export type HeadlessManagedSessionSink = RuntimeSessionSink<StdoutMessage>
+
 export function createHeadlessManagedSession(
   initialMessages: Message[],
   options: {
     sessionId: string
     cwd: string
+    getWorkDir?: () => string
+    onUpdated?: (session: HeadlessManagedSession) => void
+    onStopped?: (session: HeadlessManagedSession) => void
   },
 ): HeadlessManagedSession {
   let abortController: AbortController | undefined
   let isLive = true
+  const createdAt = Date.now()
+  let lastActiveAt = createdAt
   let readFileState = extractReadFilesFromMessages(
     initialMessages,
     options.cwd,
@@ -42,14 +60,41 @@ export function createHeadlessManagedSession(
   const pendingSeeds = createFileStateCacheWithSizeLimit(
     READ_FILE_STATE_CACHE_SIZE,
   )
+  const sinks = new Set<HeadlessManagedSessionSink>()
 
-  return {
+  const touch = () => {
+    lastActiveAt = Date.now()
+    options.onUpdated?.(session)
+  }
+
+  const session: HeadlessManagedSession = {
     id: options.sessionId,
-    workDir: options.cwd,
+    get workDir() {
+      return options.getWorkDir?.() ?? options.cwd
+    },
     get isLive() {
       return isLive
     },
     messages: initialMessages,
+    attachSink(sink) {
+      sinks.add(sink)
+    },
+    detachSink(sink) {
+      sinks.delete(sink)
+    },
+    emitOutput(message) {
+      for (const sink of sinks) {
+        sink.send(message)
+      }
+      touch()
+    },
+    appendMessages(messages) {
+      if (messages.length === 0) {
+        return
+      }
+      initialMessages.push(...messages)
+      touch()
+    },
     resumeInterruptedTurn(interruptedUserMessage) {
       const interruptedIndex = initialMessages.findIndex(
         message => message.uuid === interruptedUserMessage.uuid,
@@ -57,12 +102,14 @@ export function createHeadlessManagedSession(
       if (interruptedIndex !== -1) {
         initialMessages.splice(interruptedIndex, 2)
       }
+      touch()
       return interruptedUserMessage.message!.content as
         | string
         | ContentBlockParam[]
     },
     startTurn() {
       abortController = createAbortController()
+      touch()
       return abortController
     },
     getAbortController() {
@@ -70,6 +117,7 @@ export function createHeadlessManagedSession(
     },
     abortActiveTurn(reason) {
       abortController?.abort(reason)
+      touch()
     },
     async stopAndWait(force = false) {
       if (!isLive) {
@@ -78,6 +126,7 @@ export function createHeadlessManagedSession(
       isLive = false
       abortController?.abort(force ? 'shutdown' : 'stop')
       abortController = undefined
+      options.onStopped?.(session)
     },
     getCommittedReadFileState() {
       return readFileState
@@ -96,9 +145,22 @@ export function createHeadlessManagedSession(
         }
       }
       pendingSeeds.clear()
+      touch()
     },
     seedReadFileState(path, fileState) {
       pendingSeeds.set(path, fileState)
+      touch()
+    },
+    toIndexEntry(): RuntimeSessionIndexEntry {
+      return {
+        sessionId: session.id,
+        transcriptSessionId: session.id,
+        cwd: session.workDir,
+        createdAt,
+        lastActiveAt,
+      }
     },
   }
+
+  return session
 }

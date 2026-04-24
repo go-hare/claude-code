@@ -46,6 +46,12 @@ describe('headless control import discipline', () => {
     expect(headlessSessionControlContent).not.toContain(
       "from 'src/bootstrap/state.js'",
     )
+    expect(headlessSessionControlContent).not.toContain(
+      "from '../../server/SessionRegistry.js'",
+    )
+    expect(headlessSessionControlContent).toContain(
+      "from '../../../core/session/RuntimeSessionRegistry.js'",
+    )
     expect(headlessSessionControlContent).toContain(
       'bootstrapStateProvider.getHeadlessControlState().allowedChannels',
     )

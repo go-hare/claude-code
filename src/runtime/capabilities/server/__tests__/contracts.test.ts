@@ -20,6 +20,12 @@ describe('server runtime contracts', () => {
     expect(sessionContract).toContain(
       'export interface RuntimeSessionLifecycle',
     )
+    expect(sessionContract).toContain(
+      'export interface RuntimeSessionSink<TMessage = unknown>',
+    )
+    expect(sessionContract).toContain(
+      'export interface AttachableRuntimeSession<',
+    )
     expect(content).toContain('export interface SessionRuntimeHandle')
     expect(content).toContain('export interface SessionRuntimeSink')
     expect(content).toContain('export interface RuntimeManagedSession')
@@ -29,6 +35,7 @@ describe('server runtime contracts', () => {
     expect(content).toContain('export const noopSessionLogger')
     expect(content).toContain("from '../../contracts/session.js'")
     expect(content).toContain('extends IndexedRuntimeSession,')
+    expect(content).toContain('AttachableRuntimeSession<SessionRuntimeSink>')
     expect(content).toContain('RuntimeSessionLifecycle')
   })
 
@@ -39,9 +46,14 @@ describe('server runtime contracts', () => {
     const directSession = await readRepoFile(
       'src/runtime/capabilities/server/RuntimeDirectConnectSession.ts',
     )
+    const registryCompat = await readRepoFile(
+      'src/runtime/capabilities/server/SessionRegistry.ts',
+    )
 
     expect(sessionManager).toContain("from './contracts.js'")
-    expect(sessionManager).toContain("from './SessionRegistry.js'")
+    expect(sessionManager).toContain(
+      "from '../../core/session/RuntimeSessionRegistry.js'",
+    )
     expect(sessionManager).toContain('createManagedSession')
     expect(sessionManager).not.toContain('new RuntimeDirectConnectSession')
     expect(sessionManager).not.toContain('server/backends/dangerousBackend.js')
@@ -56,5 +68,9 @@ describe('server runtime contracts', () => {
     expect(directSession).not.toContain('export type DirectConnectClientSocket')
     expect(directSession).not.toContain('server/backends/dangerousBackend.js')
     expect(directSession).not.toContain('server/serverLog.js')
+
+    expect(registryCompat.trim()).toBe(
+      "export { RuntimeSessionRegistry } from '../../core/session/RuntimeSessionRegistry.js'",
+    )
   })
 })

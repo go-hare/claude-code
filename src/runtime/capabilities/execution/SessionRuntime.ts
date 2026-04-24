@@ -1232,7 +1232,7 @@ export class SessionRuntime implements RuntimeExecutionSession {
   }
 
   get workDir(): string {
-    return this.config.cwd
+    return this.stateProviders.bootstrap.getSessionIdentity().cwd
   }
 
   get isLive(): boolean {

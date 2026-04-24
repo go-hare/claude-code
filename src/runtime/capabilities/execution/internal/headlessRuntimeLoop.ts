@@ -53,7 +53,6 @@ import { notifyCommandLifecycle } from 'src/utils/commandLifecycle.js'
 import {
   getSessionState,
   notifySessionStateChanged,
-  notifySessionMetadataChanged,
   setPermissionModeChangedListener,
   type RequiresActionDetails,
   type SessionExternalMetadata,
@@ -194,9 +193,7 @@ import {
   findUnresolvedToolUse,
   recordAttributionSnapshot,
   resetSessionMetadataForResume,
-  saveAgentSetting,
   saveMode,
-  saveAiGeneratedTitle,
   restoreSessionMetadata,
 } from 'src/utils/sessionStorage.js'
 import { incrementPromptCount } from 'src/utils/commitAttribution.js'
@@ -724,7 +721,7 @@ export async function runHeadlessRuntimeLoop(
         }
       }
       // Re-persist agent setting so future resumes maintain the agent
-      saveAgentSetting(restoredAgent.agentType)
+      session.bootstrap.persistAgentSetting(restoredAgent.agentType)
     }
   }
 
@@ -930,9 +927,34 @@ function runHeadlessStreaming(
   const output = structuredIO.outbound
   const managedSession = createHeadlessManagedSession(initialMessages, {
     sessionId: session.bootstrapStateProvider.getSessionIdentity().sessionId,
-    cwd: cwd(),
+    cwd: session.bootstrapStateProvider.getSessionIdentity().cwd,
+    getWorkDir: () => session.bootstrapStateProvider.getSessionIdentity().cwd,
+    onUpdated: updatedSession => {
+      session.syncIndexedSession(updatedSession)
+    },
+    onStopped: stoppedSession => {
+      void session.removeIndexedSession(stoppedSession.id)
+    },
   })
+  void session.registerIndexedSession(managedSession)
   const mutableMessages = managedSession.messages
+  const emitOutput = (message: StdoutMessage) => {
+    managedSession.emitOutput(message)
+  }
+  const sessionOutput = {
+    enqueue(message: StdoutMessage) {
+      emitOutput(message)
+    },
+  }
+  const outputSink = {
+    send(message: StdoutMessage) {
+      output.enqueue(message)
+    },
+  }
+  managedSession.attachSink(outputSink)
+  session.registerCleanup(() => {
+    managedSession.detachSink(outputSink)
+  })
   session.registerCleanup(() => managedSession.stopAndWait(true))
 
   // Ctrl+C in -p mode: abort the in-flight query, then shut down gracefully.
@@ -985,7 +1007,7 @@ function runHeadlessStreaming(
       newMode === (feature('TRANSCRIPT_CLASSIFIER') && 'auto') ||
       newMode === 'dontAsk'
     ) {
-      output.enqueue({
+      emitOutput({
         type: 'system',
         subtype: 'status',
         status: null,
@@ -1034,7 +1056,7 @@ function runHeadlessStreaming(
   if (options.enableAuthStatus) {
     const authStatusManager = AwsAuthStatusManager.getInstance()
     unsubscribeAuthStatus = authStatusManager.subscribe(status => {
-      output.enqueue({
+      emitOutput({
         type: 'auth_status',
         isAuthenticating: status.isAuthenticating,
         output: status.output,
@@ -1052,7 +1074,7 @@ function runHeadlessStreaming(
   const rateLimitListener = (limits: ClaudeAILimits) => {
     const rateLimitInfo = toSDKRateLimitInfo(limits)
     if (rateLimitInfo) {
-      output.enqueue({
+      emitOutput({
         type: 'rate_limit_event',
         rate_limit_info: rateLimitInfo,
         uuid: randomUUID(),
@@ -1127,13 +1149,13 @@ function runHeadlessStreaming(
       modelArg,
       modelDisplayString(resolvedModel),
     )
-    mutableMessages.push(...breadcrumbs)
+    managedSession.appendMessages(breadcrumbs)
     for (const crumb of breadcrumbs) {
       if (
         typeof crumb.message.content === 'string' &&
         crumb.message.content.includes(`<${LOCAL_COMMAND_STDOUT_TAG}>`)
       ) {
-        output.enqueue({
+        emitOutput({
           type: 'user',
           content: crumb.message.content,
           message: crumb.message as unknown,
@@ -1269,7 +1291,7 @@ function runHeadlessStreaming(
               message: `MCP server "${serverName}" confirmed elicitation ${elicitationId} complete`,
               notificationType: 'elicitation_complete',
             })
-            output.enqueue({
+            emitOutput({
               type: 'system',
               subtype: 'elicitation_complete',
               mcp_server_name: serverName,
@@ -1752,7 +1774,7 @@ function runHeadlessStreaming(
           if (options.replayUserMessages && batch.length > 1) {
             for (const c of batch) {
               if (c.uuid && c.uuid !== command.uuid) {
-                output.enqueue({
+                emitOutput({
                   type: 'user',
                   content: c.value,
                   message: { role: 'user', content: c.value } as unknown,
@@ -1857,7 +1879,7 @@ function runHeadlessStreaming(
             // consumers. Terminal bookends are now emitted directly via
             // emitTaskTerminatedSdk, so skipping statusless events is safe.
             if (statusMatch) {
-              output.enqueue({
+              emitOutput({
                 type: 'system',
                 subtype: 'task_notification',
                 task_id: taskIdMatch?.[1] ?? '',
@@ -1995,7 +2017,7 @@ function runHeadlessStreaming(
                   agents: currentAgents,
                   orphanedPermission: cmd.orphanedPermission,
                   setSDKStatus: status => {
-                    output.enqueue({
+                    emitOutput({
                       type: 'system',
                       subtype: 'status',
                       status: status as 'compacting' | null,
@@ -2013,7 +2035,7 @@ function runHeadlessStreaming(
 
                   const emission = emitHeadlessRuntimeMessage({
                     message: message as StdoutMessage,
-                    output,
+                    output: sessionOutput,
                     drainSdkEvents,
                     hasBackgroundTasks: getRunningTasks(getAppState()).some(
                       task =>
@@ -2080,7 +2102,7 @@ function runHeadlessStreaming(
                   persistedFiles: { filename: string; file_id: string }[]
                   failedFiles: { filename: string; error: string }[]
                 }
-                output.enqueue(
+                emitOutput(
                   createFilesPersistedMessage({
                     result: filesResult,
                     sessionId:
@@ -2154,7 +2176,7 @@ function runHeadlessStreaming(
                     }
                   } else {
                     suggestionState.lastEmitted = lastEmittedEntry
-                    output.enqueue(suggestionMsg)
+                    emitOutput(suggestionMsg)
                   }
                 } catch (error) {
                   if (
@@ -2195,7 +2217,7 @@ function runHeadlessStreaming(
         // Drain SDK events (task_started, task_progress) before command queue
         // so progress events precede task_notification on the stream.
         for (const event of drainSdkEvents()) {
-          output.enqueue(event)
+          emitOutput(event)
         }
 
         runPhase = 'draining_commands'
@@ -2229,7 +2251,7 @@ function runHeadlessStreaming(
       } while (waitingForAgents)
 
       heldBackResult = flushHeldBackResultAndSuggestion({
-        output,
+        output: sessionOutput,
         heldBackResult,
         suggestionState,
       })
@@ -2277,7 +2299,7 @@ function runHeadlessStreaming(
         // waitingForAgents; once we're here the next drain would be the
         // top of the next run(), which won't come if input is idle.
         for (const event of drainSdkEvents()) {
-          output.enqueue(event)
+          emitOutput(event)
         }
       }
       running = false
@@ -2583,7 +2605,7 @@ function runHeadlessStreaming(
     message: { request_id: string } | SDKControlRequest,
     response?: Record<string, unknown>,
   ) {
-    output.enqueue({
+    emitOutput({
       type: 'control_response',
       response: {
         subtype: 'success',
@@ -2597,7 +2619,7 @@ function runHeadlessStreaming(
     message: { request_id: string } | SDKControlRequest,
     errorMessage: string,
   ) {
-    output.enqueue({
+    emitOutput({
       type: 'control_response',
       response: {
         subtype: 'error',
@@ -2788,10 +2810,10 @@ function runHeadlessStreaming(
               ? getDefaultMainLoopModel()
               : requestedModel
           activeUserSpecifiedModel = model
-          session.bootstrapStateProvider.patchPromptState({
+          session.bootstrap.applyModelChange({
             mainLoopModelOverride: model,
+            resolvedModel: model,
           })
-          notifySessionMetadataChanged({ model })
           injectModelSwitchBreadcrumbs(requestedModel, model)
 
           sendControlResponseSuccess(msg)
@@ -3610,9 +3632,11 @@ function runHeadlessStreaming(
           // getMainLoopModel() returns the stale override and the model
           // change is silently ignored (matching set_model at :2811).
           if ('model' in incoming) {
+            const mainLoopModelOverride =
+              incoming.model != null ? String(incoming.model) : undefined
             if (incoming.model != null) {
               session.bootstrapStateProvider.patchPromptState({
-                mainLoopModelOverride: String(incoming.model),
+                mainLoopModelOverride,
               })
             } else {
               session.bootstrapStateProvider.patchPromptState({
@@ -3627,7 +3651,11 @@ function runHeadlessStreaming(
           if (newModel !== prevModel) {
             activeUserSpecifiedModel = newModel
             const modelArg = incoming.model ? String(incoming.model) : 'default'
-            notifySessionMetadataChanged({ model: newModel })
+            session.bootstrap.applyModelChange({
+              mainLoopModelOverride:
+                incoming.model != null ? String(incoming.model) : undefined,
+              resolvedModel: newModel,
+            })
             injectModelSwitchBreadcrumbs(modelArg, newModel)
           }
 
@@ -3679,11 +3707,7 @@ function runHeadlessStreaming(
               const title = await generateSessionTitle(description, titleSignal)
               if (title && persist) {
                 try {
-                  saveAiGeneratedTitle(
-                    session.bootstrapStateProvider.getSessionIdentity()
-                      .sessionId as UUID,
-                    title,
-                  )
+                  session.bootstrap.persistGeneratedTitle(title)
                 } catch (e) {
                   logError(e)
                 }
@@ -3850,7 +3874,7 @@ function runHeadlessStreaming(
                     logForDebugging(
                       `[bridge:sdk] State change: ${state}${detail ? ` — ${detail}` : ''}`,
                     )
-                    output.enqueue({
+                    emitOutput({
                       type: 'system' as StdoutMessage['type'],
                       subtype: 'bridge_state' as string,
                       state,
@@ -3920,7 +3944,7 @@ function runHeadlessStreaming(
       } else if (message.type === 'control_response') {
         // Replay control_response messages when replay mode is enabled
         if (options.replayUserMessages) {
-          output.enqueue(message as StdoutMessage)
+          emitOutput(message as StdoutMessage)
         }
         continue
       } else if (message.type === 'keep_alive') {
@@ -3933,10 +3957,10 @@ function runHeadlessStreaming(
         // History replay from bridge: inject into mutableMessages as
         // conversation context so the model sees prior turns.
         const internalMsgs = toInternalMessages([message as SDKMessage])
-        mutableMessages.push(...internalMsgs)
+        managedSession.appendMessages(internalMsgs)
         // Echo assistant messages back so CCR displays them
         if (message.type === 'assistant' && options.replayUserMessages) {
-          output.enqueue(message as StdoutMessage)
+          emitOutput(message as StdoutMessage)
         }
         continue
       }
@@ -3972,7 +3996,7 @@ function runHeadlessStreaming(
             logForDebugging(
               `Sending acknowledgment for duplicate user message: ${userMsg.uuid}`,
             )
-            output.enqueue({
+            emitOutput({
               type: 'user',
               content: (userMsg.message as { content?: string })?.content ?? '',
               message: userMsg.message as unknown,

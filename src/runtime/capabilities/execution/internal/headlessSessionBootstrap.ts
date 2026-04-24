@@ -5,12 +5,15 @@ import { externalMetadataToAppState } from 'src/state/onChangeAppState.js'
 import type { AppState } from 'src/state/AppStateStore.js'
 import { getCwd } from 'src/utils/cwd.js'
 import type { SessionExternalMetadata } from 'src/utils/sessionState.js'
+import { notifySessionMetadataChanged } from 'src/utils/sessionState.js'
 import { restoreSessionStateFromLog } from 'src/utils/sessionRestore.js'
 import { asSessionId } from 'src/types/ids.js'
 import {
   resetSessionFilePointer,
   resetSessionMetadataForResume,
   restoreSessionMetadata,
+  saveAgentSetting,
+  saveAiGeneratedTitle,
   saveMode,
 } from 'src/utils/sessionStorage.js'
 import type { RuntimeBootstrapStateProvider } from '../../../core/state/providers.js'
@@ -43,6 +46,9 @@ type HeadlessSessionBootstrapDeps = {
   isCoordinatorMode?: () => boolean
   refreshAgentDefinitions?: () => Promise<AgentDefinitionsResult>
   saveMode?: (mode: 'coordinator' | 'normal') => void
+  saveAgentSetting?: typeof saveAgentSetting
+  saveAiGeneratedTitle?: typeof saveAiGeneratedTitle
+  notifySessionMetadataChanged?: typeof notifySessionMetadataChanged
   writeStderr?: (message: string) => void
 }
 
@@ -70,6 +76,12 @@ export type HeadlessSessionBootstrap = {
       persistSession: boolean
     },
   ): Promise<void>
+  persistAgentSetting(agentType: string): void
+  applyModelChange(args: {
+    mainLoopModelOverride: string | undefined
+    resolvedModel: string
+  }): void
+  persistGeneratedTitle(title: string): void
 }
 
 const defaultDeps: HeadlessSessionBootstrapDeps = {
@@ -98,6 +110,9 @@ const defaultDeps: HeadlessSessionBootstrapDeps = {
       }
     : undefined,
   saveMode,
+  saveAgentSetting,
+  saveAiGeneratedTitle,
+  notifySessionMetadataChanged,
   writeStderr: message => {
     process.stderr.write(message)
   },
@@ -177,6 +192,25 @@ export function createHeadlessSessionBootstrap(
 
     async adoptLoadedConversation(conversation, options) {
       await adoptLoadedConversation(conversation, options)
+    },
+
+    persistAgentSetting(agentType) {
+      deps.saveAgentSetting?.(agentType)
+    },
+
+    applyModelChange({ mainLoopModelOverride, resolvedModel }) {
+      bootstrapStateProvider.patchPromptState({
+        mainLoopModelOverride,
+      })
+      deps.notifySessionMetadataChanged?.({ model: resolvedModel })
+    },
+
+    persistGeneratedTitle(title) {
+      const sessionId = bootstrapStateProvider.getSessionIdentity().sessionId
+      deps.saveAiGeneratedTitle?.(
+        sessionId as Parameters<typeof saveAiGeneratedTitle>[0],
+        title,
+      )
     },
   }
 }

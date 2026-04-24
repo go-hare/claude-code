@@ -11,7 +11,7 @@ import type {
   SessionRuntimeSink,
 } from './contracts.js'
 import type { SessionInfo, SessionState } from '../../../server/types.js'
-import type { RuntimeSessionIndexEntry } from '../persistence/ServerSessionIndexStore.js'
+import type { RuntimeSessionIndexEntry } from '../../contracts/session.js'
 
 const MAX_BACKLOG_LINES = 500
 

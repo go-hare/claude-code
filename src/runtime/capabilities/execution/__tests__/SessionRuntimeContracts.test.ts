@@ -36,7 +36,16 @@ describe('SessionRuntime contracts', () => {
       "from '../../../contracts/session.js'",
     )
     expect(headlessManagedSessionContent).toContain(
-      'export type HeadlessManagedSession = RuntimeSessionLifecycle & {',
+      'export type HeadlessManagedSession = RuntimeSessionLifecycle &',
+    )
+    expect(headlessManagedSessionContent).toContain(
+      'IndexedRuntimeSession &',
+    )
+    expect(headlessManagedSessionContent).toContain(
+      'AttachableRuntimeSession<HeadlessManagedSessionSink> & {',
+    )
+    expect(headlessManagedSessionContent).toContain(
+      'export type HeadlessManagedSessionSink = RuntimeSessionSink<StdoutMessage>',
     )
   })
 

@@ -358,7 +358,15 @@
 - `SessionRuntime.ts` 已暴露最小 `RuntimeExecutionSession` contract，headless/CLI 共用的 execution session owner 开始有稳定 seam
 - `headlessManagedSession.ts` 已开始接管 `headlessRuntimeLoop.ts` 里的 `mutableMessages` / `readFileState` / `abortController` 这类 session-local 状态，loop 正在退回编排层
 - interrupted-turn replay 也开始走 `headlessManagedSession.ts`，不再由 `headlessRuntimeLoop.ts` 直接操作消息缓冲
+- `runtime/contracts/session.ts` 已补出共享 `RuntimeSessionIndexEntry` / `RuntimeSessionIndexStore` / `IndexedRuntimeSession` seam，server 的 `RuntimeSessionRegistry` 不再绑死 server-only index 类型
+- headless 侧现在也开始复用 `RuntimeSessionRegistry`：`HeadlessSessionContext` 已持有 runtime-owned registry，`headlessManagedSession` 会产出最小 index entry，并通过 owner callback 做 add / sync / remove
+- `headlessManagedSession.ts` 现在不只管理 interrupted-turn / read-file cache / abort controller，也开始接住 `appendMessages(...)` 这类 message buffer 更新，loop 对 `mutableMessages` 的直接写入继续减少
+- `headlessManagedSession.ts` 已有最小 attach/sink seam：`attachSink(...)` / `detachSink(...)` / `emitOutput(...)` 已落地，`headlessRuntimeLoop.ts` 的核心 `StdoutMessage` 主路径开始经由 session owner 发出
+- `HeadlessSessionContext` 对复用的 `RuntimeSessionRegistry` 也已补出最小 query seam：当前 runtime 已可 `get/list/liveCount` 当前进程内的 indexed headless session，而不只是单向 add/sync/remove
+- `runtime/contracts/session.ts` 已开始承接共享 sink/attach seam：server 的 `SessionRuntimeSink` 与 headless 的 `HeadlessManagedSessionSink` 都开始站在同一条 `RuntimeSessionSink` / `AttachableRuntimeSession` 契约上
+- `RuntimeSessionRegistry` 已从 `runtime/capabilities/server/SessionRegistry.ts` 抽到 `runtime/core/session/RuntimeSessionRegistry.ts`；server 旧路径只保留兼容 re-export，execution/headless 不再反向依赖 server capability 目录来拿 shared registry
 - `headlessSessionBootstrap.ts` 已开始接管 `continue/resume/fork` 路径里的 session identity / metadata / file-pointer side effects，`headlessBootstrap.ts` 不再直接摸这些 session storage 细节
+- `headlessSessionBootstrap.ts` 也开始吃进 session metadata persistence / update seam：agent setting、model metadata 变更、AI generated title 这些 side effects 已不再由 `headlessRuntimeLoop.ts` 直接落到 session storage 或 metadata 通知
 - `loadInitialMessages()` 现在开始退回 source selection / validation / load-result shaping；loaded conversation 的 AppState/session 采纳重新回到 session bootstrap seam
 - resumed conversation 的 coordinator-mode warning / agentDefinitions refresh / `saveMode()` 也开始走 session bootstrap seam，`headlessBootstrap.ts` 进一步退回 load/shaping 层
 - startup hooks 产出的 `initialUserMessage` 也开始作为 load-result 返回，`headlessRuntimeLoop.ts` 不再直接读取 `sessionStart.ts` 的 side channel
@@ -379,6 +387,7 @@
 - REPL split 第六刀也已开始：`onCancel` 的 proactive pause / partial-stream preserve / token-budget clear / prompt or remote cancel routing / turn-cancel notify 已收成独立 cancel shell，`REPL.tsx` 不再直接持有整块取消收尾
 - REPL split 第七刀也已开始：`initialMessage` 的 clear-context / permission 注入 / first-turn hook 预热 / submit-vs-query 分流 已收成独立 bootstrap shell，`REPL.tsx` 在启动期只保留 effect 触发与 ref 管理
 - headless bootstrap ownership 虽然开始走 session seam，但 hydration / resume 数据装载本身仍在 `loadInitialMessages()`，还没和 REPL 侧统一
+- headless/shared session core 这边已经完成第一刀 `index` 接入，但 attach / persist 仍只走最小 owner seam；它还没有和 server/direct-connect 合成同一套可挂接 session core
 - headless state ownership 也继续往前推了一刀：`mainThreadAgentType` / `initJsonSchema` / `allowedChannels` / `registeredHooks` 已进入 `RuntimeBootstrapStateProvider` 的显式 seam，`headlessControl.ts`、`headlessSessionControl.ts`、`headlessRuntimeLoop.ts` 不再直接从 `bootstrap/state` 读取或写入这些状态
 - headless 的 loaded-conversation adoption 现在已经从 `loadInitialMessages()` 挪回 loop + session bootstrap seam，但 teleport / coordinator-mode refresh / startup hooks 这些 host-adjacent 行为还没继续下沉
 - headless 的 interrupted-turn replay 已经不是 loop 私有逻辑，但 command queue / startup hooks / coordinator refresh 仍在 loop 或 bootstrap 路径外层

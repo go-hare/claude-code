@@ -1,6 +1,10 @@
 import type { ChildProcess } from 'child_process'
-import type { RuntimeSessionIndexEntry } from '../persistence/ServerSessionIndexStore.js'
-import type { RuntimeSessionLifecycle } from '../../contracts/session.js'
+import type {
+  AttachableRuntimeSession,
+  IndexedRuntimeSession,
+  RuntimeSessionLifecycle,
+  RuntimeSessionSink,
+} from '../../contracts/session.js'
 
 export interface SessionRuntimeHandle {
   sessionId: string
@@ -13,22 +17,14 @@ export interface SessionRuntimeHandle {
   forceKill(): void
 }
 
-export interface SessionRuntimeSink {
-  send(data: string): unknown
+export interface SessionRuntimeSink extends RuntimeSessionSink<string> {
   close(code?: number, reason?: string): unknown
-}
-
-export interface IndexedRuntimeSession {
-  id: string
-  isLive: boolean
-  toIndexEntry(): RuntimeSessionIndexEntry
 }
 
 export interface RuntimeManagedSession
   extends IndexedRuntimeSession,
-    RuntimeSessionLifecycle {
-  attachSink(sink: SessionRuntimeSink): void
-  detachSink(sink: SessionRuntimeSink): void
+    RuntimeSessionLifecycle,
+    AttachableRuntimeSession<SessionRuntimeSink> {
   handleInput(rawMessage: string): boolean
 }
 

@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from 'bun:test'
 import { EventEmitter } from 'events'
+import { resolve } from 'path'
 import { PassThrough } from 'stream'
 import type { ChildProcess } from 'child_process'
 
@@ -97,7 +98,7 @@ describe('SessionManager', () => {
 
     expect(created).toEqual({
       sessionId: expect.any(String),
-      workDir: '/tmp/runtime-session-1',
+      workDir: resolve('/tmp/runtime-session-1'),
     })
     expect(createSessionRuntime).toHaveBeenCalledTimes(1)
     expect(createManagedSession).toHaveBeenCalledTimes(1)
