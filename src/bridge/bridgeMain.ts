@@ -1,7 +1,7 @@
 import { feature } from 'bun:bundle'
 import { randomUUID } from 'crypto'
 import { hostname, tmpdir } from 'os'
-import { basename, join, resolve } from 'path'
+import { join, resolve } from 'path'
 import { getRemoteSessionUrl } from '../constants/product.js'
 import { shutdownDatadog } from '../services/analytics/datadog.js'
 import { shutdown1PEventLogging } from '../services/analytics/firstPartyEventLogger.js'
@@ -12,7 +12,6 @@ import {
   logEventAsync,
 } from '../services/analytics/index.js'
 import { isInBundledMode } from '../utils/bundledMode.js'
-import { getBootstrapArgs, getScriptPath } from '../utils/cliLaunch.js'
 import { logForDebugging } from '../utils/debug.js'
 import { rcLog } from './rcDebugLog.js'
 import { logForDiagnosticsNoPII } from '../utils/diagLogs.js'
@@ -34,16 +33,16 @@ import {
   validateBridgeId,
 } from './bridgeApi.js'
 import { formatDuration } from './bridgeStatusUtil.js'
-import { createBridgeLogger } from './bridgeUI.js'
 import { createCapacityWake } from './capacityWake.js'
 import { describeAxiosError } from './debugUtils.js'
 import { createTokenRefreshScheduler } from './jwtUtils.js'
 import { getPollIntervalConfig } from './pollConfig.js'
 import { toCompatSessionId, toInfraSessionId } from './sessionIdCompat.js'
-import { createSessionSpawner, safeFilenameId } from './sessionRunner.js'
+import { safeFilenameId } from './sessionRunner.js'
 import { getTrustedDeviceToken } from './trustedDevice.js'
 import {
-  createBridgeSessionRuntime,
+  assembleBridgeCliHost,
+  createBridgeCliInitialSession,
   getBridgeSessionRuntime,
   type HeadlessBridgeOpts,
   runBridgeHeadless as runKernelBridgeHeadless,
@@ -107,19 +106,6 @@ async function isMultiSessionSpawnEnabled(): Promise<boolean> {
  */
 function pollSleepDetectionThresholdMs(backoff: BackoffConfig): number {
   return backoff.connCapMs * 2
-}
-
-/**
- * Returns the args that must precede CLI flags when spawning a child claude
- * process. Delegates to the centralized cliLaunch module which handles
- * bundled-vs-script mode, execArgv sanitization, and the Bun execArgv leak
- * quirk. See anthropics/claude-code#28334.
- */
-function spawnScriptArgs(): string[] {
-  const bootstrap = [...getBootstrapArgs()]
-  const script = getScriptPath()
-  if (script) bootstrap.push(script)
-  return bootstrap
 }
 
 /** Attempt to spawn a session; returns error string if spawn throws. */
@@ -2577,43 +2563,18 @@ async function bridgeMainImpl(args: string[]): Promise<void> {
     spawn_mode: config.spawnMode,
   })
 
-  const spawner = createSessionSpawner({
-    execPath: process.execPath,
-    scriptArgs: spawnScriptArgs(),
-    env: process.env,
+  const { spawner, logger, toggleAvailable } = await assembleBridgeCliHost({
+    dir,
+    branch,
+    gitRepoUrl,
+    spawnMode,
+    worktreeAvailable,
     verbose,
     sandbox,
     debugFile,
     permissionMode,
     onDebug: logForDebugging,
-    onActivity: (sessionId, activity) => {
-      logForDebugging(
-        `[bridge:activity] sessionId=${sessionId} ${activity.type} ${activity.summary}`,
-      )
-    },
-    onPermissionRequest: (sessionId, request, _accessToken) => {
-      logForDebugging(
-        `[bridge:perm] sessionId=${sessionId} tool=${request.request.tool_name} request_id=${request.request_id} (not auto-approving)`,
-      )
-    },
   })
-
-  const logger = createBridgeLogger({ verbose })
-  const { parseGitHubRepository } = await import('../utils/detectRepository.js')
-  const ownerRepo = gitRepoUrl ? parseGitHubRepository(gitRepoUrl) : null
-  // Use the repo name from the parsed owner/repo, or fall back to the dir basename
-  const repoName = ownerRepo ? ownerRepo.split('/').pop()! : basename(dir)
-  logger.setRepoInfo(repoName, branch)
-
-  // `w` toggle is available iff we're in a multi-session mode AND worktree
-  // is a valid option. When unavailable, the mode suffix and hint are hidden.
-  const toggleAvailable = spawnMode !== 'single-session' && worktreeAvailable
-  if (toggleAvailable) {
-    // Safe cast: spawnMode is not single-session (checked above), and the
-    // saved-worktree-in-non-git guard + exit check above ensure worktree
-    // is only reached when available.
-    logger.setSpawnModeDisplay(spawnMode as 'same-dir' | 'worktree')
-  }
 
   // Listen for keys: space toggles QR code, w toggles spawn mode
   const onStdinData = (data: Buffer): void => {
@@ -2675,34 +2636,22 @@ async function bridgeMainImpl(args: string[]): Promise<void> {
   // When resume was requested but failed on env mismatch, effectiveResumeSessionId
   // is undefined, so we fall through to fresh session creation (honoring the
   // "Creating a fresh session instead" warning printed above).
-  let initialSessionId: string | null =
-    feature('KAIROS') && effectiveResumeSessionId
-      ? effectiveResumeSessionId
-      : null
-  if (preCreateSession && !(feature('KAIROS') && effectiveResumeSessionId)) {
-    try {
-      initialSessionId = await createBridgeSessionRuntime({
-        environmentId,
-        title: name,
-        events: [],
-        gitRepoUrl,
-        branch,
-        signal: controller.signal,
-        baseUrl,
-        getAccessToken: getBridgeAccessToken,
-        permissionMode,
-      })
-      if (initialSessionId) {
-        logForDebugging(
-          `[bridge:init] Created initial session ${initialSessionId}`,
-        )
-      }
-    } catch (err) {
-      logForDebugging(
-        `[bridge:init] Session creation failed (non-fatal): ${errorMessage(err)}`,
-      )
-    }
-  }
+  const initialResumeSessionId = feature('KAIROS')
+    ? effectiveResumeSessionId
+    : undefined
+  const initialSessionId = await createBridgeCliInitialSession({
+    resumeSessionId: initialResumeSessionId,
+    preCreateSession,
+    environmentId,
+    title: name,
+    gitRepoUrl,
+    branch,
+    signal: controller.signal,
+    baseUrl,
+    getAccessToken: getBridgeAccessToken,
+    permissionMode,
+    onDebug: logForDebugging,
+  })
 
   // Crash-recovery pointer: write immediately so kill -9 at any point
   // after this leaves a recoverable trail. Covers both fresh sessions and

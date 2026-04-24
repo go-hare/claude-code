@@ -37,20 +37,17 @@ class MockDirectConnectError extends Error {
   }
 }
 
-mock.module('../../server/createDirectConnectSession.js', () => ({
-  createDirectConnectSession: mockCreateDirectConnectSession,
+mock.module('../../runtime/capabilities/server/DirectConnectSessionApi.js', () => ({
+  createDirectConnectSessionRuntime: mockCreateDirectConnectSession,
   DirectConnectError: MockDirectConnectError,
 }))
 
-mock.module('../../server/connectHeadless.js', () => ({
-  runConnectHeadless: mockRunConnectHeadless,
+mock.module('../../runtime/capabilities/server/HostRuntime.js', () => ({
+  runConnectHeadlessRuntime: mockRunConnectHeadless,
+  startServerRuntimeHost: mockStartServer,
 }))
 
-mock.module('../../server/server.js', () => ({
-  startServer: mockStartServer,
-}))
-
-mock.module('../../server/sessionManager.js', () => ({
+mock.module('../../runtime/capabilities/server/SessionManager.js', () => ({
   SessionManager: MockSessionManager,
 }))
 

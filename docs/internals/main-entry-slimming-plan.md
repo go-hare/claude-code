@@ -32,13 +32,22 @@
 截至 2026-04-24，`main.tsx` / `REPL.tsx` 这轮又往前收了一段：
 
 - `main.tsx` 已新增 shared launch context，重复的 `appProps / replProps` 组装已统一收口
+- `main.tsx` 剩余的 shared startup assembly 也已继续收口：
+  - session uploader deferred assembly
+  - sessionConfig / resumeContext
+  - startupModes
+  - startup telemetry scheduling
 - `REPL.tsx` 的 query turn orchestration 已上提到独立 controller
 - `REPL.tsx` 的 bottom / bubble 区域已拆成独立 view 组件
+- `bridgeMain.ts` 也已开始第一轮瘦身：
+  - `spawner / logger / initial session` 的宿主装配已上提到 `src/kernel/bridge.ts`
+  - `bridgeMain.ts` 不再直接拼这三块默认实现
 
 因此当前这阶段的重点已经从“先把 launcher 抽出去”，推进到：
 
-- 继续压 `main.tsx` 剩余的共享 startup assembly
+- 继续压 `main.tsx` 剩余的零散宿主装配
 - 再看是否需要进一步拆 `REPL.tsx` 的其他重块
+- 然后继续推进 `bridgeMain.ts` 的下一轮瘦身
 
 典型例子：
 
@@ -266,9 +275,9 @@ return
 
 当前未完成但仍有价值的尾项：
 
-1. `main.tsx` 剩余 shared startup assembly 的进一步收口
-2. `kernel/serverHost.ts` 的历史双层转发清理
-3. `bridgeMain.ts` 的继续瘦身
+1. `main.tsx` 剩余零散宿主装配的进一步收口
+2. `bridgeMain.ts` 的继续瘦身
+3. `REPL.tsx` 其他重块的继续拆分
 
 ## 当前推荐起点
 

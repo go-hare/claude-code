@@ -4,10 +4,17 @@
  * This keeps external hosts off internal runtime paths while reusing the
  * existing bridge capability implementation.
  */
+import { basename } from 'path'
 import { createBridgeApiClient } from '../bridge/bridgeApi.js'
 import { getTrustedDeviceToken } from '../bridge/trustedDevice.js'
 import { createSessionSpawner } from '../bridge/sessionRunner.js'
-import { BRIDGE_LOGIN_ERROR } from '../bridge/types.js'
+import { createBridgeLogger } from '../bridge/bridgeUI.js'
+import {
+  BRIDGE_LOGIN_ERROR,
+  type BridgeLogger,
+  type SessionSpawner,
+  type SpawnMode,
+} from '../bridge/types.js'
 import { getBridgeBaseUrl } from '../bridge/bridgeConfig.js'
 import { hasWorktreeCreateHook } from '../utils/hooks.js'
 import { findGitRoot, getBranch, getRemoteUrl } from '../utils/git.js'
@@ -44,6 +51,115 @@ function spawnScriptArgs(): string[] {
     bootstrap.push(script)
   }
   return bootstrap
+}
+
+export type BridgeCliHostAssembly = {
+  spawner: SessionSpawner
+  logger: BridgeLogger
+  toggleAvailable: boolean
+}
+
+export type AssembleBridgeCliHostParams = {
+  dir: string
+  branch: string
+  gitRepoUrl: string | null
+  spawnMode: SpawnMode
+  worktreeAvailable: boolean
+  verbose: boolean
+  sandbox: boolean
+  debugFile?: string
+  permissionMode?: string
+  onDebug: (message: string) => void
+}
+
+export async function assembleBridgeCliHost(
+  params: AssembleBridgeCliHostParams,
+): Promise<BridgeCliHostAssembly> {
+  const spawner = createSessionSpawner({
+    execPath: process.execPath,
+    scriptArgs: spawnScriptArgs(),
+    env: process.env,
+    verbose: params.verbose,
+    sandbox: params.sandbox,
+    debugFile: params.debugFile,
+    permissionMode: params.permissionMode,
+    onDebug: params.onDebug,
+    onActivity: (sessionId, activity) => {
+      params.onDebug(
+        `[bridge:activity] sessionId=${sessionId} ${activity.type} ${activity.summary}`,
+      )
+    },
+    onPermissionRequest: (sessionId, request) => {
+      params.onDebug(
+        `[bridge:perm] sessionId=${sessionId} tool=${request.request.tool_name} request_id=${request.request_id} (not auto-approving)`,
+      )
+    },
+  })
+
+  const logger = createBridgeLogger({ verbose: params.verbose })
+  const { parseGitHubRepository } = await import('../utils/detectRepository.js')
+  const ownerRepo = params.gitRepoUrl
+    ? parseGitHubRepository(params.gitRepoUrl)
+    : null
+  const repoName = ownerRepo ? ownerRepo.split('/').pop()! : basename(params.dir)
+  logger.setRepoInfo(repoName, params.branch)
+
+  const toggleAvailable =
+    params.spawnMode !== 'single-session' && params.worktreeAvailable
+  if (toggleAvailable) {
+    logger.setSpawnModeDisplay(params.spawnMode as 'same-dir' | 'worktree')
+  }
+
+  return {
+    spawner,
+    logger,
+    toggleAvailable,
+  }
+}
+
+export type CreateBridgeCliInitialSessionParams = {
+  resumeSessionId?: string
+  preCreateSession: boolean
+  environmentId: string
+  title?: string
+  gitRepoUrl: string | null
+  branch: string
+  signal: AbortSignal
+  baseUrl: string
+  getAccessToken: () => string | undefined
+  permissionMode?: string
+  onDebug: (message: string) => void
+}
+
+export async function createBridgeCliInitialSession(
+  params: CreateBridgeCliInitialSessionParams,
+): Promise<string | null> {
+  let initialSessionId = params.resumeSessionId ?? null
+  if (params.preCreateSession && !params.resumeSessionId) {
+    try {
+      initialSessionId = await createBridgeSessionRuntime({
+        environmentId: params.environmentId,
+        title: params.title,
+        events: [],
+        gitRepoUrl: params.gitRepoUrl,
+        branch: params.branch,
+        signal: params.signal,
+        baseUrl: params.baseUrl,
+        getAccessToken: params.getAccessToken,
+        permissionMode: params.permissionMode,
+      })
+      if (initialSessionId) {
+        params.onDebug(`[bridge:init] Created initial session ${initialSessionId}`)
+      }
+    } catch (err) {
+      const { errorMessage } = await import('../utils/errors.js')
+      params.onDebug(
+        `[bridge:init] Session creation failed (non-fatal): ${errorMessage(err)}`,
+      )
+    }
+  }
+
+  return initialSessionId
 }
 
 export function createBridgeHeadlessDeps(

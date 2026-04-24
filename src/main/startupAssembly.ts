@@ -1,5 +1,7 @@
 import type { Command } from "../commands.js";
 import type { MCPServerConnection } from "../services/mcp/types.js";
+import type { Message as MessageType } from "../types/message.js";
+import type { GlobalConfig } from "../utils/config.js";
 import uniqBy from "lodash-es/uniqBy.js";
 import { dedupeToolsByName, type Tool } from "../Tool.js";
 
@@ -10,6 +12,153 @@ export type StartupMcpState = {
 	tools: Tool[];
 	commands: Command[];
 };
+
+export type SessionTurnUploader = (messages: MessageType[]) => void;
+
+export function createDeferredSessionTurnUploader(options: {
+	userType?: string;
+	loadSessionDataUploader: () => Promise<{
+		createSessionTurnUploader: () => SessionTurnUploader | void;
+	}>;
+}): Promise<SessionTurnUploader | null> | null {
+	const { userType, loadSessionDataUploader } = options;
+	if (userType !== "ant") {
+		return null;
+	}
+
+	return loadSessionDataUploader()
+		.then((mod) => {
+			const uploader = mod.createSessionTurnUploader();
+			return typeof uploader === "function" ? uploader : null;
+		})
+		.catch(() => null);
+}
+
+export function recordStartupAndScheduleTelemetry(options: {
+	saveGlobalConfig: (updater: (current: GlobalConfig) => GlobalConfig) => void;
+	logStartupTelemetry: () => void | Promise<void>;
+	logSessionTelemetry: () => void | Promise<void>;
+	schedule?: (callback: () => void) => void;
+}): void {
+	const {
+		saveGlobalConfig,
+		logStartupTelemetry,
+		logSessionTelemetry,
+		schedule = (callback) => setImmediate(callback),
+	} = options;
+
+	saveGlobalConfig((current) => ({
+		...current,
+		numStartups: (current.numStartups ?? 0) + 1,
+	}));
+	schedule(() => {
+		void logStartupTelemetry();
+		void logSessionTelemetry();
+	});
+}
+
+export function createCliSessionConfig<
+	TCommand,
+	TTool,
+	TMcpClient,
+	TMainThreadAgentDefinition,
+	TDynamicMcpConfig,
+	TStrictMcpConfig,
+	TThinkingConfig,
+>(options: {
+	debug: boolean;
+	commands: TCommand[];
+	mcpCommands: TCommand[];
+	initialTools: TTool[];
+	mcpClients: TMcpClient[];
+	autoConnectIdeFlag: boolean;
+	mainThreadAgentDefinition: TMainThreadAgentDefinition;
+	disableSlashCommands: boolean;
+	dynamicMcpConfig: TDynamicMcpConfig;
+	strictMcpConfig: TStrictMcpConfig;
+	systemPrompt?: string;
+	appendSystemPrompt?: string;
+	taskListId?: string;
+	thinkingConfig: TThinkingConfig;
+	uploaderReady?: Promise<SessionTurnUploader | null> | null;
+}) {
+	const {
+		debug,
+		commands,
+		mcpCommands,
+		initialTools,
+		mcpClients,
+		autoConnectIdeFlag,
+		mainThreadAgentDefinition,
+		disableSlashCommands,
+		dynamicMcpConfig,
+		strictMcpConfig,
+		systemPrompt,
+		appendSystemPrompt,
+		taskListId,
+		thinkingConfig,
+		uploaderReady,
+	} = options;
+
+	return {
+		debug,
+		commands: [...commands, ...mcpCommands],
+		initialTools,
+		mcpClients,
+		autoConnectIdeFlag,
+		mainThreadAgentDefinition,
+		disableSlashCommands,
+		dynamicMcpConfig,
+		strictMcpConfig,
+		systemPrompt,
+		appendSystemPrompt,
+		taskListId,
+		thinkingConfig,
+		...(uploaderReady && {
+			onTurnComplete: (messages: MessageType[]) => {
+				void uploaderReady.then((uploader) => uploader?.(messages));
+			},
+		}),
+	};
+}
+
+export function createResumeContext<
+	TModeApi,
+	TMainThreadAgentDefinition,
+	TAgentDefinitions,
+	TCliAgents,
+	TInitialState,
+>(options: {
+	modeApi: TModeApi;
+	mainThreadAgentDefinition: TMainThreadAgentDefinition;
+	agentDefinitions: TAgentDefinitions;
+	currentCwd: string;
+	cliAgents: TCliAgents;
+	initialState: TInitialState;
+}) {
+	return {
+		modeApi: options.modeApi,
+		mainThreadAgentDefinition: options.mainThreadAgentDefinition,
+		agentDefinitions: options.agentDefinitions,
+		currentCwd: options.currentCwd,
+		cliAgents: options.cliAgents,
+		initialState: options.initialState,
+	};
+}
+
+export function createStartupModes(options: {
+	activateProactive: () => void;
+	activateBrief: () => void;
+}) {
+	return {
+		activateProactive() {
+			options.activateProactive();
+		},
+		activateBrief() {
+			options.activateBrief();
+		},
+	};
+}
 
 export function determineSetupTrigger(options: {
 	initOnly: boolean;

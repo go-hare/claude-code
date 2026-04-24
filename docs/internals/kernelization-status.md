@@ -29,6 +29,10 @@
 
 > 同时，runtime-vs-host state split 已开始进入“真实注入”阶段：`bootstrapProvider` 已从 `adapters.ts` 抽离，`SessionRuntime` / `TurnEngine` / `headlessBootstrap` / `RemoteIO` 已开始经由 provider 或显式入参读取 session state；shared session core 这边也已经起了第一轮 runtime-owned `SessionRegistry`，但离真正统一 session core 仍有距离。
 
+> 宿主瘦身这边也继续往前推进了一轮：`main.tsx` 已把 shared launch context 和 shared startup assembly 收口到独立 helper，`kernel/serverHost.ts` 也已摘掉对 `server/*` / `hosts/server/*` 历史兼容层的依赖，直接接到 runtime-owned server capability。
+
+> `bridgeMain.ts` 也已开始第一轮宿主装配上提：`spawner / logger / initial session` 这三块默认组装现在经由 `src/kernel/bridge.ts` 提供，`bridgeMain.ts` 本身进一步退回到参数、UI 与控制流协调。
+
 当前已经成立的结构是：
 
 - CLI 仍是主宿主，但不再独占核心能力

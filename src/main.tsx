@@ -47,9 +47,14 @@ import {
 } from './main/commandAssembly.js'
 import { determineMainLaunchMode } from './main/modeDispatch.js'
 import {
+	createCliSessionConfig,
+	createDeferredSessionTurnUploader,
 	createInteractiveStartupMcpMessages,
+	createResumeContext,
+	createStartupModes,
 	determineSetupTrigger,
 	mergeStartupMcpState,
+	recordStartupAndScheduleTelemetry,
 	runSessionStartupSideEffects,
 	runStartupPrefetches,
 	runVersionedPluginStartup,
@@ -4087,16 +4092,10 @@ async function run(): Promise<CommanderCommand> {
 
 			const initialTools = mcpTools;
 
-			// Increment numStartups synchronously — first-render readers like
-			// shouldShowEffortCallout (via useState initializer) need the updated
-			// value before setImmediate fires. Defer only telemetry.
-			saveGlobalConfig((current) => ({
-				...current,
-				numStartups: (current.numStartups ?? 0) + 1,
-			}));
-			setImmediate(() => {
-				void logStartupTelemetry();
-				logSessionTelemetry();
+			recordStartupAndScheduleTelemetry({
+				saveGlobalConfig,
+				logStartupTelemetry,
+				logSessionTelemetry,
 			});
 
 			// Set up per-turn session environment data uploader (ant-only build).
@@ -4107,24 +4106,15 @@ async function run(): Promise<CommanderCommand> {
 			//   - Runtime: uploader checks github.com/anthropics/* remote + gcloud auth.
 			//   - Safety: CLAUDE_CODE_DISABLE_SESSION_DATA_UPLOAD=1 bypasses (tests set this).
 			// Import is dynamic + async to avoid adding startup latency.
-			const sessionUploaderPromise =
-				process.env.USER_TYPE === "ant"
-					? import("./utils/sessionDataUploader.js")
-					: null;
+			const uploaderReady = createDeferredSessionTurnUploader({
+				userType: process.env.USER_TYPE,
+				loadSessionDataUploader: () => import("./utils/sessionDataUploader.js"),
+			});
 
-			// Defer session uploader resolution to the onTurnComplete callback to avoid
-			// adding a new top-level await in main.tsx (performance-critical path).
-			// The per-turn auth logic in sessionDataUploader.ts handles unauthenticated
-			// state gracefully (re-checks each turn, so auth recovery mid-session works).
-			const uploaderReady = sessionUploaderPromise
-				? sessionUploaderPromise
-						.then((mod) => mod.createSessionTurnUploader())
-						.catch(() => null)
-				: null;
-
-			const sessionConfig = {
+			const sessionConfig = createCliSessionConfig({
 				debug: debug || debugToStderr,
-				commands: [...commands, ...mcpCommands],
+				commands,
+				mcpCommands,
 				initialTools,
 				mcpClients,
 				autoConnectIdeFlag: ide,
@@ -4136,24 +4126,26 @@ async function run(): Promise<CommanderCommand> {
 				appendSystemPrompt,
 				taskListId,
 				thinkingConfig,
-				...(uploaderReady && {
-					onTurnComplete: (messages: MessageType[]) => {
-						void uploaderReady.then((uploader) =>
-							(uploader as ((msgs: MessageType[]) => void) | null)?.(messages),
-						);
-					},
-				}),
-			};
+				uploaderReady,
+			});
 
-			// Shared context for processResumedConversation calls
-			const resumeContext = {
+			const resumeContext = createResumeContext({
 				modeApi: coordinatorModeModule,
 				mainThreadAgentDefinition,
 				agentDefinitions,
 				currentCwd,
 				cliAgents,
 				initialState,
-			};
+			});
+
+			const startupModes = createStartupModes({
+				activateProactive() {
+					maybeActivateProactive(options);
+				},
+				activateBrief() {
+					maybeActivateBrief(options);
+				},
+			});
 
 			const launchContext = createCliLaunchContext({
 				getFpsMetrics,
@@ -4175,14 +4167,7 @@ async function run(): Promise<CommanderCommand> {
 					renderAndRun,
 					forkSession: options.forkSession,
 					resumeContext,
-					startupModes: {
-						activateProactive() {
-							maybeActivateProactive(options);
-						},
-						activateBrief() {
-							maybeActivateBrief(options);
-						},
-					},
+					startupModes,
 					runtime: {
 						exit(code) {
 							process.exit(code);
@@ -4298,14 +4283,7 @@ async function run(): Promise<CommanderCommand> {
 							setTeleportedSessionInfo({ sessionId });
 						},
 					},
-					startupModes: {
-						activateProactive() {
-							maybeActivateProactive(options);
-						},
-						activateBrief() {
-							maybeActivateBrief(options);
-						},
-					},
+					startupModes,
 					runtime: {
 						shutdown: gracefulShutdown,
 						exit(code) {
@@ -4329,14 +4307,7 @@ async function run(): Promise<CommanderCommand> {
 					hookMessages,
 					hooksPromise,
 					pendingStartupMessages,
-					startupModes: {
-						activateProactive() {
-							maybeActivateProactive(options);
-						},
-						activateBrief() {
-							maybeActivateBrief(options);
-						},
-					},
+					startupModes,
 					profileCheckpoint,
 					features: {
 						coordinatorMode: feature("COORDINATOR_MODE") ? true : false,

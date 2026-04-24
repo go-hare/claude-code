@@ -2,15 +2,17 @@
  * Stable server/direct-connect host-facing kernel exports.
  *
  * Top-level hosts should depend on this surface instead of importing
- * `server/*` modules directly.
+ * `server/*` compatibility modules directly.
  */
 import {
-  createDirectConnectSession as createDirectConnectSessionRuntime,
+  createDirectConnectSessionRuntime,
   DirectConnectError,
-} from '../server/createDirectConnectSession.js'
-import { runConnectHeadless as runConnectHeadlessRuntime } from '../server/connectHeadless.js'
-import { startServer as startServerRuntime } from '../server/server.js'
-import { SessionManager } from '../server/sessionManager.js'
+} from '../runtime/capabilities/server/DirectConnectSessionApi.js'
+import {
+  runConnectHeadlessRuntime,
+  startServerRuntimeHost,
+} from '../runtime/capabilities/server/HostRuntime.js'
+import { SessionManager } from '../runtime/capabilities/server/SessionManager.js'
 import { DangerousBackend } from '../server/backends/dangerousBackend.js'
 import { createServerLogger } from '../server/serverLog.js'
 import type { SessionLogger } from '../runtime/capabilities/server/contracts.js'
@@ -51,7 +53,7 @@ export type KernelServerHostAssembly = {
   config: ServerConfig
   sessionManager: SessionManager
   logger: SessionLogger
-  server: ReturnType<typeof startServerRuntime>
+  server: ReturnType<typeof startServerRuntimeHost>
 }
 
 function parseRequiredInteger(value: IntegerLike, field: string): number {
@@ -152,7 +154,7 @@ export function assembleServerHost(
     config,
     sessionManager,
     logger,
-    server: startServerRuntime(config, sessionManager, logger),
+    server: startServerRuntimeHost(config, sessionManager, logger),
   }
 }
 
@@ -161,7 +163,7 @@ export function startServer(
   sessionManager: SessionManager,
   logger: SessionLogger,
 ) {
-  return startServerRuntime(config, sessionManager, logger)
+  return startServerRuntimeHost(config, sessionManager, logger)
 }
 
 export function startKernelServer(

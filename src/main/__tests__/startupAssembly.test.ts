@@ -2,9 +2,14 @@ import { describe, expect, mock, test } from "bun:test";
 import { z } from "zod/v4";
 
 import {
+	createCliSessionConfig,
+	createDeferredSessionTurnUploader,
 	createInteractiveStartupMcpMessages,
+	createResumeContext,
+	createStartupModes,
 	determineSetupTrigger,
 	mergeStartupMcpState,
+	recordStartupAndScheduleTelemetry,
 	runSessionStartupSideEffects,
 	runStartupPrefetches,
 	runVersionedPluginStartup,
@@ -12,6 +17,7 @@ import {
 import { buildTool } from "../../Tool.js";
 import type { Command } from "../../types/command.js";
 import type { MCPServerConnection } from "../../services/mcp/types.js";
+import type { GlobalConfig } from "../../utils/config.js";
 
 function createTestTool(options: {
 	name: string;
@@ -230,6 +236,134 @@ describe("runSessionStartupSideEffects", () => {
 		expect(updateSessionName).toHaveBeenCalledTimes(0);
 		expect(countConcurrentSessions).toHaveBeenCalledTimes(0);
 		expect(onConcurrentSessions).toHaveBeenCalledTimes(0);
+	});
+});
+
+describe("recordStartupAndScheduleTelemetry", () => {
+	test("increments startups synchronously and schedules telemetry", async () => {
+		const observed: Array<string | number> = [];
+		let currentConfig = { numStartups: 2 } as GlobalConfig;
+
+		recordStartupAndScheduleTelemetry({
+			saveGlobalConfig(updater) {
+				currentConfig = updater(currentConfig);
+				observed.push(currentConfig.numStartups ?? 0);
+			},
+			logStartupTelemetry() {
+				observed.push("startup");
+			},
+			logSessionTelemetry() {
+				observed.push("session");
+			},
+			schedule(callback) {
+				observed.push("scheduled");
+				callback();
+			},
+		});
+
+		expect(currentConfig.numStartups).toBe(3);
+		expect(observed).toEqual([3, "scheduled", "startup", "session"]);
+	});
+});
+
+describe("createDeferredSessionTurnUploader", () => {
+	test("skips uploader loading outside ant sessions", () => {
+		const loadSessionDataUploader = mock(async () => ({
+			createSessionTurnUploader: () => () => {},
+		}));
+
+		const uploader = createDeferredSessionTurnUploader({
+			userType: "external",
+			loadSessionDataUploader,
+		});
+
+		expect(uploader).toBeNull();
+		expect(loadSessionDataUploader).toHaveBeenCalledTimes(0);
+	});
+
+	test("loads the uploader lazily for ant sessions", async () => {
+		const sink = mock((_messages: unknown[]) => {});
+		const loadSessionDataUploader = mock(async () => ({
+			createSessionTurnUploader: () => sink,
+		}));
+
+		const uploader = createDeferredSessionTurnUploader({
+			userType: "ant",
+			loadSessionDataUploader,
+		});
+
+		expect(await uploader).toBe(sink);
+		expect(loadSessionDataUploader).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("createCliSessionConfig", () => {
+	test("merges command sources and routes turn completion through uploader", async () => {
+		const uploaded: unknown[] = [];
+		const sessionConfig = createCliSessionConfig({
+			debug: true,
+			commands: [createTestCommand("local")],
+			mcpCommands: [createTestCommand("mcp")],
+			initialTools: [createTestTool({ name: "a", description: "a" })],
+			mcpClients: [createTestClient("demo")],
+			autoConnectIdeFlag: false,
+			mainThreadAgentDefinition: undefined,
+			disableSlashCommands: false,
+			dynamicMcpConfig: { mode: "dynamic" },
+			strictMcpConfig: false,
+			systemPrompt: "sys",
+			appendSystemPrompt: "append",
+			taskListId: "task-list",
+			thinkingConfig: { type: "adaptive" },
+			uploaderReady: Promise.resolve((messages) => {
+				uploaded.push(messages);
+			}),
+		});
+
+		expect(sessionConfig.commands.map((command) => command.name)).toEqual([
+			"local",
+			"mcp",
+		]);
+
+		await sessionConfig.onTurnComplete?.([{ type: "user" } as never]);
+		await Promise.resolve();
+
+		expect(uploaded).toEqual([[{ type: "user" }]]);
+	});
+});
+
+describe("shared launch assembly helpers", () => {
+	test("creates resume context and startup mode adapters", () => {
+		const observed: string[] = [];
+		const resumeContext = createResumeContext({
+			modeApi: { kind: "mode" },
+			mainThreadAgentDefinition: { id: "agent" },
+			agentDefinitions: { activeAgents: [] },
+			currentCwd: "/tmp/project",
+			cliAgents: ["reviewer"],
+			initialState: { sessionId: "session-1" },
+		});
+		const startupModes = createStartupModes({
+			activateProactive() {
+				observed.push("proactive");
+			},
+			activateBrief() {
+				observed.push("brief");
+			},
+		});
+
+		startupModes.activateProactive();
+		startupModes.activateBrief();
+
+		expect(resumeContext).toEqual({
+			modeApi: { kind: "mode" },
+			mainThreadAgentDefinition: { id: "agent" },
+			agentDefinitions: { activeAgents: [] },
+			currentCwd: "/tmp/project",
+			cliAgents: ["reviewer"],
+			initialState: { sessionId: "session-1" },
+		});
+		expect(observed).toEqual(["proactive", "brief"]);
 	});
 });
 
