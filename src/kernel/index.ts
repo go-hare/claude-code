@@ -1,9 +1,16 @@
 /**
- * Stable public kernel API for external hosts.
+ * Stable public kernel API for external consumers.
  *
  * This surface is intentionally narrower than `src/runtime`: callers should
  * use it when they need to start a server, create/connect direct sessions,
  * or consume stable kernel-facing types without depending on internal layout.
+ *
+ * Semver contract:
+ * - `src/kernel/index.ts` is the only source-level public kernel surface.
+ * - the package-level `./kernel` entry re-exports this file and shares the
+ *   same stability guarantee.
+ * - leaf modules under `src/kernel/*` remain host-internal implementation
+ *   surfaces and are not covered by the public semver promise.
  */
 export {
   createDefaultKernelHeadlessEnvironment,

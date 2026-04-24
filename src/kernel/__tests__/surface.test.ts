@@ -9,7 +9,34 @@ import * as kernel from '../index.js'
 import * as serverHost from '../serverHost.js'
 import * as serverTypes from '../../server/types.js'
 
+const EXPECTED_KERNEL_EXPORTS = [
+  'DirectConnectError',
+  'applyDirectConnectSessionState',
+  'assembleServerHost',
+  'connectDefaultKernelHeadlessMcp',
+  'connectDirectHostSession',
+  'connectResponseSchema',
+  'createDefaultKernelHeadlessEnvironment',
+  'createDirectConnectSession',
+  'createKernelHeadlessSession',
+  'createKernelHeadlessStore',
+  'createKernelSession',
+  'getDirectConnectErrorMessage',
+  'prepareKernelHeadlessStartup',
+  'runBridgeHeadless',
+  'runConnectHeadless',
+  'runDaemonWorker',
+  'runKernelHeadless',
+  'runKernelHeadlessClient',
+  'startKernelServer',
+  'startServer',
+] as const
+
 describe('kernel index surface', () => {
+  test('locks the exact stable public kernel export set', () => {
+    expect(Object.keys(kernel).sort()).toEqual([...EXPECTED_KERNEL_EXPORTS].sort())
+  })
+
   test('re-exports the stable public kernel API from its leaf modules', () => {
     expect(
       Object.is(

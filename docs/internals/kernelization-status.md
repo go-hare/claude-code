@@ -35,6 +35,8 @@
 
 > `REPL.tsx` 这边也继续往前收了一刀：前台 `onQuery` orchestration、background query orchestration、initial message orchestration，以及 startup messages 注入 effect 都已从主文件上提到独立 controller/helper，当前主文件进一步退回到状态接线和视图组装。
 
+> 如果要对外长期承诺 kernel API，当前建议冻结的只有 root surface：`src/kernel/index.ts` 与 package-level `./kernel`。`src/kernel/*` leaf 模块继续视为 host-internal surface，不纳入公开 semver 承诺面。
+
 当前已经成立的结构是：
 
 - CLI 仍是主宿主，但不再独占核心能力
@@ -208,6 +210,51 @@
 
 也就是说，这一层已经不只是“入口骨架存在”，而是已经具备发布级可导入 surface。
 
+#### 8. kernel root public surface 已具备冻结条件
+
+截至 2026-04-24，若目标是对外长期承诺 kernel API，当前建议冻结的只有：
+
+- `src/kernel/index.ts`
+- `src/entrypoints/kernel.ts`
+- `package.json` 的 `./kernel` export
+
+当前已经完成：
+
+- `src/kernel/index.ts` 已明确声明：它是唯一的源码级公开 kernel surface
+- `src/entrypoints/kernel.ts` 已明确声明：它是唯一的 package-level kernel semver 承诺面
+- `src/kernel/__tests__/surface.test.ts` 已锁定源码级稳定导出集合
+- `src/kernel/__tests__/packageEntry.test.ts` 已锁定 entrypoint 稳定导出集合
+- `tests/integration/kernel-package-smoke.test.ts` 已锁定 built package `@go-hare/hare-code/kernel` 的稳定导出集合
+
+当前稳定 root surface 的精确导出集合为：
+
+- `DirectConnectError`
+- `applyDirectConnectSessionState`
+- `assembleServerHost`
+- `connectDefaultKernelHeadlessMcp`
+- `connectDirectHostSession`
+- `connectResponseSchema`
+- `createDefaultKernelHeadlessEnvironment`
+- `createDirectConnectSession`
+- `createKernelHeadlessSession`
+- `createKernelHeadlessStore`
+- `createKernelSession`
+- `getDirectConnectErrorMessage`
+- `prepareKernelHeadlessStartup`
+- `runBridgeHeadless`
+- `runConnectHeadless`
+- `runDaemonWorker`
+- `runKernelHeadless`
+- `runKernelHeadlessClient`
+- `startKernelServer`
+- `startServer`
+
+这意味着：
+
+- 可以对 `@go-hare/hare-code/kernel` 做长期 semver 承诺
+- 但不应把 `src/kernel/*` leaf 模块一起当成公开冻结 API
+- leaf 模块继续按 host-internal / implementation surface 处理
+
 ### 半完成
 
 #### 1. runtime contracts 仍未完全覆盖全部能力域
@@ -235,7 +282,7 @@
 
 ### 已完成补充
 
-#### 8. headless 实现收口：主链已切到 runtime，session / streaming / post-turn seam 已完成
+#### 9. headless 实现收口：主链已切到 runtime，session / streaming / post-turn seam 已完成
 
 `main.tsx` 和 `src/kernel/headless.ts` 已统一经过 runtime 级 `HeadlessRuntime` 入口。
 
@@ -290,7 +337,7 @@
 
 ## 工程验证状态
 
-截至 2026-04-23，当前工程验证结果如下：
+截至 2026-04-24，当前工程验证结果如下：
 
 - 已通过：`bun run typecheck`
 - 已通过：kernel 相关定向 smoke / seam 测试，包括：
@@ -306,8 +353,9 @@
   - `src/kernel/__tests__/serverHost.test.ts`
 - 已通过：`bun run build`
 - 已通过：`node -e "import('./dist/kernel.js')"` 可导入 built entry
-- 未通过：`tests/integration/kernel-package-smoke.test.ts`
-  - 当前 `dist/kernel.js` 里 bridge / daemon 相关导出名仍未和稳定 kernel surface 完全对齐
+- 已通过：`bun -e "import('@go-hare/hare-code/kernel')"` 可导入 package-level kernel entry
+- 已通过：`tests/integration/kernel-package-smoke.test.ts`
+  - built package `@go-hare/hare-code/kernel` 已与稳定 kernel root surface 对齐
 - 未通过：`src/runtime/capabilities/bridge/__tests__/contracts.test.ts`
 - 未通过：`src/runtime/capabilities/daemon/__tests__/contracts.test.ts`
 - 未全绿：`bun run test:all` 仍存在仓库存量失败；除了若干无关模块解析与 WebSearch adapter 测试外，也仍包含 kernel package / runtime contracts / direct-connect runtime 相关失败
@@ -346,7 +394,7 @@
 - `StructuredIO` / `RemoteIO` / transport / `ndjsonSafeStringify` 已迁到 runtime internal `io/*`
 - `installOAuthTokens` 已迁到非 CLI 的共享 service 路径
 
-#### 9. runtime state seam 与 shared session core 准备已进入可执行状态
+#### 10. runtime state seam 与 shared session core 准备已进入可执行状态
 
 当前已经完成：
 
@@ -619,7 +667,7 @@
 
 ### Commit 5
 
-状态：已建立 package-level entry 骨架，但尚未完成发布级收口；当前 built export 仍存在命名与稳定 surface 未完全对齐的问题
+状态：已完成 package-level 发布级收口；root public surface 已具备冻结条件
 
 `chore(build): 将 kernel 升级为发布级入口`
 
@@ -637,17 +685,18 @@
 - `README_EN.md`
 - `examples/README.md`
 
-当前距离验收仍差：
-
-- `@go-hare/hare-code/kernel` 需要稳定暴露预期命名的 kernel 导出
-- `tests/integration/kernel-package-smoke.test.ts` 需要转绿
-- built entry 与源码级 `src/kernel/index.ts` surface 需要重新对齐
-
 验收标准：
 
 - package 具备明确的 kernel export
 - build 产物包含 kernel 入口
 - 至少有一个最小 consumer 能从包级入口导入 kernel
+
+当前已完成：
+
+- `src/kernel/index.ts` 已显式声明 root public surface 的 semver 边界
+- `src/entrypoints/kernel.ts` 已显式声明 package-level `./kernel` 是唯一稳定入口
+- `surface.test.ts` / `packageEntry.test.ts` / `kernel-package-smoke.test.ts` 已锁定精确导出集合
+- `@go-hare/hare-code/kernel` built entry 已与源码级 `src/kernel/index.ts` surface 对齐
 
 ## 推荐落刀顺序
 

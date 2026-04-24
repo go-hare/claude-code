@@ -4,6 +4,29 @@ import { join } from 'path'
 
 import * as kernel from '../index.js'
 
+const EXPECTED_KERNEL_EXPORTS = [
+  'DirectConnectError',
+  'applyDirectConnectSessionState',
+  'assembleServerHost',
+  'connectDefaultKernelHeadlessMcp',
+  'connectDirectHostSession',
+  'connectResponseSchema',
+  'createDefaultKernelHeadlessEnvironment',
+  'createDirectConnectSession',
+  'createKernelHeadlessSession',
+  'createKernelHeadlessStore',
+  'createKernelSession',
+  'getDirectConnectErrorMessage',
+  'prepareKernelHeadlessStartup',
+  'runBridgeHeadless',
+  'runConnectHeadless',
+  'runDaemonWorker',
+  'runKernelHeadless',
+  'runKernelHeadlessClient',
+  'startKernelServer',
+  'startServer',
+] as const
+
 const packageEntry = await import('../../entrypoints/kernel.js')
 const packageJson = JSON.parse(
   await readFile(join(process.cwd(), 'package.json'), 'utf8'),
@@ -18,6 +41,9 @@ describe('kernel package entry', () => {
   })
 
   test('re-exports the stable kernel surface through src/entrypoints/kernel.ts', () => {
+    expect(Object.keys(packageEntry).sort()).toEqual(
+      [...EXPECTED_KERNEL_EXPORTS].sort(),
+    )
     expect(Object.is(packageEntry.runKernelHeadless, kernel.runKernelHeadless)).toBe(
       true,
     )
