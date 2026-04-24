@@ -34,6 +34,15 @@ const mockCreateSystemMessage = mock((_message: string, _variant: string) => {
   callOrder.push('message')
   return connectInfoMessage
 })
+const mockStatsStore = {
+  increment() {},
+  set() {},
+  observe() {},
+  add() {},
+  getAll() {
+    return {}
+  },
+} as never
 
 mock.module('../../../../kernel/index.js', () => ({
   connectDirectHostSession: mockConnectDirectHostSession,
@@ -55,7 +64,7 @@ function createLaunchOptions(): DirectConnectLaunchOptions {
     root: { id: 'root' } as never,
     appProps: {
       getFpsMetrics: () => undefined,
-      stats: undefined,
+      stats: mockStatsStore,
       initialState: { sessionId: 'session_123' } as never,
     },
     replProps: {

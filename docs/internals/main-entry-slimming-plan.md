@@ -16,6 +16,30 @@
 
 截至 2026-04-23，`main.tsx` 已经完成了 kernel-first 的关键收口，但仍然偏重。
 
+结合后续收口进展，更准确的现状补充是：
+
+- `headless` / `direct-connect` / `server` 这三条模式分支已经各自有独立 launcher
+- `ssh-remote` 也已经开始从 `main.tsx` 抽出到独立 launcher
+- `assistant-chat` 也已经开始从 `main.tsx` 抽出到独立 launcher
+- `remote create` 也已经开始从 `main.tsx` 抽出到独立 launcher
+- `continue` 也已经开始从 `main.tsx` 抽出到独立 launcher
+- `resume-like` 也已经开始从 `main.tsx` 抽出到独立 launcher
+- 默认 interactive REPL 启动也已经开始从 `main.tsx` 抽出到独立 launcher
+- `main.tsx` 当前仍偏重的部分，主要集中在：
+  - 启动前共享 assembly
+  - 顶层上下文组装
+
+截至 2026-04-24，`main.tsx` / `REPL.tsx` 这轮又往前收了一段：
+
+- `main.tsx` 已新增 shared launch context，重复的 `appProps / replProps` 组装已统一收口
+- `REPL.tsx` 的 query turn orchestration 已上提到独立 controller
+- `REPL.tsx` 的 bottom / bubble 区域已拆成独立 view 组件
+
+因此当前这阶段的重点已经从“先把 launcher 抽出去”，推进到：
+
+- 继续压 `main.tsx` 剩余的共享 startup assembly
+- 再看是否需要进一步拆 `REPL.tsx` 的其他重块
+
 典型例子：
 
 - headless 主链虽然已经改走 kernel surface，但 `src/main.tsx` 里对应 headless 分支这一段仍然自己串了：
@@ -231,6 +255,21 @@ return
 5. 没有为了“更漂亮”继续引入与交付无关的抽象层
 6. 能并行的部分已经并行处理，未并行的部分有明确理由而不是惯性串行
 
+## 当前阶段进展
+
+本阶段当前已完成：
+
+1. `headless / direct-connect / server / continue / ssh / assistant / remote / resume-like / interactive` 的模式级 launcher 外抽
+2. `main.tsx` 的 shared launch context 收口
+3. `REPL.tsx` 的 query turn orchestration 外抽
+4. `REPL.tsx` 的 bottom / bubble view 拆分
+
+当前未完成但仍有价值的尾项：
+
+1. `main.tsx` 剩余 shared startup assembly 的进一步收口
+2. `kernel/serverHost.ts` 的历史双层转发清理
+3. `bridgeMain.ts` 的继续瘦身
+
 ## 当前推荐起点
 
 如果只做第一刀，推荐直接开始：
@@ -254,6 +293,9 @@ return
 - repl
 - remote
 - direct-connect
+- continue
+- resume-like
+- 默认 interactive
 
 目标：
 

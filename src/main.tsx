@@ -36,7 +36,6 @@ import mapValues from 'lodash-es/mapValues.js'
 import pickBy from 'lodash-es/pickBy.js'
 import React from 'react'
 import { getOauthConfig } from './constants/oauth.js'
-import { getRemoteSessionUrl } from './constants/product.js'
 import { getSystemContext, getUserContext } from './context.js'
 import { init, initializeTelemetryAfterTrust } from './entrypoints/init.js'
 import { addToHistory } from './history.js'
@@ -55,7 +54,6 @@ import {
 	runStartupPrefetches,
 	runVersionedPluginStartup,
 } from './main/startupAssembly.js'
-import { launchRepl } from './replLauncher.js'
 import {
 	hasGrowthBookEnvOverride,
 	initializeGrowthBook,
@@ -98,7 +96,7 @@ import {
 	modelSupportsAdvisor,
 } from "./utils/advisor.js";
 import { isAgentSwarmsEnabled } from "./utils/agentSwarmsEnabled.js";
-import { count, uniq } from "./utils/array.js";
+import { uniq } from "./utils/array.js";
 import { installAsciicastRecorder } from "./utils/asciicast.js";
 import {
 	getSubscriptionType,
@@ -174,16 +172,10 @@ import {
 	setMainThreadAgentType,
 	setTeleportedSessionInfo,
 } from "./bootstrap/state.js";
-import { filterCommandsForRemoteMode } from "./commands.js";
 import type { StatsStore } from "./context/stats.js";
 import {
-  launchAssistantInstallWizard,
-  launchAssistantSessionChooser,
   launchInvalidSettingsDialog,
-  launchResumeChooser,
   launchSnapshotUpdateDialog,
-  launchTeleportRepoMismatchDialog,
-  launchTeleportResumeWrapper,
 } from './dialogLaunchers.js'
 import { SHOW_CURSOR } from '@anthropic/ink'
 import {
@@ -196,14 +188,12 @@ import {
 /* eslint-enable @typescript-eslint/no-require-imports */
 import { checkQuotaStatus } from "./services/claudeAiLimits.js";
 import { prefetchAllMcpResources } from "./services/mcp/client.js";
-import type { AgentColorName } from "@go-hare/builtin-tools/tools/AgentTool/agentColorManager.js";
 import {
 	getActiveAgentsFromList,
 	isBuiltInAgent,
 	isCustomAgent,
 	parseAgentsFromJson,
 } from "@go-hare/builtin-tools/tools/AgentTool/loadAgentsDir.js";
-import type { LogOption } from "./types/logs.js";
 import type { Message as MessageType } from "./types/message.js";
 import {
 	CLAUDE_IN_CHROME_SKILL_HINT,
@@ -215,8 +205,6 @@ import {
 	shouldEnableClaudeInChrome,
 } from "./utils/claudeInChrome/setup.js";
 import { getContextWindowForModel } from "./utils/context.js";
-import { loadConversationForResume } from "./utils/conversationRecovery.js";
-import { buildDeepLinkBanner } from "./utils/deepLink/banner.js";
 import {
 	hasNodeOption,
 	isBareMode,
@@ -265,11 +253,8 @@ import {
 } from "./utils/sessionStart.js";
 import {
 	cacheSessionTitle,
-	getSessionIdFromLog,
-	loadTranscriptFromFile,
 	saveAgentSetting,
 	saveMode,
-	searchSessionsByCustomTitle,
 	sessionIdExists,
 } from "./utils/sessionStorage.js";
 import { ensureMdmSettingsLoaded } from "./utils/settings/mdm/settings.js";
@@ -324,7 +309,6 @@ import {
 	errorMessage,
 	getErrnoCode,
 	isENOENT,
-	TeleportOperationError,
 	toError,
 } from "src/utils/errors.js";
 import {
@@ -339,10 +323,6 @@ import { setAllHookEventsEnabled } from "src/utils/hooks/hookEvents.js";
 import { refreshModelCapabilities } from "src/utils/model/modelCapabilities.js";
 import { peekForStdinData, writeToStderr } from "src/utils/process.js";
 import { setCwd } from "src/utils/Shell.js";
-import {
-	type ProcessedResume,
-	processResumedConversation,
-} from "src/utils/sessionRestore.js";
 import { parseSettingSourcesFlag } from "src/utils/settings/constants.js";
 import { plural } from "src/utils/stringUtils.js";
 import {
@@ -378,6 +358,7 @@ const autoModeStateModule = feature("TRANSCRIPT_CLASSIFIER")
 
 // TeleportRepoMismatchDialog, TeleportResumeWrapper dynamically imported at call sites
 import { migrateBypassPermissionsAcceptedToSettings } from "./migrations/migrateBypassPermissionsAcceptedToSettings.js";
+import { createCliLaunchContext } from "./hosts/cli/launchers/sharedLaunchContext.js";
 import { migrateEnableAllProjectMcpServersToSettings } from "./migrations/migrateEnableAllProjectMcpServersToSettings.js";
 import { migrateFennecToOpus } from "./migrations/migrateFennecToOpus.js";
 import { migrateLegacyOpusToCurrent } from "./migrations/migrateLegacyOpusToCurrent.js";
@@ -387,9 +368,13 @@ import { migrateSonnet1mToSonnet45 } from "./migrations/migrateSonnet1mToSonnet4
 import { migrateSonnet45ToSonnet46 } from "./migrations/migrateSonnet45ToSonnet46.js";
 import { resetAutoModeOptInForDefaultOffer } from "./migrations/resetAutoModeOptInForDefaultOffer.js";
 import { resetProToOpusDefault } from "./migrations/resetProToOpusDefault.js";
+import { runAssistantChatLaunch } from "./hosts/cli/launchers/assistantChatLauncher.js";
+import { runContinueLaunch } from "./hosts/cli/launchers/continueLauncher.js";
 import { runDirectConnectLaunch } from "./hosts/cli/launchers/directConnectLauncher.js";
 import { runHeadlessLaunch } from "./hosts/cli/launchers/headlessLauncher.js";
-import { createRemoteSessionConfig } from "./remote/RemoteSessionManager.js";
+import { runInteractiveLaunch } from "./hosts/cli/launchers/interactiveLauncher.js";
+import { runResumeLikeLaunch } from "./hosts/cli/launchers/resumeLauncher.js";
+import { runSshRemoteLaunch } from "./hosts/cli/launchers/sshLauncher.js";
 /* eslint-enable @typescript-eslint/no-require-imports */
 // teleportWithProgress dynamically imported at call site
 import { initializeLspServerManager } from "./services/lsp/manager.js";
@@ -405,23 +390,11 @@ import { asSessionId } from "./types/ids.js";
 import { isInBundledMode, isRunningWithBun } from "./utils/bundledMode.js";
 import { logForDiagnosticsNoPII } from "./utils/diagLogs.js";
 import {
-	filterExistingPaths,
-	getKnownPathsForRepo,
-} from "./utils/githubRepoPathMapping.js";
-import {
 	clearPluginCache,
 	loadAllPluginsCacheOnly,
 } from "./utils/plugins/pluginLoader.js";
 import { migrateChangelogFromConfig } from "./utils/releaseNotes.js";
 import { SandboxManager } from "./utils/sandbox/sandbox-adapter.js";
-import { fetchSession, prepareApiRequest } from "./utils/teleport/api.js";
-import {
-	checkOutTeleportedSessionBranch,
-	processMessagesForTeleportResume,
-	teleportToRemoteWithErrorHandling,
-	validateGitState,
-	validateSessionRepository,
-} from "./utils/teleport.js";
 import {
   shouldEnableThinkingByDefault,
   type ThinkingConfig,
@@ -4182,102 +4155,48 @@ async function run(): Promise<CommanderCommand> {
 				initialState,
 			};
 
+			const launchContext = createCliLaunchContext({
+				getFpsMetrics,
+				stats,
+				initialState,
+				debug: debug || debugToStderr,
+				commands,
+				autoConnectIdeFlag: ide,
+				mainThreadAgentDefinition,
+				disableSlashCommands,
+				thinkingConfig,
+			});
+
 			if (launchMode === "continue") {
-				// Continue the most recent conversation directly
-				let resumeSucceeded = false;
-				try {
-					const resumeStart = performance.now();
-
-					// Clear stale caches before resuming to ensure fresh file/skill discovery
-					const { clearSessionCaches } =
-						await import("./commands/clear/caches.js");
-					clearSessionCaches();
-
-					const result = await loadConversationForResume(
-						undefined /* sessionId */,
-						undefined /* sourceFile */,
-					);
-					if (!result) {
-						logEvent("tengu_continue", {
-							success: false,
-						});
-						return await exitWithError(
-							root,
-							"No conversation found to continue",
-						);
-					}
-
-					const loaded = await processResumedConversation(
-						result,
-						{
-							forkSession: !!options.forkSession,
-							includeAttribution: true,
-							transcriptPath: result.fullPath,
+				await runContinueLaunch({
+					root,
+					appProps: launchContext.appProps,
+					sessionConfig,
+					renderAndRun,
+					forkSession: options.forkSession,
+					resumeContext,
+					startupModes: {
+						activateProactive() {
+							maybeActivateProactive(options);
 						},
-						resumeContext,
-					);
-
-					if (loaded.restoredAgentDef) {
-						mainThreadAgentDefinition = loaded.restoredAgentDef;
-					}
-
-					maybeActivateProactive(options);
-					maybeActivateBrief(options);
-
-					logEvent("tengu_continue", {
-						success: true,
-						resume_duration_ms: Math.round(
-							performance.now() - resumeStart,
-						),
-					});
-					resumeSucceeded = true;
-
-					await launchRepl(
-						root,
-						{
-							getFpsMetrics,
-							stats,
-							initialState: loaded.initialState,
+						activateBrief() {
+							maybeActivateBrief(options);
 						},
-						{
-							...sessionConfig,
-							mainThreadAgentDefinition:
-								loaded.restoredAgentDef ??
-								mainThreadAgentDefinition,
-							initialMessages: loaded.messages,
-							initialFileHistorySnapshots:
-								loaded.fileHistorySnapshots,
-							initialContentReplacements:
-								loaded.contentReplacements,
-							initialAgentName: loaded.agentName,
-							initialAgentColor: loaded.agentColor,
+					},
+					runtime: {
+						exit(code) {
+							process.exit(code);
 						},
-						renderAndRun,
-					);
-				} catch (error) {
-					if (!resumeSucceeded) {
-						logEvent("tengu_continue", {
-							success: false,
-						});
-					}
-					logError(error);
-					process.exit(1);
-				}
+					},
+				});
 			} else if (launchMode === "direct-connect") {
 				// `claude connect <url>` — full interactive TUI connected to a remote server
 				const pendingConnect = _pendingConnect!;
 				const directConnectServerUrl = pendingConnect.url!;
 				await runDirectConnectLaunch({
 					root,
-					appProps: { getFpsMetrics, stats, initialState },
-					replProps: {
-						debug: debug || debugToStderr,
-						commands,
-						autoConnectIdeFlag: ide,
-						mainThreadAgentDefinition,
-						disableSlashCommands,
-						thinkingConfig,
-					},
+					appProps: launchContext.appProps,
+					replProps: launchContext.replProps,
 					renderAndRun,
 					connect: {
 						serverUrl: directConnectServerUrl,
@@ -4297,144 +4216,52 @@ async function run(): Promise<CommanderCommand> {
 				});
 				return;
 			} else if (launchMode === "ssh-remote") {
-				// `claude ssh <host> [dir]` — probe remote, deploy binary if needed,
-				// spawn ssh with unix-socket -R forward to a local auth proxy, hand
-				// the REPL an SSHSession. Tools run remotely, UI renders locally.
-				// `--local` skips probe/deploy/ssh and spawns the current binary
-				// directly with the same env — e2e test of the proxy/auth plumbing.
-				const pendingSSH = _pendingSSH!;
-				const sshServerUrl = pendingSSH.local
-					? "local"
-					: pendingSSH.host!;
-				const {
-					createSSHSession,
-					createLocalSSHSession,
-					SSHSessionError,
-				} = await import("./ssh/createSSHSession.js");
-				let sshSession: import('./ssh/createSSHSession.js').SSHSession | undefined;
-				try {
-					if (pendingSSH.local) {
-						process.stderr.write(
-							"Starting local ssh-proxy test session...\n",
-						);
-						sshSession = await createLocalSSHSession({
-							cwd: pendingSSH.cwd,
-							permissionMode: pendingSSH.permissionMode,
-							dangerouslySkipPermissions:
-								pendingSSH.dangerouslySkipPermissions,
-						});
-					} else {
-						process.stderr.write(
-							`Connecting to ${pendingSSH.host}…\n`,
-						);
-						// In-place progress: \r + EL0 (erase to end of line). Final \n on
-						// success so the next message lands on a fresh line. No-op when
-						// stderr isn't a TTY (piped/redirected) — \r would just emit noise.
-						const isTTY = process.stderr.isTTY;
-						let hadProgress = false;
-						sshSession = await createSSHSession(
-							{
-								host: pendingSSH.host,
-								cwd: pendingSSH.cwd,
-								localVersion: MACRO.VERSION,
-								permissionMode: pendingSSH.permissionMode,
-								dangerouslySkipPermissions:
-									pendingSSH.dangerouslySkipPermissions,
-								extraCliArgs: pendingSSH.extraCliArgs,
-							},
-							isTTY
-								? {
-										onProgress: (msg: string) => {
-											hadProgress = true;
-											process.stderr.write(
-												`\r  ${msg}\x1b[K`,
-											);
-										},
-									}
-								: {},
-						);
-						if (hadProgress) process.stderr.write("\n");
-					}
-					setOriginalCwd(sshSession.remoteCwd);
-					setCwdState(sshSession.remoteCwd);
-					setDirectConnectServerUrl(sshServerUrl);
-				} catch (err) {
-					return await exitWithError(
-						root,
-						err instanceof SSHSessionError
-							? err.message
-							: String(err),
-						() => gracefulShutdown(1),
-					);
-				}
-
-				const sshInfoMessage = createSystemMessage(
-					pendingSSH.local
-						? `Local ssh-proxy test session\ncwd: ${sshSession.remoteCwd}\nAuth: unix socket → local proxy`
-						: `SSH session to ${sshServerUrl}\nRemote cwd: ${sshSession.remoteCwd}\nAuth: unix socket -R → local proxy`,
-					"info",
-				);
-
-				await launchRepl(
+				await runSshRemoteLaunch({
 					root,
-					{ getFpsMetrics, stats, initialState },
-					{
-						debug: debug || debugToStderr,
-						commands,
-						initialTools: [],
-						initialMessages: [sshInfoMessage],
-						mcpClients: [],
-						autoConnectIdeFlag: ide,
-						mainThreadAgentDefinition,
-						disableSlashCommands,
-						sshSession,
-						thinkingConfig,
-					},
+					appProps: launchContext.appProps,
+					replProps: launchContext.replProps,
 					renderAndRun,
-				);
+					ssh: _pendingSSH!,
+					localVersion: MACRO.VERSION,
+					stateWriter: {
+						setOriginalCwd,
+						setCwdState,
+						setDirectConnectServerUrl,
+					},
+					onConnectionError(message) {
+						return exitWithError(root, message, () => gracefulShutdown(1));
+					},
+					stderr: {
+						write(message) {
+							process.stderr.write(message);
+						},
+						isTTY: process.stderr.isTTY,
+					},
+				});
 				return;
 			} else if (launchMode === "assistant-chat") {
-				// `claude assistant [sessionId]` — REPL as a pure viewer client
-				// of a remote assistant session. The agentic loop runs remotely; this
-				// process streams live events and POSTs messages. History is lazy-
-				// loaded by useAssistantHistory on scroll-up (no blocking fetch here).
-				const pendingAssistantChat = _pendingAssistantChat!;
-				const { discoverAssistantSessions } =
-					await import("./assistant/sessionDiscovery.js");
-
-				let targetSessionId = pendingAssistantChat.sessionId;
-
-				// Discovery flow — list bridge environments, filter sessions
-				if (!targetSessionId) {
-					let sessions;
-					try {
-						sessions = await discoverAssistantSessions();
-					} catch (e) {
-						return await exitWithError(
-							root,
-							`Failed to discover sessions: ${e instanceof Error ? e.message : e}`,
-							() => gracefulShutdown(1),
-						);
-					}
-					if (sessions.length === 0) {
-						let installedDir: string | null;
-						try {
-							installedDir =
-								await launchAssistantInstallWizard(root);
-						} catch (e) {
-							return await exitWithError(
-								root,
-								`Assistant installation failed: ${e instanceof Error ? e.message : e}`,
-								() => gracefulShutdown(1),
-							);
-						}
-						if (installedDir === null) {
-							await gracefulShutdown(0);
-							process.exit(0);
-						}
-						// The daemon needs a few seconds to spin up its worker and
-						// establish a bridge session before discovery will find it.
-						return await exitWithMessage(
+				await runAssistantChatLaunch({
+					root,
+					appProps: launchContext.appProps,
+					replProps: launchContext.replProps,
+					renderAndRun,
+					assistant: _pendingAssistantChat!,
+					stateWriter: {
+						enableRemoteAssistantMode() {
+							setKairosActive(true);
+							setUserMsgOptIn(true);
+							setIsRemoteMode(true);
+						},
+					},
+					onConnectionError(message) {
+						return exitWithError(root, message, () => gracefulShutdown(1));
+					},
+					onCancelled: async () => {
+						await gracefulShutdown(0);
+						process.exit(0);
+					},
+					onInstalled(installedDir) {
+						return exitWithMessage(
 							root,
 							`Assistant installed in ${installedDir}. The daemon is starting up — run \`claude assistant\` again in a few seconds to connect.`,
 							{
@@ -4442,761 +4269,91 @@ async function run(): Promise<CommanderCommand> {
 								beforeExit: () => gracefulShutdown(0),
 							},
 						);
-					}
-					if (sessions.length === 1) {
-						targetSessionId = sessions[0]!.id;
-					} else {
-						const picked = await launchAssistantSessionChooser(
-							root,
-							{
-								sessions,
-							},
-						);
-						if (!picked) {
-							await gracefulShutdown(0);
-							process.exit(0);
-						}
-						targetSessionId = picked;
-					}
-				}
-
-				// Auth — call prepareApiRequest() once for orgUUID, but use a
-				// getAccessToken closure for the token so reconnects get fresh tokens.
-				const {
-					checkAndRefreshOAuthTokenIfNeeded,
-					getClaudeAIOAuthTokens,
-				} = await import("./utils/auth.js");
-				await checkAndRefreshOAuthTokenIfNeeded();
-				let apiCreds;
-				try {
-					apiCreds = await prepareApiRequest();
-				} catch (e) {
-					return await exitWithError(
-						root,
-						`Error: ${e instanceof Error ? e.message : "Failed to authenticate"}`,
-						() => gracefulShutdown(1),
-					);
-				}
-				const getAccessToken = (): string =>
-					getClaudeAIOAuthTokens()?.accessToken ??
-					apiCreds.accessToken;
-
-				// Brief mode activation: setKairosActive(true) satisfies BOTH opt-in
-				// and entitlement for isBriefEnabled() (BriefTool.ts:124-132).
-				setKairosActive(true);
-				setUserMsgOptIn(true);
-				setIsRemoteMode(true);
-
-				const remoteSessionConfig = createRemoteSessionConfig(
-					targetSessionId,
-					getAccessToken,
-					apiCreds.orgUUID,
-					/* hasInitialPrompt */ false,
-					/* viewerOnly */ true,
-				);
-
-				const infoMessage = createSystemMessage(
-					`Attached to assistant session ${targetSessionId.slice(0, 8)}…`,
-					"info",
-				);
-
-				const assistantInitialState: AppState = {
-					...initialState,
-					isBriefOnly: true,
-					kairosEnabled: false,
-					replBridgeEnabled: false,
-				};
-
-				const remoteCommands = filterCommandsForRemoteMode(commands);
-				await launchRepl(
-					root,
-					{
-						getFpsMetrics,
-						stats,
-						initialState: assistantInitialState,
 					},
-					{
-						debug: debug || debugToStderr,
-						commands: remoteCommands,
-						initialTools: [],
-						initialMessages: [infoMessage],
-						mcpClients: [],
-						autoConnectIdeFlag: ide,
-						mainThreadAgentDefinition,
-						disableSlashCommands,
-						remoteSessionConfig,
-						thinkingConfig,
-					},
-					renderAndRun,
-				);
+				});
 				return;
 			} else if (launchMode === "resume-like") {
-				// Handle resume flow - from file (ant-only), session ID, or interactive selector
-
-				// Clear stale caches before resuming to ensure fresh file/skill discovery
-				const { clearSessionCaches } =
-					await import("./commands/clear/caches.js");
-				clearSessionCaches();
-
-				let messages: MessageType[] | null = null;
-				let processedResume: ProcessedResume | undefined;
-
-				let maybeSessionId = validateUuid(options.resume);
-				let searchTerm: string | undefined;
-				// Store full LogOption when found by custom title (for cross-worktree resume)
-				let matchedLog: LogOption | null = null;
-				// PR filter for --from-pr flag
-				let filterByPr: boolean | number | string | undefined;
-
-				// Handle --from-pr flag
-				if (options.fromPr) {
-					if (options.fromPr === true) {
-						// Show all sessions with linked PRs
-						filterByPr = true;
-					} else if (typeof options.fromPr === "string") {
-						// Could be a PR number or URL
-						filterByPr = options.fromPr;
-					}
-				}
-
-				// If resume value is not a UUID, try exact match by custom title first
-				if (
-					options.resume &&
-					typeof options.resume === "string" &&
-					!maybeSessionId
-				) {
-					const trimmedValue = options.resume.trim();
-					if (trimmedValue) {
-						const matches = await searchSessionsByCustomTitle(
-							trimmedValue,
-							{
-								exact: true,
-							},
-						);
-
-						if (matches.length === 1) {
-							// Exact match found - store full LogOption for cross-worktree resume
-							matchedLog = matches[0]!;
-							maybeSessionId =
-								getSessionIdFromLog(matchedLog) ?? null;
-						} else {
-							// No match or multiple matches - use as search term for picker
-							searchTerm = trimmedValue;
-						}
-					}
-				}
-
-				// --remote and --teleport both create/resume Claude Code Web (CCR) sessions.
-				// Remote Control (--rc) is a separate feature gated in initReplBridge.ts.
-				if (remote !== null || teleport) {
-					await waitForPolicyLimitsToLoad();
-					if (!isPolicyAllowed("allow_remote_sessions")) {
-						return await exitWithError(
-							root,
-							"Error: Remote sessions are disabled by your organization's policy.",
-							() => gracefulShutdown(1),
-						);
-					}
-				}
-
-				if (remote !== null) {
-					// Create remote session (optionally with initial prompt)
-					const hasInitialPrompt = remote.length > 0;
-
-					// Check if TUI mode is enabled - description is only optional in TUI mode
-					const isRemoteTuiEnabled =
-						getFeatureValue_CACHED_MAY_BE_STALE(
-							"tengu_remote_backend",
-							false,
-						);
-					if (!isRemoteTuiEnabled && !hasInitialPrompt) {
-						return await exitWithError(
-							root,
-							'Error: --remote requires a description.\nUsage: claude --remote "your task description"',
-							() => gracefulShutdown(1),
-						);
-					}
-
-					logEvent("tengu_remote_create_session", {
-						has_initial_prompt: String(
-							hasInitialPrompt,
-						) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-					});
-
-					// Pass current branch so CCR clones the repo at the right revision
-					const currentBranch = await getBranch();
-					const createdSession =
-						await teleportToRemoteWithErrorHandling(
-							root,
-							hasInitialPrompt ? remote : null,
-							new AbortController().signal,
-							currentBranch || undefined,
-						);
-					if (!createdSession) {
-						logEvent("tengu_remote_create_session_error", {
-							error: "unable_to_create_session" as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-						});
-						return await exitWithError(
-							root,
-							"Error: Unable to create remote session",
-							() => gracefulShutdown(1),
-						);
-					}
-					logEvent("tengu_remote_create_session_success", {
-						session_id:
-							createdSession.id as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-					});
-
-					// Check if new remote TUI mode is enabled via feature gate
-					if (!isRemoteTuiEnabled) {
-						// Original behavior: print session info and exit
-						process.stdout.write(
-							`Created remote session: ${createdSession.title}\n`,
-						);
-						process.stdout.write(
-							`View: ${getRemoteSessionUrl(createdSession.id)}?m=0\n`,
-						);
-						process.stdout.write(
-							`Resume with: claude --teleport ${createdSession.id}\n`,
-						);
-						await gracefulShutdown(0);
-						process.exit(0);
-					}
-
-					// New behavior: start local TUI with CCR engine
-					// Mark that we're in remote mode for command visibility
-					setIsRemoteMode(true);
-					switchSession(asSessionId(createdSession.id));
-
-					// Get OAuth credentials for remote session
-					let apiCreds: { accessToken: string; orgUUID: string };
-					try {
-						apiCreds = await prepareApiRequest();
-					} catch (error) {
-						logError(toError(error));
-						return await exitWithError(
-							root,
-							`Error: ${errorMessage(error) || "Failed to authenticate"}`,
-							() => gracefulShutdown(1),
-						);
-					}
-
-					// Create remote session config for the REPL
-					const { getClaudeAIOAuthTokens: getTokensForRemote } =
-						await import("./utils/auth.js");
-					const getAccessTokenForRemote = (): string =>
-						getTokensForRemote()?.accessToken ??
-						apiCreds.accessToken;
-					const remoteSessionConfig = createRemoteSessionConfig(
-						createdSession.id,
-						getAccessTokenForRemote,
-						apiCreds.orgUUID,
-						hasInitialPrompt,
-					);
-
-					// Add remote session info as initial system message
-					const remoteSessionUrl = `${getRemoteSessionUrl(createdSession.id)}?m=0`;
-					const remoteInfoMessage = createSystemMessage(
-						`/remote-control is active. Code in CLI or at ${remoteSessionUrl}`,
-						"info",
-					);
-
-					// Create initial user message from the prompt if provided (CCR echoes it back but we ignore that)
-					const initialUserMessage = hasInitialPrompt
-						? createUserMessage({ content: remote })
-						: null;
-
-					// Set remote session URL in app state for footer indicator
-					const remoteInitialState = {
-						...initialState,
-						remoteSessionUrl,
-					};
-
-					// Pre-filter commands to only include remote-safe ones.
-					// CCR's init response may further refine the list (via handleRemoteInit in REPL).
-					const remoteCommands =
-						filterCommandsForRemoteMode(commands);
-					await launchRepl(
-						root,
-						{
-							getFpsMetrics,
-							stats,
-							initialState: remoteInitialState,
-						},
-						{
-							debug: debug || debugToStderr,
-							commands: remoteCommands,
-							initialTools: [],
-							initialMessages: initialUserMessage
-								? [remoteInfoMessage, initialUserMessage]
-								: [remoteInfoMessage],
-							mcpClients: [],
-							autoConnectIdeFlag: ide,
-							mainThreadAgentDefinition,
-							disableSlashCommands,
-							remoteSessionConfig,
-							thinkingConfig,
-						},
-						renderAndRun,
-					);
-					return;
-				} else if (teleport) {
-					if (teleport === true || teleport === "") {
-						// Interactive mode: show task selector and handle resume
-						logEvent("tengu_teleport_interactive_mode", {});
-						logForDebugging(
-							"selectAndResumeTeleportTask: Starting teleport flow...",
-						);
-						const teleportResult =
-							await launchTeleportResumeWrapper(root);
-						if (!teleportResult) {
-							// User cancelled or error occurred
-							await gracefulShutdown(0);
-							process.exit(0);
-						}
-						const { branchError } =
-							await checkOutTeleportedSessionBranch(
-								teleportResult.branch,
-							);
-						messages = processMessagesForTeleportResume(
-							teleportResult.log,
-							branchError,
-						);
-					} else if (typeof teleport === "string") {
-						logEvent("tengu_teleport_resume_session", {
-							mode: "direct" as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-						});
-						try {
-							// First, fetch session and validate repository before checking git state
-							const sessionData = await fetchSession(teleport);
-							const repoValidation =
-								await validateSessionRepository(sessionData);
-
-							// Handle repo mismatch or not in repo cases
-							if (
-								repoValidation.status === "mismatch" ||
-								repoValidation.status === "not_in_repo"
-							) {
-								const sessionRepo = repoValidation.sessionRepo;
-								if (sessionRepo) {
-									// Check for known paths
-									const knownPaths =
-										getKnownPathsForRepo(sessionRepo);
-									const existingPaths =
-										await filterExistingPaths(knownPaths);
-
-									if (existingPaths.length > 0) {
-										// Show directory switch dialog
-										const selectedPath =
-											await launchTeleportRepoMismatchDialog(
-												root,
-												{
-													targetRepo: sessionRepo,
-													initialPaths: existingPaths,
-												},
-											);
-
-										if (selectedPath) {
-											// Change to the selected directory
-											process.chdir(selectedPath);
-											setCwd(selectedPath);
-											setOriginalCwd(selectedPath);
-										} else {
-											// User cancelled
-											await gracefulShutdown(0);
-										}
-									} else {
-										// No known paths - show original error
-										throw new TeleportOperationError(
-											`You must run claude --teleport ${teleport} from a checkout of ${sessionRepo}.`,
-											chalk.red(
-												`You must run claude --teleport ${teleport} from a checkout of ${chalk.bold(sessionRepo)}.\n`,
-											),
-										);
-									}
-								}
-							} else if (repoValidation.status === "error") {
-								throw new TeleportOperationError(
-									repoValidation.errorMessage ||
-										"Failed to validate session",
-									chalk.red(
-										`Error: ${repoValidation.errorMessage || "Failed to validate session"}\n`,
-									),
-								);
-							}
-
-							await validateGitState();
-
-							// Use progress UI for teleport
-							const { teleportWithProgress } =
-								await import("./components/TeleportProgress.js");
-							const result = await teleportWithProgress(
-								root,
-								teleport,
-							);
-							// Track teleported session for reliability logging
-							setTeleportedSessionInfo({ sessionId: teleport });
-							messages = result.messages;
-						} catch (error) {
-							if (error instanceof TeleportOperationError) {
-								process.stderr.write(
-									error.formattedMessage + "\n",
-								);
-							} else {
-								logError(error);
-								process.stderr.write(
-									chalk.red(
-										`Error: ${errorMessage(error)}\n`,
-									),
-								);
-							}
-							await gracefulShutdown(1);
-						}
-					}
-				}
-				if (process.env.USER_TYPE === "ant") {
-					if (
-						options.resume &&
-						typeof options.resume === "string" &&
-						!maybeSessionId
-					) {
-						// Check for ccshare URL (e.g. https://go/ccshare/boris-20260311-211036)
-						const { parseCcshareId, loadCcshare } =
-							await import("./utils/ccshareResume.js");
-						const ccshareId = parseCcshareId(options.resume);
-						if (ccshareId) {
-							try {
-								const resumeStart = performance.now();
-								const logOption = await loadCcshare(ccshareId);
-								const result = await loadConversationForResume(
-									logOption,
-									undefined,
-								);
-								if (result) {
-									processedResume =
-										await processResumedConversation(
-											result,
-											{
-												forkSession: true,
-												transcriptPath: result.fullPath,
-											},
-											resumeContext,
-										);
-									if (processedResume.restoredAgentDef) {
-										mainThreadAgentDefinition =
-											processedResume.restoredAgentDef;
-									}
-									logEvent("tengu_session_resumed", {
-										entrypoint:
-											"ccshare" as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-										success: true,
-										resume_duration_ms: Math.round(
-											performance.now() - resumeStart,
-										),
-									});
-								} else {
-									logEvent("tengu_session_resumed", {
-										entrypoint:
-											"ccshare" as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-										success: false,
-									});
-								}
-							} catch (error) {
-								logEvent("tengu_session_resumed", {
-									entrypoint:
-										"ccshare" as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-									success: false,
-								});
-								logError(error);
-								await exitWithError(
-									root,
-									`Unable to resume from ccshare: ${errorMessage(error)}`,
-									() => gracefulShutdown(1),
-								);
-							}
-						} else {
-							const resolvedPath = resolve(options.resume);
-							try {
-								const resumeStart = performance.now();
-								let logOption;
-								try {
-									// Attempt to load as a transcript file; ENOENT falls through to session-ID handling
-									logOption =
-										await loadTranscriptFromFile(
-											resolvedPath,
-										);
-								} catch (error) {
-									if (!isENOENT(error)) throw error;
-									// ENOENT: not a file path — fall through to session-ID handling
-								}
-								if (logOption) {
-									const result =
-										await loadConversationForResume(
-											logOption,
-											undefined /* sourceFile */,
-										);
-									if (result) {
-										processedResume =
-											await processResumedConversation(
-												result,
-												{
-													forkSession:
-														!!options.forkSession,
-													transcriptPath:
-														result.fullPath,
-												},
-												resumeContext,
-											);
-										if (processedResume.restoredAgentDef) {
-											mainThreadAgentDefinition =
-												processedResume.restoredAgentDef;
-										}
-										logEvent("tengu_session_resumed", {
-											entrypoint:
-												"file" as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-											success: true,
-											resume_duration_ms: Math.round(
-												performance.now() - resumeStart,
-											),
-										});
-									} else {
-										logEvent("tengu_session_resumed", {
-											entrypoint:
-												"file" as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-											success: false,
-										});
-									}
-								}
-							} catch (error) {
-								logEvent("tengu_session_resumed", {
-									entrypoint:
-										"file" as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-									success: false,
-								});
-								logError(error);
-								await exitWithError(
-									root,
-									`Unable to load transcript from file: ${options.resume}`,
-									() => gracefulShutdown(1),
-								);
-							}
-						}
-					}
-				}
-
-				// If not loaded as a file, try as session ID
-				if (maybeSessionId) {
-					// Resume specific session by ID
-					const sessionId = maybeSessionId;
-					try {
-						const resumeStart = performance.now();
-						// Use matchedLog if available (for cross-worktree resume by custom title)
-						// Otherwise fall back to sessionId string (for direct UUID resume)
-						const result = await loadConversationForResume(
-							matchedLog ?? sessionId,
-							undefined,
-						);
-
-						if (!result) {
-							logEvent("tengu_session_resumed", {
-								entrypoint:
-									"cli_flag" as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-								success: false,
-							});
-							return await exitWithError(
-								root,
-								`No conversation found with session ID: ${sessionId}`,
-							);
-						}
-
-						const fullPath =
-							matchedLog?.fullPath ?? result.fullPath;
-						processedResume = await processResumedConversation(
-							result,
-							{
-								forkSession: !!options.forkSession,
-								sessionIdOverride: sessionId,
-								transcriptPath: fullPath,
-							},
-							resumeContext,
-						);
-
-						if (processedResume.restoredAgentDef) {
-							mainThreadAgentDefinition =
-								processedResume.restoredAgentDef;
-						}
-						logEvent("tengu_session_resumed", {
-							entrypoint:
-								"cli_flag" as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-							success: true,
-							resume_duration_ms: Math.round(
-								performance.now() - resumeStart,
-							),
-						});
-					} catch (error) {
-						logEvent("tengu_session_resumed", {
-							entrypoint:
-								"cli_flag" as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-							success: false,
-						});
-						logError(error);
-						await exitWithError(
-							root,
-							`Failed to resume session ${sessionId}`,
-						);
-					}
-				}
-
-				// Await file downloads before rendering REPL (files must be available)
-				if (fileDownloadPromise) {
-					try {
-						const results = await fileDownloadPromise;
-						const failedCount = count(results, (r) => !r.success);
-						if (failedCount > 0) {
-							process.stderr.write(
-								chalk.yellow(
-									`Warning: ${failedCount}/${results.length} file(s) failed to download.\n`,
-								),
-							);
-						}
-					} catch (error) {
-						return await exitWithError(
-							root,
-							`Error downloading files: ${errorMessage(error)}`,
-						);
-					}
-				}
-
-				// If we have a processed resume or teleport messages, render the REPL
-				const resumeData =
-					processedResume ??
-					(Array.isArray(messages)
-						? {
-								messages,
-								fileHistorySnapshots: undefined,
-								agentName: undefined,
-								agentColor: undefined as
-									| AgentColorName
-									| undefined,
-								restoredAgentDef: mainThreadAgentDefinition,
-								initialState,
-								contentReplacements: undefined,
-							}
-						: undefined);
-				if (resumeData) {
-					maybeActivateProactive(options);
-					maybeActivateBrief(options);
-
-					await launchRepl(
-						root,
-						{
-							getFpsMetrics,
-							stats,
-							initialState: resumeData.initialState,
-						},
-						{
-							...sessionConfig,
-							mainThreadAgentDefinition:
-								resumeData.restoredAgentDef ??
-								mainThreadAgentDefinition,
-							initialMessages: resumeData.messages,
-							initialFileHistorySnapshots:
-								resumeData.fileHistorySnapshots,
-							initialContentReplacements:
-								resumeData.contentReplacements,
-							initialAgentName: resumeData.agentName,
-							initialAgentColor: resumeData.agentColor,
-						},
-						renderAndRun,
-					);
-				} else {
-					// Show interactive selector (includes same-repo worktrees)
-					// Note: ResumeConversation loads logs internally to ensure proper GC after selection
-					await launchResumeChooser(
-						root,
-						{ getFpsMetrics, stats, initialState },
-						getWorktreePaths(getOriginalCwd()),
-						{
-							...sessionConfig,
-							initialSearchQuery: searchTerm,
-							forkSession: options.forkSession,
-							filterByPr,
-						},
-					);
-				}
-			} else {
-				// Pass unresolved hooks promise to REPL so it can render immediately
-				// instead of blocking ~500ms waiting for SessionStart hooks to finish.
-				// REPL will inject hook messages when they resolve and await them before
-				// the first API call so the model always sees hook context.
-				const pendingHookMessages =
-					hooksPromise && hookMessages.length === 0
-						? hooksPromise
-						: undefined;
-
-				profileCheckpoint("action_after_hooks");
-				maybeActivateProactive(options);
-				maybeActivateBrief(options);
-				// Persist the current mode for fresh sessions so future resumes know what mode was used
-				if (feature("COORDINATOR_MODE")) {
-					saveMode(
-						coordinatorModeModule?.isCoordinatorMode()
-							? "coordinator"
-							: "normal",
-					);
-				}
-
-				// If launched via a deep link, show a provenance banner so the user
-				// knows the session originated externally. Linux xdg-open and
-				// browsers with "always allow" set dispatch the link with no OS-level
-				// confirmation, so this is the only signal the user gets that the
-				// prompt — and the working directory / CLAUDE.md it implies — came
-				// from an external source rather than something they typed.
-				let deepLinkBanner: ReturnType<
-					typeof createSystemMessage
-				> | null = null;
-				if (feature("LODESTONE")) {
-					if (options.deepLinkOrigin) {
-						logEvent("tengu_deep_link_opened", {
-							has_prefill: Boolean(options.prefill),
-							has_repo: Boolean(options.deepLinkRepo),
-						});
-						deepLinkBanner = createSystemMessage(
-							buildDeepLinkBanner({
-								cwd: getCwd(),
-								prefillLength: options.prefill?.length,
-								repo: options.deepLinkRepo,
-								lastFetch:
-									options.deepLinkLastFetch !== undefined
-										? new Date(options.deepLinkLastFetch)
-										: undefined,
-							}),
-							"warning",
-						);
-					} else if (options.prefill) {
-						deepLinkBanner = createSystemMessage(
-							"Launched with a pre-filled prompt — review it before pressing Enter.",
-							"warning",
-						);
-					}
-				}
-				const initialMessages = deepLinkBanner
-					? [deepLinkBanner, ...hookMessages]
-					: hookMessages.length > 0
-						? hookMessages
-						: undefined;
-
-				await launchRepl(
+				await runResumeLikeLaunch({
 					root,
-					{ getFpsMetrics, stats, initialState },
-					{
-						...sessionConfig,
-						initialMessages,
-						pendingStartupMessages,
-						pendingHookMessages,
-					},
+					appProps: launchContext.appProps,
+					replProps: launchContext.replProps,
+					sessionConfig,
 					renderAndRun,
-				);
+					resume: options.resume,
+					fromPr: options.fromPr,
+					forkSession: options.forkSession,
+					remote,
+					teleport,
+					currentCwd: getOriginalCwd(),
+					fileDownloadPromise,
+					resumeContext,
+					stateWriter: {
+						enableRemoteMode(sessionId) {
+							setIsRemoteMode(true);
+							switchSession(asSessionId(sessionId));
+						},
+						setCwd,
+						setOriginalCwd,
+						markTeleportedSession(sessionId) {
+							setTeleportedSessionInfo({ sessionId });
+						},
+					},
+					startupModes: {
+						activateProactive() {
+							maybeActivateProactive(options);
+						},
+						activateBrief() {
+							maybeActivateBrief(options);
+						},
+					},
+					runtime: {
+						shutdown: gracefulShutdown,
+						exit(code) {
+							process.exit(code);
+						},
+						writeStdout(message) {
+							process.stdout.write(message);
+						},
+						writeStderr(message) {
+							process.stderr.write(message);
+						},
+					},
+				});
+				return;
+			} else {
+				await runInteractiveLaunch({
+					root,
+					appProps: launchContext.appProps,
+					sessionConfig,
+					renderAndRun,
+					hookMessages,
+					hooksPromise,
+					pendingStartupMessages,
+					startupModes: {
+						activateProactive() {
+							maybeActivateProactive(options);
+						},
+						activateBrief() {
+							maybeActivateBrief(options);
+						},
+					},
+					profileCheckpoint,
+					features: {
+						coordinatorMode: feature("COORDINATOR_MODE") ? true : false,
+						lodestone: feature("LODESTONE") ? true : false,
+					},
+					coordinatorMode: coordinatorModeModule?.isCoordinatorMode()
+						? "coordinator"
+						: "normal",
+					saveMode,
+					deepLink: {
+						origin: options.deepLinkOrigin,
+						repo: options.deepLinkRepo,
+						lastFetch: options.deepLinkLastFetch,
+						prefill: options.prefill,
+					},
+					cwd: getCwd(),
+				});
 			}
 		})
 		.version(

@@ -275,13 +275,8 @@ import {
   runReplRuntimeQuery,
 } from '../runtime/capabilities/execution/internal/replQueryRuntime.js';
 import {
-  appendReplApiMetricsMessage,
   finalizeReplCompletedTurnHostShell,
-  maybeGenerateReplSessionTitle,
-  maybeRefreshCompanionReaction,
-  runReplPreQueryHostPrep,
   shortCircuitReplNonQueryTurn,
-  syncReplAllowedToolsForTurn,
 } from './replTurnShell.js';
 import {
   captureReplTurnBudgetInfo,
@@ -290,6 +285,7 @@ import {
 import { runReplCancelShell } from './replCancelShell.js';
 import { runReplInitialMessageShell } from './replInitialMessageShell.js';
 import { maybeRestoreCancelledReplTurn } from './replTurnRestore.js';
+import { runReplQueryTurnController } from './repl/controllers/runReplQueryTurnController.js';
 import { getTools, assembleToolPool } from '../tools.js';
 import type { AgentDefinition } from '@go-hare/builtin-tools/tools/AgentTool/loadAgentsDir.js';
 import { resolveAgentTools } from '@go-hare/builtin-tools/tools/AgentTool/agentToolUtils.js';
@@ -405,6 +401,9 @@ import { diagnosticTracker } from '../services/diagnosticTracking.js';
 import { useReplNavigationController } from './repl/controllers/useReplNavigationController.js';
 import { REPLDialogs } from './repl/views/REPLDialogs.js';
 import { REPLLayout } from './repl/views/REPLLayout.js';
+import {
+  REPLBottomView,
+} from './repl/views/REPLBottomView.js';
 import { REPLStatusBar } from './repl/views/REPLStatusBar.js';
 import { handleSpeculationAccept, type ActiveSpeculationState } from '../services/PromptSuggestion/speculation.js';
 import { IdeOnboardingDialog } from '../components/IdeOnboardingDialog.js';
@@ -3108,51 +3107,30 @@ export function REPL({
       mainLoopModelParam: string,
       effort?: EffortValue,
     ) => {
-      runReplPreQueryHostPrep({
-        shouldQuery,
-        getFreshMcpClients: () =>
-          mergeClients(initialMcpClients, store.getState().mcp.clients),
-        onDiagnosticQueryStart: clients => {
-          void diagnosticTracker.handleQueryStart(clients);
-        },
-        getConnectedIdeClient,
-        closeOpenDiffs,
-        markProjectOnboardingComplete: () => {
-          void maybeMarkProjectOnboardingComplete();
-        },
-      });
-
-      maybeGenerateReplSessionTitle({
-        newMessages,
-        titleDisabled,
-        sessionTitle,
-        agentTitle,
-        haikuTitleAttemptedRef,
-        generateSessionTitle,
-        setHaikuTitle,
-      });
-
-      // Apply slash-command-scoped allowedTools (from skill frontmatter) to the
-      // store once per turn. This also covers the reset: the next non-skill turn
-      // passes [] and clears it. Must run before the !shouldQuery gate: forked
-      // commands (executeForkedSlashCommand) return shouldQuery=false, and
-      // createGetAppStateWithAllowedTools in forkedAgent.ts reads this field, so
-      // stale skill tools would otherwise leak into forked agent permissions.
-      // Previously this write was hidden inside getToolUseContext's getAppState
-      // (~85 calls/turn); hoisting it here makes getAppState a pure read and stops
-      // ephemeral contexts (permission dialog, BackgroundTasksDialog) from
-      // accidentally clearing it mid-turn.
-      syncReplAllowedToolsForTurn({
-        setStoreState: updater => {
-          store.setState(updater);
-        },
-        additionalAllowedTools,
-      });
-
-      if (
-        shortCircuitReplNonQueryTurn({
-          shouldQuery,
+      await runReplQueryTurnController({
+        turn: {
+          messagesIncludingNewMessages,
           newMessages,
+          abortController,
+          shouldQuery,
+          additionalAllowedTools,
+          mainLoopModelParam,
+          effort,
+        },
+        host: {
+          getFreshMcpClients: () =>
+            mergeClients(initialMcpClients, store.getState().mcp.clients),
+          onDiagnosticQueryStart: clients => {
+            void diagnosticTracker.handleQueryStart(clients);
+          },
+          getConnectedIdeClient,
+          closeOpenDiffs,
+          markProjectOnboardingComplete: () => {
+            void maybeMarkProjectOnboardingComplete();
+          },
+          setStoreState: updater => {
+            store.setState(updater);
+          },
           bumpConversationId: () => {
             setConversationId(randomUUID());
           },
@@ -3164,145 +3142,82 @@ export function REPL({
               : undefined,
           resetLoadingState,
           setAbortController,
-        })
-      ) {
-        return;
-      }
-
-      const toolUseContext = getToolUseContext(
-        messagesIncludingNewMessages,
-        newMessages,
-        abortController,
-        mainLoopModelParam,
-      );
-
-      queryCheckpoint('query_context_loading_start');
-      await Promise.all([
-        // IMPORTANT: do this after setMessages() above, to avoid UI jank
-        undefined,
-        // Fast-mode circuit breaker check
-        feature('TRANSCRIPT_CLASSIFIER')
-          ? checkAndDisableAutoModeIfNeeded(toolPermissionContext, setAppState, store.getState().fastMode)
-          : undefined,
-      ]);
-      const preparedQuery = await prepareReplRuntimeQuery({
-        toolUseContext,
-        mainThreadAgentDefinition,
-        effort,
-        extraUserContext: {
-          ...getCoordinatorUserContext(
-            toolUseContext.options.mcpClients,
-            isScratchpadEnabled() ? getScratchpadDir() : undefined,
-          ),
-          ...((feature('PROACTIVE') || feature('KAIROS')) &&
-          proactiveModule?.isProactiveActive() &&
-          !terminalFocusRef.current
-            ? {
-                terminalFocus: 'The terminal is unfocused \u2014 the user is not actively watching.',
-              }
-            : {}),
-        },
-      });
-      queryCheckpoint('query_context_loading_end');
-      queryCheckpoint('query_query_start');
-      resetTurnHookDuration();
-      resetTurnToolDuration();
-      resetTurnClassifierDuration();
-      await runReplRuntimeQuery({
-        preparedQuery,
-        messages: messagesIncludingNewMessages,
-        canUseTool,
-        querySource: getQuerySourceForREPL(),
-        onQueryEvent,
-        toolUseContext,
-        mainThreadAgentDefinition,
-        effort,
-      });
-
-      maybeRefreshCompanionReaction({
-        fireCompanionObserver:
-          feature('BUDDY') &&
-          typeof (globalThis as Record<string, unknown>).fireCompanionObserver === 'function'
-            ? ((globalThis as Record<string, unknown>).fireCompanionObserver as (
-                messages: MessageType[],
-                callback: (reaction: unknown) => void,
-              ) => void)
-            : undefined,
-        messages: messagesRef.current,
-        setCompanionReaction: updater => {
-          setAppState(prev => {
-            const nextReaction = updater(prev.companionReaction);
-            return nextReaction === prev.companionReaction
-              ? prev
-              : {
-                  ...prev,
-                  companionReaction: nextReaction as typeof prev.companionReaction,
-                };
-          });
-        },
-      });
-
-      queryCheckpoint('query_end');
-
-      if (feature('UDS_INBOX')) {
-        if (abortController.signal.aborted) {
-          pipeReturnHadErrorRef.current = true;
-          relayPipeMessage({
-            type: 'error',
-            data: 'Slave request was interrupted before completion.',
-          });
-        }
-      }
-
-      // Capture ant-only API metrics before resetLoadingState clears the ref.
-      // For multi-request turns (tool use loops), compute P50 across all requests.
-      if (process.env.USER_TYPE === 'ant' && apiMetricsRef.current.length > 0) {
-        const hookMs = getTurnHookDurationMs();
-        const hookCount = getTurnHookCount();
-        const toolMs = getTurnToolDurationMs();
-        const toolCount = getTurnToolCount();
-        const classifierMs = getTurnClassifierDurationMs();
-        const classifierCount = getTurnClassifierCount();
-        appendReplApiMetricsMessage({
-          entries: apiMetricsRef.current,
-          loadingStartTimeMs: loadingStartTimeRef.current,
-          setMessages: updater => {
-            setMessages(prev => {
-              const withBaseMetrics = updater(prev);
-              const apiMetricsMessage = withBaseMetrics.at(-1);
-              if (
-                apiMetricsMessage?.type !== 'system' ||
-                apiMetricsMessage.subtype !== 'api_metrics'
-              ) {
-                return withBaseMetrics;
-              }
-              const nextMessages = withBaseMetrics.slice();
-              nextMessages[nextMessages.length - 1] = {
-                ...apiMetricsMessage,
-                hookDurationMs: hookMs > 0 ? hookMs : undefined,
-                hookCount: hookCount > 0 ? hookCount : undefined,
-                toolDurationMs: toolMs > 0 ? toolMs : undefined,
-                toolCount: toolCount > 0 ? toolCount : undefined,
-                classifierDurationMs: classifierMs > 0
-                  ? classifierMs
-                  : undefined,
-                classifierCount: classifierCount > 0
-                  ? classifierCount
-                  : undefined,
-              };
-              return nextMessages;
+          setCompanionReaction: updater => {
+            setAppState(prev => {
+              const nextReaction = updater(prev.companionReaction);
+              return nextReaction === prev.companionReaction
+                ? prev
+                : {
+                    ...prev,
+                    companionReaction: nextReaction as typeof prev.companionReaction,
+                  };
             });
           },
-        });
-      }
-
-      resetLoadingState();
-
-      // Log query profiling report if enabled
-      logQueryProfileReport();
-
-      // Signal that a query turn has completed successfully
-      await onTurnComplete?.(messagesRef.current);
+          relayPipeInterrupted:
+            feature('UDS_INBOX')
+              ? () => {
+                  pipeReturnHadErrorRef.current = true;
+                  relayPipeMessage({
+                    type: 'error',
+                    data: 'Slave request was interrupted before completion.',
+                  });
+                }
+              : undefined,
+          apiMetricsRef,
+          loadingStartTimeRef,
+          setMessages: updater => {
+            setMessages(prev => updater(prev));
+          },
+          messagesRef,
+          onTurnComplete,
+        },
+        query: {
+          titleDisabled,
+          sessionTitle,
+          agentTitle,
+          haikuTitleAttemptedRef,
+          generateSessionTitle,
+          setHaikuTitle,
+          getToolUseContext,
+          beforePrepareQuery: async () => {
+            await Promise.all([
+              undefined,
+              feature('TRANSCRIPT_CLASSIFIER')
+                ? checkAndDisableAutoModeIfNeeded(
+                    toolPermissionContext,
+                    setAppState,
+                    store.getState().fastMode,
+                  )
+                : undefined,
+            ]);
+          },
+          mainThreadAgentDefinition,
+          getExtraUserContext: toolUseContext => ({
+            ...getCoordinatorUserContext(
+              toolUseContext.options.mcpClients,
+              isScratchpadEnabled() ? getScratchpadDir() : undefined,
+            ),
+            ...((feature('PROACTIVE') || feature('KAIROS')) &&
+            proactiveModule?.isProactiveActive() &&
+            !terminalFocusRef.current
+              ? {
+                  terminalFocus: 'The terminal is unfocused \u2014 the user is not actively watching.',
+                }
+              : {}),
+          }),
+          querySource: getQuerySourceForREPL(),
+          canUseTool,
+          onQueryEvent,
+          fireCompanionObserver:
+            feature('BUDDY') &&
+            typeof (globalThis as Record<string, unknown>).fireCompanionObserver === 'function'
+              ? ((globalThis as Record<string, unknown>).fireCompanionObserver as (
+                  messages: MessageType[],
+                  callback: (reaction: unknown) => void,
+                ) => void)
+              : undefined,
+        },
+      });
     },
     [
       initialMcpClients,
@@ -5885,7 +5800,9 @@ export function REPL({
           scrollRef={scrollRef}
           overlay={toolPermissionOverlay}
           bottomFloat={
-            feature('BUDDY') && companionVisible && !companionNarrow ? <CompanionFloatingBubble /> : undefined
+            feature('BUDDY') && companionVisible && !companionNarrow
+              ? <CompanionFloatingBubble />
+              : undefined
           }
           modal={centeredModal}
           modalScrollRef={modalScrollRef}
@@ -5972,41 +5889,39 @@ export function REPL({
             </>
           }
           bottom={
-            <Box
-              flexDirection={feature('BUDDY') && companionNarrow ? 'column' : 'row'}
-              width="100%"
-              alignItems={feature('BUDDY') && companionNarrow ? undefined : 'flex-end'}
-            >
-              {feature('BUDDY') && companionNarrow && isFullscreenEnvEnabled() && companionVisible ? (
-                <CompanionSprite />
-              ) : null}
-              <Box flexDirection="column" flexGrow={1}>
-                {permissionStickyFooter}
-                {/* Immediate local-jsx commands (/btw, /sandbox, /assistant,
-                  /issue) render here, NOT inside scrollable. They stay mounted
-                  while the main conversation streams behind them, so ScrollBox
-                  relayouts on each new message would drag them around. bottom
-                  is flexShrink={0} outside the ScrollBox — it never moves.
-                  Non-immediate local-jsx (/diff, /status, /theme, ~40 others)
-                  stays in scrollable: the main loop is paused so no jiggle,
-                  and their tall content (DiffDetailView renders up to 400
-                  lines with no internal scroll) needs the outer ScrollBox. */}
-                {toolJSX?.isLocalJSXCommand && toolJSX.isImmediate && !toolJsxCentered && (
+            <REPLBottomView
+              useColumnLayout={feature('BUDDY') ? companionNarrow : false}
+              leadingCompanion={
+                feature('BUDDY')
+                  ? companionNarrow && isFullscreenEnvEnabled() && companionVisible
+                  ? <CompanionSprite />
+                  : undefined
+                  : undefined
+              }
+              permissionStickyFooter={permissionStickyFooter}
+              immediateToolContent={
+                toolJSX?.isLocalJSXCommand && toolJSX.isImmediate && !toolJsxCentered ? (
                   <Box flexDirection="column" width="100%">
                     {toolJSX.jsx}
                   </Box>
-                )}
-                {!showSpinner && !toolJSX?.isLocalJSXCommand && showExpandedTodos && tasksV2 && tasksV2.length > 0 && (
+                ) : undefined
+              }
+              standaloneTasks={
+                !showSpinner && !toolJSX?.isLocalJSXCommand && showExpandedTodos && tasksV2 && tasksV2.length > 0 ? (
                   <Box width="100%" flexDirection="column">
                     <TaskListV2 tasks={tasksV2} isStandalone={true} />
                   </Box>
-                )}
-                {replDialogs}
-              </Box>
-              {feature('BUDDY') && !(companionNarrow && isFullscreenEnvEnabled()) && companionVisible ? (
-                <CompanionSprite />
-              ) : null}
-            </Box>
+                ) : undefined
+              }
+              dialogs={replDialogs}
+              trailingCompanion={
+                feature('BUDDY')
+                  ? !(companionNarrow && isFullscreenEnvEnabled()) && companionVisible
+                  ? <CompanionSprite />
+                  : undefined
+                  : undefined
+              }
+            />
           }
         />
       </MCPConnectionManager>

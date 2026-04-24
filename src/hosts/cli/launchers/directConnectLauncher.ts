@@ -4,20 +4,18 @@ import {
 } from '../../../kernel/index.js'
 import { launchRepl } from '../../../replLauncher.js'
 import { createSystemMessage } from '../../../utils/messages.js'
+import type {
+  CliLaunchAppProps,
+  CliLaunchRenderAndRun,
+  CliLaunchReplProps,
+  CliLaunchRoot,
+} from './sharedLaunchContext.js'
 
 export type DirectConnectLaunchOptions = {
-  root: Parameters<typeof launchRepl>[0]
-  appProps: Parameters<typeof launchRepl>[1]
-  replProps: Pick<
-    Parameters<typeof launchRepl>[2],
-    | 'debug'
-    | 'commands'
-    | 'autoConnectIdeFlag'
-    | 'mainThreadAgentDefinition'
-    | 'disableSlashCommands'
-    | 'thinkingConfig'
-  >
-  renderAndRun: Parameters<typeof launchRepl>[3]
+  root: CliLaunchRoot
+  appProps: CliLaunchAppProps
+  replProps: CliLaunchReplProps
+  renderAndRun: CliLaunchRenderAndRun
   connect: Parameters<typeof connectDirectHostSession>[0]
   stateWriter: Parameters<typeof connectDirectHostSession>[1]
   onConnectionError(message: string): Promise<void>
