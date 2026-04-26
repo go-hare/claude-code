@@ -31,6 +31,7 @@ const mockLoadTranscriptFromFile = mock(async (_path: string) => {
   throw Object.assign(new Error('not found'), { code: 'ENOENT' })
 })
 const mockProcessResumedConversation = mock(async (): Promise<any> => undefined)
+const mockRestoreSessionStateFromLog = mock(() => {})
 const mockCheckOutTeleportedSessionBranch = mock(async () => ({
   branchName: 'main',
   branchError: null,
@@ -124,6 +125,7 @@ mock.module('../resumeSessionStorageDeps.js', () => ({
 
 mock.module('../../../../utils/sessionRestore.js', () => ({
   processResumedConversation: mockProcessResumedConversation,
+  restoreSessionStateFromLog: mockRestoreSessionStateFromLog,
 }))
 
 mock.module('../../../../utils/teleport.js', () => ({

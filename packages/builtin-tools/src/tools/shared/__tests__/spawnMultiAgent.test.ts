@@ -1,54 +1,35 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
+import type { ToolUseContext } from 'src/Tool.js'
+import {
+  registerOutOfProcessTeammateTaskForTesting,
+  resetTrackedPaneCleanupForTesting,
+  setPaneCleanupDependenciesForTesting,
+} from 'src/utils/swarm/backends/executorFacade.js'
 
 const cleanupFns = new Set<() => Promise<void>>()
-const registerTaskMock = mock(((): any => {}) as any)
 const ensureBackendsRegisteredMock = mock(async () => {})
 const killPaneMock = mock(async () => true)
+let restorePaneCleanupDependencies: (() => void) | undefined
 
-mock.module('src/utils/cleanupRegistry.js', () => ({
-  registerCleanup: (cleanupFn: () => Promise<void>) => {
-    cleanupFns.add(cleanupFn)
-    return () => {
-      cleanupFns.delete(cleanupFn)
-    }
-  },
-  runCleanupFunctions: async () => {
-    await Promise.all(Array.from(cleanupFns).map(fn => fn()))
-  },
-}))
+function setAppState(updater: (prev: any) => any): void {
+  updater({ tasks: {} })
+}
 
-mock.module('src/utils/task/framework.js', () => ({
-  PANEL_GRACE_MS: 30000,
-  POLL_INTERVAL_MS: 1000,
-  STOPPED_DISPLAY_MS: 3000,
-  applyTaskOffsetsAndEvictions: mock((state: any) => state),
-  evictTerminalTask: mock(() => {}),
-  generateTaskAttachments: mock(async () => ({ attachments: [], aborted: [] })),
-  getRunningTasks: mock(() => []),
-  pollTasks: mock(async () => {}),
-  registerTask: registerTaskMock,
-  updateTaskState: mock((_: string, __: any, updater: (task: any) => any) =>
-    updater({}),
-  ),
-}))
-
-mock.module('src/utils/swarm/backends/registry.js', () => ({
-  detectAndGetBackend: mock(async () => {
-    throw new Error('not used in this test')
-  }),
-  ensureBackendsRegistered: ensureBackendsRegisteredMock,
-  getBackendByType: () => ({
-    killPane: killPaneMock,
-  }),
-  isInProcessEnabled: mock(() => false),
-  markInProcessFallback: mock(() => {}),
-  resetBackendDetection: mock(() => {}),
-}))
-
-const {
-  _registerOutOfProcessTeammateTaskForTesting,
-  _resetTrackedPaneCleanupForTesting,
-} = await import('../spawnMultiAgent.js')
+function installPaneCleanupDependencies(): void {
+  restorePaneCleanupDependencies = setPaneCleanupDependenciesForTesting({
+    registerCleanup: (cleanupFn: () => Promise<void>) => {
+      cleanupFns.add(cleanupFn)
+      return () => {
+        cleanupFns.delete(cleanupFn)
+      }
+    },
+    ensureBackendsRegistered: ensureBackendsRegisteredMock,
+    getBackendByType: () =>
+      ({
+        killPane: killPaneMock,
+      }) as any,
+  })
+}
 
 async function runRegisteredCleanup(): Promise<void> {
   await Promise.all(Array.from(cleanupFns).map(fn => fn()))
@@ -56,17 +37,20 @@ async function runRegisteredCleanup(): Promise<void> {
 
 describe('out-of-process teammate cleanup tracking', () => {
   afterEach(() => {
-    registerTaskMock.mockReset()
+    restorePaneCleanupDependencies?.()
+    restorePaneCleanupDependencies = undefined
+    resetTrackedPaneCleanupForTesting()
     ensureBackendsRegisteredMock.mockReset()
     killPaneMock.mockReset()
     cleanupFns.clear()
-    _resetTrackedPaneCleanupForTesting()
     ensureBackendsRegisteredMock.mockImplementation(async () => {})
     killPaneMock.mockImplementation(async () => true)
   })
 
   test('kills tracked pane teammates during leader-exit cleanup', async () => {
-    _registerOutOfProcessTeammateTaskForTesting(() => {}, {
+    installPaneCleanupDependencies()
+
+    registerOutOfProcessTeammateTaskForTesting(setAppState, {
       teammateId: 'worker@alpha',
       sanitizedName: 'worker',
       teamName: 'alpha',
@@ -84,27 +68,63 @@ describe('out-of-process teammate cleanup tracking', () => {
   })
 
   test('unregisters tracked cleanup after local abort to avoid double-kill', async () => {
-    let registeredTask: any
-    registerTaskMock.mockImplementation((taskState: any) => {
-      registeredTask = taskState
-    })
+    installPaneCleanupDependencies()
+    let registeredTask: { abortController: AbortController } | undefined
 
-    _registerOutOfProcessTeammateTaskForTesting(() => {}, {
-      teammateId: 'worker@alpha',
-      sanitizedName: 'worker',
-      teamName: 'alpha',
-      teammateColor: 'blue',
-      prompt: 'do work',
-      paneId: '%12',
-      insideTmux: false,
-      backendType: 'tmux',
-    })
+    registerOutOfProcessTeammateTaskForTesting(
+      updater => {
+        const next = updater({ tasks: {} } as any)
+        registeredTask = Object.values(next.tasks)[0] as {
+          abortController: AbortController
+        }
+      },
+      {
+        teammateId: 'worker@alpha',
+        sanitizedName: 'worker',
+        teamName: 'alpha',
+        teammateColor: 'blue',
+        prompt: 'do work',
+        paneId: '%12',
+        insideTmux: false,
+        backendType: 'tmux',
+      },
+    )
 
-    registeredTask.abortController.abort()
+    registeredTask?.abortController.abort()
     await Promise.resolve()
     expect(killPaneMock).toHaveBeenCalledTimes(1)
 
     await runRegisteredCleanup()
     expect(killPaneMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('spawnTeammate validation', () => {
+  test('points missing team recovery at TeamCreate', async () => {
+    const { spawnTeammate } = await import('../spawnMultiAgent.js')
+
+    const context = {
+      getAppState: () => ({
+        mainLoopModel: 'gpt-5.4',
+        teamContext: undefined,
+        toolPermissionContext: { mode: 'default' },
+      }),
+    } as ToolUseContext
+
+    try {
+      await spawnTeammate(
+        {
+          name: 'worker',
+          prompt: 'do work',
+          team_name: `missing-team-${Date.now()}`,
+        },
+        context,
+      )
+      throw new Error('expected missing team error')
+    } catch (error) {
+      expect(error).toBeInstanceOf(Error)
+      expect((error as Error).message).toContain('TeamCreate')
+      expect((error as Error).message).not.toContain('spawnTeam')
+    }
   })
 })

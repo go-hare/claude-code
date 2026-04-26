@@ -32,8 +32,10 @@ import type { BackendDetectionResult } from 'src/utils/swarm/backends/types.js'
 import { TEAM_LEAD_NAME } from 'src/utils/swarm/constants.js'
 import { It2SetupPrompt } from 'src/utils/swarm/It2SetupPrompt.js'
 import {
+  getTeamFilePath,
   readTeamFileAsync,
   sanitizeAgentName,
+  type TeamFile,
   writeTeamFileAsync,
 } from 'src/utils/swarm/teamHelpers.js'
 import { assignTeammateColor } from 'src/utils/swarm/teammateLayoutManager.js'
@@ -192,13 +194,14 @@ export async function generateUniqueTeammateName(
   return `${baseName}-${suffix}`
 }
 
-async function assertTeamExists(teamName: string): Promise<void> {
+async function readExistingTeamFile(teamName: string): Promise<TeamFile> {
   const teamFile = await readTeamFileAsync(teamName)
   if (!teamFile) {
     throw new Error(
-      `Team "${teamName}" does not exist. Call spawnTeam first to create the team.`,
+      `Team "${teamName}" does not exist. Call TeamCreate first to create the team before spawning teammates.`,
     )
   }
+  return teamFile
 }
 
 type NormalizedSpawnInput = {
@@ -209,6 +212,9 @@ type NormalizedSpawnInput = {
   plan_mode_required?: boolean
   prompt: string
   sanitizedName: string
+  teamFile: TeamFile
+  teamFilePath: string
+  leadAgentId: string
   teamName: string
   teammateColor: ReturnType<typeof assignTeammateColor>
   teammateId: string
@@ -226,22 +232,24 @@ function updateTeamContextAfterSpawn(
     execution.backendType === 'in-process' ? getCwd() : normalized.workingDir
 
   context.setAppState(prev => {
-    const needsLeaderSetup =
-      execution.backendType === 'in-process' && !prev.teamContext?.leadAgentId
-    const leadAgentId = needsLeaderSetup
-      ? formatAgentId(TEAM_LEAD_NAME, normalized.teamName)
-      : (prev.teamContext?.leadAgentId ?? '')
+    const leadAgentId =
+      prev.teamContext?.leadAgentId || normalized.leadAgentId
     const existingTeammates = prev.teamContext?.teammates || {}
-    const leadEntry = needsLeaderSetup
+    const needsLeaderEntry = !(leadAgentId in existingTeammates)
+    const leadMember = normalized.teamFile.members.find(
+      m => m.name === TEAM_LEAD_NAME,
+    )
+    const leadEntry = needsLeaderEntry
       ? {
           [leadAgentId]: {
             name: TEAM_LEAD_NAME,
-            agentType: TEAM_LEAD_NAME,
+            agentType: leadMember?.agentType ?? TEAM_LEAD_NAME,
             color: assignTeammateColor(leadAgentId),
-            tmuxSessionName: 'in-process',
-            tmuxPaneId: 'leader',
-            cwd: getCwd(),
-            spawnedAt: Date.now(),
+            tmuxSessionName:
+              leadMember?.backendType === 'in-process' ? 'in-process' : '',
+            tmuxPaneId: leadMember?.tmuxPaneId ?? '',
+            cwd: leadMember?.cwd ?? getCwd(),
+            spawnedAt: leadMember?.joinedAt ?? Date.now(),
           },
         }
       : {}
@@ -251,7 +259,8 @@ function updateTeamContextAfterSpawn(
       teamContext: {
         ...prev.teamContext,
         teamName: normalized.teamName ?? prev.teamContext?.teamName ?? 'default',
-        teamFilePath: prev.teamContext?.teamFilePath ?? '',
+        teamFilePath:
+          prev.teamContext?.teamFilePath || normalized.teamFilePath,
         leadAgentId,
         teammates: {
           ...existingTeammates,
@@ -278,7 +287,7 @@ async function addTeammateToTeamFile(
   const teamFile = await readTeamFileAsync(normalized.teamName)
   if (!teamFile) {
     throw new Error(
-      `Team "${normalized.teamName}" does not exist. Call spawnTeam first to create the team.`,
+      `Team "${normalized.teamName}" does not exist. Call TeamCreate first to create the team before spawning teammates.`,
     )
   }
 
@@ -314,15 +323,17 @@ async function normalizeSpawnInput(
 
   if (!teamName) {
     throw new Error(
-      'team_name is required for spawn operation. Either provide team_name in input or call spawnTeam first to establish team context.',
+      'team_name is required for spawn operation. Either provide team_name in input or call TeamCreate first to establish team context.',
     )
   }
 
-  await assertTeamExists(teamName)
+  const teamFile = await readExistingTeamFile(teamName)
 
   const uniqueName = await generateUniqueTeammateName(name, teamName)
   const sanitizedName = sanitizeAgentName(uniqueName)
   const teammateId = formatAgentId(sanitizedName, teamName)
+  const leadAgentId =
+    teamFile.leadAgentId || formatAgentId(TEAM_LEAD_NAME, teamName)
 
   return {
     agent_type,
@@ -332,6 +343,9 @@ async function normalizeSpawnInput(
     plan_mode_required,
     prompt,
     sanitizedName,
+    teamFile,
+    teamFilePath: getTeamFilePath(teamName),
+    leadAgentId,
     teamName,
     teammateColor: assignTeammateColor(teammateId),
     teammateId,

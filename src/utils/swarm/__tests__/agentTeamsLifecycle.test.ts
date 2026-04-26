@@ -74,6 +74,56 @@ afterEach(() => {
 })
 
 describe('Agent Teams lifecycle', () => {
+  test('spawn with explicit team_name restores team context from team file', async () => {
+    const { TeamCreateTool } = await import(
+      '../../../../packages/builtin-tools/src/tools/TeamCreateTool/TeamCreateTool.js'
+    )
+    const { spawnTeammate } = await import(
+      '../../../../packages/builtin-tools/src/tools/shared/spawnMultiAgent.js'
+    )
+
+    const context = {
+      getAppState: () => state,
+      setAppState: setState,
+      options: {
+        agentDefinitions: { activeAgents: [] },
+      },
+      abortController: new AbortController(),
+      toolUseId: 'toolu_restore_team',
+    } as any
+
+    await TeamCreateTool.call(
+      { team_name: 'alpha', agent_type: 'lead-specialist' },
+      context,
+      undefined as any,
+      undefined as any,
+    )
+    state = getDefaultAppState()
+
+    await spawnTeammate(
+      {
+        name: 'worker',
+        prompt: 'handle assigned tasks',
+        team_name: 'alpha',
+      },
+      context,
+    )
+
+    expect(state.teamContext?.teamName).toBe('alpha')
+    expect(state.teamContext?.teamFilePath).toBe(
+      join(tempHome, 'teams', 'alpha', 'config.json'),
+    )
+    expect(state.teamContext?.leadAgentId).toBe('team-lead@alpha')
+    expect(state.teamContext?.teammates['team-lead@alpha']).toMatchObject({
+      name: 'team-lead',
+      agentType: 'lead-specialist',
+    })
+    expect(state.teamContext?.teammates['worker@alpha']).toMatchObject({
+      name: 'worker',
+      tmuxPaneId: 'in-process',
+    })
+  })
+
   test('runs TeamCreate -> spawn -> TaskUpdate -> SendMessage -> TeamDelete', async () => {
     const { TeamCreateTool } = await import(
       '../../../../packages/builtin-tools/src/tools/TeamCreateTool/TeamCreateTool.js'
@@ -134,7 +184,10 @@ describe('Agent Teams lifecycle', () => {
       { subject: 'Check lifecycle', description: 'Verify team task flow' },
       context,
     )
-    await TaskUpdateTool.call({ taskId: task.data.task.id, owner: 'worker' }, context)
+    await TaskUpdateTool.call(
+      { taskId: task.data.task.id, owner: 'worker' },
+      context,
+    )
 
     const updatedTask = await getTask(getTaskListId(), task.data.task.id)
     expect(updatedTask?.owner).toBe('worker')
@@ -152,7 +205,9 @@ describe('Agent Teams lifecycle', () => {
     expect(message.data.success).toBe(true)
 
     const inbox = await readMailbox('worker', 'alpha')
-    expect(inbox.some(entry => entry.text === 'Please report status.')).toBe(true)
+    expect(inbox.some(entry => entry.text === 'Please report status.')).toBe(
+      true,
+    )
 
     const teammateTask = Object.values(state.tasks).find(
       (candidate: any) =>

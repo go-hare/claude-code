@@ -8,9 +8,11 @@ import {
 } from '../config.js'
 import { loadInstincts, readObservations } from '../index.js'
 import {
+  initSkillLearning,
   resetRuntimeObserverForTest,
   runSkillLearningPostSampling,
 } from '../runtimeObserver.js'
+import { executePostSamplingHooks } from '../../../utils/hooks/postSamplingHooks.js'
 
 let root: string
 let previousCwd: string
@@ -37,6 +39,30 @@ afterEach(() => {
 })
 
 describe('runtimeObserver', () => {
+  test('registers the post-sampling hook during initialization', async () => {
+    initSkillLearning()
+
+    await executePostSamplingHooks(
+      [
+        {
+          type: 'user',
+          uuid: 'u1' as any,
+          message: { role: 'user', content: '不要 mock，用 testing-library' },
+        },
+      ],
+      [] as any,
+      {},
+      {},
+      { agentId: undefined } as any,
+      'repl_main_thread',
+    )
+
+    const observations = await readObservations({
+      rootDir: process.env.CLAUDE_SKILL_LEARNING_HOME,
+    })
+    expect(observations).toHaveLength(1)
+  })
+
   test('records and learns from post-sampling main-thread messages', async () => {
     await runSkillLearningPostSampling({
       querySource: 'repl_main_thread',

@@ -106,6 +106,7 @@ mock.module('../teleportApiDeps.js', () => ({
 }))
 
 mock.module('../launchAuthDeps.js', () => ({
+  checkAndRefreshOAuthTokenIfNeeded: mock(async () => {}),
   getClaudeAIOAuthTokens: mockGetClaudeAIOAuthTokens,
 }))
 

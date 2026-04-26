@@ -90,6 +90,7 @@ import {
   getSimplePrompt,
 } from './prompt.js'
 import { checkReadOnlyConstraints } from './readOnlyValidation.js'
+import { validateCoordinatorBashWriteAccess } from './coordinatorWriteValidation.js'
 import { parseSedEditCommand } from './sedEditParser.js'
 import { shouldUseSandbox } from './shouldUseSandbox.js'
 import { BASH_TOOL_NAME } from './toolName.js'
@@ -890,6 +891,20 @@ export const BashTool = buildTool({
 
     const isMainThread = !toolUseContext.agentId
     const preventCwdChanges = !isMainThread
+    const coordinatorWriteValidation =
+      await validateCoordinatorBashWriteAccess(
+        input.command,
+        toolUseContext.agentId,
+      )
+    if (!coordinatorWriteValidation.result) {
+      return {
+        data: {
+          stdout: '',
+          stderr: `${coordinatorWriteValidation.message}\nExit code 1`,
+          interrupted: false,
+        },
+      }
+    }
 
     try {
       // Use the new async generator version of runShellCommand

@@ -135,12 +135,16 @@ export function resolveAgentTools(
     source,
     permissionMode,
   } = agentDefinition
-  const filteredAvailableTools = filterToolsForAgent({
-    tools: availableTools,
-    isBuiltIn: source === 'built-in',
-    isAsync,
-    permissionMode,
-  })
+  // Main-thread agents already receive the assembled REPL tool pool. Match the
+  // upstream behavior here: sub-agent deny lists only apply to spawned agents.
+  const filteredAvailableTools = isMainThread
+    ? availableTools
+    : filterToolsForAgent({
+        tools: availableTools,
+        isBuiltIn: source === 'built-in',
+        isAsync,
+        permissionMode,
+      })
 
   // Create a set of disallowed tool names for quick lookup
   const disallowedToolSet = new Set(
@@ -193,6 +197,10 @@ export function resolveAgentTools(
       // environment allows nested Agent use (for example ant sync subagents),
       // availableToolMap will still contain Agent and we should resolve it
       // normally instead of dropping it here.
+      if (!isMainThread && !availableToolMap.has(toolName)) {
+        validTools.push(toolSpec)
+        continue
+      }
     }
 
     const tool = availableToolMap.get(toolName)

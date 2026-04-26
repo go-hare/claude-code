@@ -34,11 +34,7 @@ import { sendShutdownRequestToMailbox } from 'src/utils/teammateMailbox.js'
 import { getSessionId } from 'src/bootstrap/state.js'
 import { isInsideTmux, isInsideTmuxSync } from './detection.js'
 import { ensureBackendsRegistered, getBackendByType } from './registry.js'
-import type {
-  BackendType,
-  PaneBackend,
-  PaneBackendType,
-} from './types.js'
+import type { BackendType, PaneBackend, PaneBackendType } from './types.js'
 import { isPaneBackend } from './types.js'
 
 type SetAppState = (updater: (prev: AppState) => AppState) => void
@@ -106,6 +102,29 @@ type TrackedPaneTeammate = {
   insideTmux: boolean
 }
 
+type PaneCleanupDependencies = {
+  registerCleanup: typeof registerCleanup
+  ensureBackendsRegistered: typeof ensureBackendsRegistered
+  getBackendByType: typeof getBackendByType
+}
+
+type TeammateTaskDependencies = {
+  findTeammateTaskByAgentId: typeof findTeammateTaskByAgentId
+  requestTeammateShutdown: typeof markTeammateShutdownRequested
+}
+
+const defaultPaneCleanupDependencies: PaneCleanupDependencies = {
+  registerCleanup,
+  ensureBackendsRegistered,
+  getBackendByType,
+}
+let paneCleanupDependencies = defaultPaneCleanupDependencies
+const defaultTeammateTaskDependencies: TeammateTaskDependencies = {
+  findTeammateTaskByAgentId,
+  requestTeammateShutdown: markTeammateShutdownRequested,
+}
+let teammateTaskDependencies = defaultTeammateTaskDependencies
+
 const trackedPaneTeammates = new Map<string, TrackedPaneTeammate>()
 let unregisterTrackedPaneCleanup: (() => void) | undefined
 
@@ -114,26 +133,27 @@ function ensureTrackedPaneCleanupRegistered(): void {
     return
   }
 
-  unregisterTrackedPaneCleanup = registerCleanup(async () => {
-    const teammates = Array.from(trackedPaneTeammates.values())
-    if (teammates.length === 0) {
-      return
-    }
+  unregisterTrackedPaneCleanup = paneCleanupDependencies.registerCleanup(
+    async () => {
+      const teammates = Array.from(trackedPaneTeammates.values())
+      if (teammates.length === 0) {
+        return
+      }
 
-    await ensureBackendsRegistered()
-    await Promise.allSettled(
-      teammates.map(async teammate => {
-        logForDebugging(
-          `[executorFacade] Cleanup: killing ${teammate.backendType} pane ${teammate.paneId}`,
-        )
-        await getBackendByType(teammate.backendType).killPane(
-          teammate.paneId,
-          !teammate.insideTmux,
-        )
-      }),
-    )
-    trackedPaneTeammates.clear()
-  })
+      await paneCleanupDependencies.ensureBackendsRegistered()
+      await Promise.allSettled(
+        teammates.map(async teammate => {
+          logForDebugging(
+            `[executorFacade] Cleanup: killing ${teammate.backendType} pane ${teammate.paneId}`,
+          )
+          await paneCleanupDependencies
+            .getBackendByType(teammate.backendType)
+            .killPane(teammate.paneId, !teammate.insideTmux)
+        }),
+      )
+      trackedPaneTeammates.clear()
+    },
+  )
 }
 
 function trackPaneTeammateForCleanup(
@@ -238,7 +258,9 @@ function registerOutOfProcessTeammateTask(
     () => {
       unregisterTrackedCleanup()
       if (isPaneBackend(backendType)) {
-        void getBackendByType(backendType).killPane(paneId, !insideTmux)
+        void paneCleanupDependencies
+          .getBackendByType(backendType)
+          .killPane(paneId, !insideTmux)
       }
     },
     { once: true },
@@ -256,6 +278,30 @@ export function resetTrackedPaneCleanupForTesting(): void {
   trackedPaneTeammates.clear()
   unregisterTrackedPaneCleanup?.()
   unregisterTrackedPaneCleanup = undefined
+}
+
+export function setPaneCleanupDependenciesForTesting(
+  overrides: Partial<PaneCleanupDependencies>,
+): () => void {
+  paneCleanupDependencies = {
+    ...defaultPaneCleanupDependencies,
+    ...overrides,
+  }
+  return () => {
+    paneCleanupDependencies = defaultPaneCleanupDependencies
+  }
+}
+
+export function setTeammateTaskDependenciesForTesting(
+  overrides: Partial<TeammateTaskDependencies>,
+): () => void {
+  teammateTaskDependencies = {
+    ...defaultTeammateTaskDependencies,
+    ...overrides,
+  }
+  return () => {
+    teammateTaskDependencies = defaultTeammateTaskDependencies
+  }
 }
 
 function withoutModelArg(args: string[]): string[] {
@@ -363,7 +409,9 @@ function buildTeammateArgParts(params: {
 }
 
 function isInProcessTeammateMember(member: TeammateLifecycleMember): boolean {
-  return member.backendType === 'in-process' || member.tmuxPaneId === 'in-process'
+  return (
+    member.backendType === 'in-process' || member.tmuxPaneId === 'in-process'
+  )
 }
 
 class InProcessTeammateExecutor implements TeammateExecutorFacade {
@@ -445,7 +493,7 @@ class InProcessTeammateExecutor implements TeammateExecutorFacade {
     context: TeammateLifecycleContext,
     reason?: string,
   ): Promise<boolean> {
-    const task = findTeammateTaskByAgentId(
+    const task = teammateTaskDependencies.findTeammateTaskByAgentId(
       member.agentId,
       context.getAppState().tasks,
     )
@@ -465,7 +513,10 @@ class InProcessTeammateExecutor implements TeammateExecutorFacade {
     }
 
     await sendShutdownRequestToMailbox(member.name, teamName, reason)
-    markTeammateShutdownRequested(task.id, context.setAppState)
+    teammateTaskDependencies.requestTeammateShutdown(
+      task.id,
+      context.setAppState,
+    )
     return true
   }
 
@@ -474,7 +525,7 @@ class InProcessTeammateExecutor implements TeammateExecutorFacade {
     member: TeammateLifecycleMember,
     context: TeammateLifecycleContext,
   ): Promise<boolean> {
-    const task = findTeammateTaskByAgentId(
+    const task = teammateTaskDependencies.findTeammateTaskByAgentId(
       member.agentId,
       context.getAppState().tasks,
     )
@@ -507,8 +558,8 @@ class PaneTeammateExecutor implements TeammateExecutorFacade {
       return this.backendOrType
     }
 
-    await ensureBackendsRegistered()
-    return getBackendByType(this.type)
+    await paneCleanupDependencies.ensureBackendsRegistered()
+    return paneCleanupDependencies.getBackendByType(this.type)
   }
 
   async spawn(
@@ -602,7 +653,7 @@ class PaneTeammateExecutor implements TeammateExecutorFacade {
     context: TeammateLifecycleContext,
     reason?: string,
   ): Promise<boolean> {
-    const task = findTeammateTaskByAgentId(
+    const task = teammateTaskDependencies.findTeammateTaskByAgentId(
       member.agentId,
       context.getAppState().tasks,
     )
@@ -617,7 +668,10 @@ class PaneTeammateExecutor implements TeammateExecutorFacade {
     await sendShutdownRequestToMailbox(member.name, teamName, reason)
 
     if (task) {
-      markTeammateShutdownRequested(task.id, context.setAppState)
+      teammateTaskDependencies.requestTeammateShutdown(
+        task.id,
+        context.setAppState,
+      )
     } else {
       logForDebugging(
         `[executorFacade] No pane task found to mark shutdownRequested for ${member.agentId} in ${teamName}`,

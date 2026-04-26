@@ -99,7 +99,7 @@ describe('resolveProjectContext', () => {
 
     expect(context.source).toBe('git_root')
     expect(context.scope).toBe('project')
-    expect(context.projectRoot).toBe(realpathSync(repo))
+    expect(context.projectRoot).toBe(repo.normalize('NFC'))
     expect(context.projectName).toBe(lastPathSegment(repo))
   })
 

@@ -268,7 +268,7 @@ describe("getLastToolUseName", () => {
 });
 
 describe("resolveAgentTools", () => {
-  test("applies all-agent filtering for main-thread agents too", () => {
+  test("keeps main-thread agent tools before sub-agent filtering", () => {
     allAgentDisallowedTools.add("Danger");
 
     const definition = {
@@ -282,12 +282,13 @@ describe("resolveAgentTools", () => {
     const mainThread = resolveAgentTools(definition, availableTools, false, true);
     const subAgent = resolveAgentTools(definition, availableTools, false, false);
 
-    expect(mainThread.resolvedTools.map((tool: any) => tool.name)).toEqual(["Safe"]);
+    expect(mainThread.resolvedTools.map((tool: any) => tool.name)).toEqual(["Safe", "Danger"]);
     expect(subAgent.resolvedTools.map((tool: any) => tool.name)).toEqual(["Safe"]);
-    expect(mainThread.invalidTools).toContain("Danger");
+    expect(mainThread.invalidTools).toEqual([]);
+    expect(subAgent.invalidTools).toContain("Danger");
   });
 
-  test("applies custom-agent disallowed tools for main-thread agents", () => {
+  test("keeps custom main-thread agent tools before sub-agent filtering", () => {
     customAgentDisallowedTools.add("CustomOnlyDanger");
 
     const definition = {
@@ -303,8 +304,11 @@ describe("resolveAgentTools", () => {
 
     const mainThread = resolveAgentTools(definition, availableTools, false, true);
 
-    expect(mainThread.resolvedTools.map((tool: any) => tool.name)).toEqual(["Safe"]);
-    expect(mainThread.invalidTools).toContain("CustomOnlyDanger");
+    expect(mainThread.resolvedTools.map((tool: any) => tool.name)).toEqual([
+      "Safe",
+      "CustomOnlyDanger",
+    ]);
+    expect(mainThread.invalidTools).toEqual([]);
   });
 
   test("keeps Agent for subagents when it survives filtering", () => {
@@ -319,6 +323,25 @@ describe("resolveAgentTools", () => {
     const subAgent = resolveAgentTools(definition, availableTools, false, false);
 
     expect(subAgent.resolvedTools.map((tool: any) => tool.name)).toEqual(["Agent"]);
+    expect(subAgent.allowedAgentTypes).toEqual(["worker"]);
+    expect(subAgent.invalidTools).toEqual([]);
+  });
+
+  test("keeps filtered Agent metadata valid for subagents", () => {
+    allAgentDisallowedTools.add("Agent");
+
+    const definition = {
+      tools: ["Agent(worker)"],
+      disallowedTools: [],
+      source: "built-in",
+      permissionMode: "default",
+    } as any;
+    const availableTools = [{ name: "Agent" }] as any;
+
+    const subAgent = resolveAgentTools(definition, availableTools, false, false);
+
+    expect(subAgent.resolvedTools).toEqual([]);
+    expect(subAgent.validTools).toEqual(["Agent(worker)"]);
     expect(subAgent.allowedAgentTypes).toEqual(["worker"]);
     expect(subAgent.invalidTools).toEqual([]);
   });

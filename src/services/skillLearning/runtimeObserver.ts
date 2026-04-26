@@ -1,5 +1,8 @@
 import type { REPLHookContext } from '../../utils/hooks/postSamplingHooks.js'
-import { registerPostSamplingHook } from '../../utils/hooks/postSamplingHooks.js'
+import {
+  clearPostSamplingHooks,
+  registerPostSamplingHook,
+} from '../../utils/hooks/postSamplingHooks.js'
 import { getSkillLearningConfig } from './config.js'
 import { isSkillLearningEnabled } from './featureCheck.js'
 import {
@@ -193,9 +196,11 @@ export async function runSkillLearningPostSampling(
 }
 
 export function resetRuntimeObserverForTest(): void {
+  initialized = false
   runtimeTurn = 0
   lastConsumedToolHookTimestamp = ''
   resetRuntimeLLMBookkeeping()
+  clearPostSamplingHooks()
 }
 
 async function autoEvolveLearnedSkills(options: {

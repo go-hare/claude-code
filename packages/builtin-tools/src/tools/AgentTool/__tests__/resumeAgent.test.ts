@@ -1,18 +1,29 @@
-import { afterEach, describe, expect, mock, test } from 'bun:test'
+import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test'
+import { resumeAgentBackground } from '../resumeAgent.js'
+import * as runAgentModule from '../runAgent.js'
+import * as localAgentTask from 'src/tasks/LocalAgentTask/LocalAgentTask.js'
+import * as tools from 'src/tools.js'
+import * as sessionStorage from 'src/utils/sessionStorage.js'
 
-const registerAsyncAgentMock = mock(() => ({
-  agentId: 'bg-1',
-  abortController: new AbortController(),
-}))
-const assembleToolPoolMock = mock(() => ['Read'])
-const runWithAgentContextMock = mock(((_ctx: any, fn: () => unknown) =>
-  fn()) as any)
-const runWithCwdOverrideMock = mock(((_cwd: string, fn: () => unknown) =>
-  fn()) as any)
+const runAgentMock = mock(
+  ((_: any) =>
+    (async function* () {
+      return
+    })()) as any,
+)
+
+const registerAsyncAgentMock = mock(
+  (({ agentId }: { agentId: string }) => ({
+    agentId,
+    abortController: new AbortController(),
+  })) as any,
+)
+
 const getAgentTranscriptMock = mock(async () => ({
   messages: [{ type: 'assistant', message: { content: [] } }],
   contentReplacements: [],
 }))
+
 const readAgentMetadataMock = mock(async () => ({
   agentType: 'general-purpose',
   description: 'resume worker',
@@ -22,148 +33,34 @@ const readAgentMetadataMock = mock(async () => ({
     ownedFiles: ['src/coordinator/writeGuard.ts'],
   },
 }))
-const runAsyncAgentLifecycleMock = mock(async (args: any) => {
-  args.makeStream(() => {})
-})
-const runAgentMock = mock(
-  ((_: any) =>
-    (async function* () {
-      return
-    })()) as any,
-)
 
-mock.module('src/bootstrap/state.js', () => ({
-  getSdkAgentProgressSummariesEnabled: () => false,
-}))
-
-mock.module('src/constants/prompts.js', () => ({
-  getSystemPrompt: mock(async () => 'system prompt'),
-}))
-
-mock.module('src/coordinator/coordinatorMode.js', () => ({
-  isCoordinatorMode: () => false,
-}))
-
-mock.module('src/tasks/LocalAgentTask/LocalAgentTask.js', () => ({
-  registerAsyncAgent: registerAsyncAgentMock,
-}))
-
-mock.module('src/tools.js', () => ({
-  assembleToolPool: assembleToolPoolMock,
-}))
-
-mock.module('src/types/ids.js', () => ({
-  asAgentId: (id: string) => id,
-}))
-
-mock.module('src/utils/agentContext.js', () => ({
-  runWithAgentContext: runWithAgentContextMock,
-}))
-
-mock.module('src/utils/cwd.js', () => ({
-  runWithCwdOverride: runWithCwdOverrideMock,
-}))
-
-mock.module('src/utils/debug.js', () => ({
-  logForDebugging: () => {},
-}))
-
-mock.module('src/utils/messages.js', () => ({
-  createUserMessage: ({ content }: { content: string }) => ({
-    type: 'user',
-    message: { content },
-  }),
-  filterOrphanedThinkingOnlyMessages: (messages: any) => messages,
-  filterUnresolvedToolUses: (messages: any) => messages,
-  filterWhitespaceOnlyAssistantMessages: (messages: any) => messages,
-}))
-
-mock.module('src/utils/model/agent.js', () => ({
-  getAgentModel: () => 'sonnet',
-}))
-
-mock.module('src/utils/promptCategory.js', () => ({
-  getQuerySourceForAgent: () => 'agent:builtin:general-purpose',
-}))
-
-mock.module('src/utils/sessionStorage.js', () => ({
-  getAgentTranscript: getAgentTranscriptMock,
-  readAgentMetadata: readAgentMetadataMock,
-}))
-
-mock.module('src/utils/systemPrompt.js', () => ({
-  buildEffectiveSystemPrompt: () => 'system prompt',
-}))
-
-mock.module('src/utils/task/diskOutput.js', () => ({
-  getTaskOutputPath: (agentId: string) => `/tmp/${agentId}.out`,
-}))
-
-mock.module('src/utils/teammate.js', () => ({
-  getParentSessionId: () => 'parent-session',
-}))
-
-mock.module('src/utils/toolResultStorage.js', () => ({
-  reconstructForSubagentResume: () => ({ restored: true }),
-}))
-
-mock.module('../agentToolUtils.js', () => ({
-  runAsyncAgentLifecycle: runAsyncAgentLifecycleMock,
-}))
-
-mock.module('../built-in/generalPurposeAgent.js', () => ({
-  GENERAL_PURPOSE_AGENT: {
-    agentType: 'general-purpose',
-    permissionMode: 'default',
-    model: 'sonnet',
-  },
-}))
-
-mock.module('../forkSubagent.js', () => ({
-  FORK_AGENT: {
-    agentType: 'fork',
-    permissionMode: 'default',
-  },
-  isForkSubagentEnabled: () => false,
-}))
-
-mock.module('../loadAgentsDir.js', () => ({
-  isBuiltInAgent: () => true,
-}))
-
-mock.module('../runAgent.js', () => ({
-  runAgent: runAgentMock,
-}))
-
-const { resumeAgentBackground } = await import('../resumeAgent.js')
+const runAgentSpy = spyOn(runAgentModule, 'runAgent')
+const registerAsyncAgentSpy = spyOn(localAgentTask, 'registerAsyncAgent')
+const assembleToolPoolSpy = spyOn(tools, 'assembleToolPool')
+const getAgentTranscriptSpy = spyOn(sessionStorage, 'getAgentTranscript')
+const readAgentMetadataSpy = spyOn(sessionStorage, 'readAgentMetadata')
 
 describe('resumeAgentBackground', () => {
   afterEach(() => {
-    registerAsyncAgentMock.mockClear()
-    assembleToolPoolMock.mockClear()
-    runWithAgentContextMock.mockClear()
-    runWithCwdOverrideMock.mockClear()
-    getAgentTranscriptMock.mockReset()
-    readAgentMetadataMock.mockReset()
-    runAsyncAgentLifecycleMock.mockClear()
     runAgentMock.mockClear()
-
-    getAgentTranscriptMock.mockImplementation(async () => ({
-      messages: [{ type: 'assistant', message: { content: [] } }],
-      contentReplacements: [],
-    }))
-    readAgentMetadataMock.mockImplementation(async () => ({
-      agentType: 'general-purpose',
-      description: 'resume worker',
-      activeTaskExecutionContext: {
-        taskListId: 'alpha-team',
-        taskId: '42',
-        ownedFiles: ['src/coordinator/writeGuard.ts'],
-      },
-    }))
+    registerAsyncAgentMock.mockClear()
+    getAgentTranscriptMock.mockClear()
+    readAgentMetadataMock.mockClear()
+    runAgentSpy.mockReset()
+    registerAsyncAgentSpy.mockReset()
+    assembleToolPoolSpy.mockReset()
+    getAgentTranscriptSpy.mockReset()
+    readAgentMetadataSpy.mockReset()
+    mock.restore()
   })
 
   test('restores active task execution context and owned files on resume', async () => {
+    runAgentSpy.mockImplementation(runAgentMock)
+    registerAsyncAgentSpy.mockImplementation(registerAsyncAgentMock)
+    assembleToolPoolSpy.mockImplementation((() => []) as any)
+    getAgentTranscriptSpy.mockImplementation(getAgentTranscriptMock as any)
+    readAgentMetadataSpy.mockImplementation(readAgentMetadataMock)
+
     const toolUseContext = {
       options: {
         mainLoopModel: 'sonnet',

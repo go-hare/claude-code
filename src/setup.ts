@@ -20,6 +20,7 @@ import {
 } from './bootstrap/state.js'
 import { getCommands } from './commands.js'
 import { initSessionMemory } from './services/SessionMemory/sessionMemory.js'
+import { initSkillLearning } from './services/skillLearning/runtimeObserver.js'
 import { asSessionId } from './types/ids.js'
 import { isAgentSwarmsEnabled } from './utils/agentSwarmsEnabled.js'
 import { checkAndRestoreTerminalBackup } from './utils/appleTerminalBackup.js'
@@ -292,6 +293,7 @@ export async function setup(
   // raced ahead and memoized an empty bundledSkills list.
   if (!isBareMode()) {
     initSessionMemory() // Synchronous - registers hook, gate check happens lazily
+    initSkillLearning() // Synchronous - registers hook, gate check happens lazily
     if (feature('CONTEXT_COLLAPSE')) {
       /* eslint-disable @typescript-eslint/no-require-imports */
       ;(

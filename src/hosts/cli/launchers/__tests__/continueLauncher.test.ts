@@ -18,6 +18,7 @@ const mockLogError = mock((_error: unknown) => {
   callOrder.push('log-error')
 })
 const mockProcessResumedConversation = mock(async (): Promise<any> => undefined)
+const mockRestoreSessionStateFromLog = mock(() => {})
 
 mock.module('../../../../commands/clear/caches.js', () => ({
   clearSessionCaches: mockClearSessionCaches,
@@ -45,6 +46,7 @@ mock.module('../../../../utils/log.js', () => ({
 
 mock.module('../../../../utils/sessionRestore.js', () => ({
   processResumedConversation: mockProcessResumedConversation,
+  restoreSessionStateFromLog: mockRestoreSessionStateFromLog,
 }))
 
 const { runContinueLaunch } = await import('../continueLauncher.js')
