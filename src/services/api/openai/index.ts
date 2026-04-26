@@ -212,16 +212,19 @@ export async function* queryModelOpenAI(
     //     thinking is enabled the thinking phase consumes the entire budget
     //     leaving no tokens for the final response.
     //
-    //     Keep the implicit OpenAI-compatible default aligned with the resolved
-    //     model upper limit. Gateways with smaller practical limits can still
-    //     lower this through OPENAI_MAX_TOKENS or CLAUDE_CODE_MAX_OUTPUT_TOKENS.
+    //     The Anthropic path's slot-reservation cap
+    //     (CAPPED_DEFAULT_MAX_TOKENS=8k) is paired with an auto-retry at 64k in
+    //     query.ts. The OpenAI path has no such retry, so the fallback stays
+    //     above that cap, but avoids defaulting to 64k because some
+    //     OpenAI-compatible gateways fail oversized max_tokens requests before
+    //     streaming any response.
     //
     //     Override priority:
     //     1. options.maxOutputTokensOverride (programmatic)
     //     2. OPENAI_MAX_TOKENS env var (OpenAI-specific, useful for local models
     //        with small context windows, e.g. RTX 3060 12GB running 65536-token models)
     //     3. CLAUDE_CODE_MAX_OUTPUT_TOKENS env var (generic override)
-    //     4. upperLimit default from the resolved model
+    //     4. min(upperLimit, 32k) default cap
     const { upperLimit } = getModelMaxOutputTokens(openaiModel)
     const maxTokens = resolveOpenAIMaxTokens(upperLimit, options.maxOutputTokensOverride)
 
