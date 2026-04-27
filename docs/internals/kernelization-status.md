@@ -355,33 +355,35 @@ session ownership 已经按 runtime-first 收口；后续如果继续改，是 p
 
 ## 工程验证状态
 
-截至 2026-04-24（本轮定向复核），当前工程验证结果如下：
+截至 2026-04-27（最终内核收口复核），当前工程验证结果如下：
 
 - 已通过：`bun run typecheck`
-- 已通过：kernel 相关定向 smoke / seam 测试，包括：
-  - `tests/integration/kernel-headless-smoke.test.ts`
-  - `tests/integration/kernel-server-smoke.test.ts`
-  - `src/kernel/__tests__/importDiscipline.test.ts`
-  - launcher 级编排测试（headless / direct-connect / server）
-- 已通过：server/runtime 定向 contract 与 lifecycle 测试，包括：
-  - `src/runtime/capabilities/server/__tests__/RuntimeDirectConnectSession.test.ts`
-  - `src/runtime/capabilities/server/__tests__/SessionRegistry.test.ts`
-  - `src/runtime/capabilities/server/__tests__/DirectConnectSessionApi.test.ts`
-  - `src/runtime/capabilities/server/__tests__/contracts.test.ts`
-  - `src/kernel/__tests__/serverHost.test.ts`
 - 已通过：`bun run build`
-- 已通过：`node -e "import('./dist/kernel.js')"` 可导入 built entry
-- 已通过：`bun -e "import('@go-hare/hare-code/kernel')"` 可导入 package-level kernel entry
-- 已通过：`tests/integration/kernel-package-smoke.test.ts`
-  - built package `@go-hare/hare-code/kernel` 已与稳定 kernel root surface 对齐
-- 已通过：`src/runtime/capabilities/bridge/__tests__/contracts.test.ts`
-- 已通过：`src/runtime/capabilities/daemon/__tests__/contracts.test.ts`
-- 未复跑：`bun run test:all`
-- 未复跑：`bun run lint`
+- 已通过：`bun test`
+  - 4155 pass / 0 fail
+- 已通过：kernel runtime 定向测试，包括：
+  - `src/runtime/capabilities/execution/internal/__tests__/headlessRuntimeTurnId.test.ts`
+  - `src/runtime/capabilities/execution/internal/__tests__/headlessStreaming.test.ts`
+  - `src/runtime/capabilities/execution/internal/__tests__/headlessRuntimeEventOutput.test.ts`
+  - `src/runtime/capabilities/execution/internal/__tests__/headlessConversationAdapter.test.ts`
+  - `tests/integration/kernel-runtime-wire-smoke.test.ts`
+  - `tests/integration/kernel-runtime-wire-transport.test.ts`
+  - `tests/integration/kernel-runtime-wire-crash-recovery.test.ts`
+- 已通过：`scripts/kernel-deep-smoke.ts --built`
+  - current source / built Bun / built Node 均产生 runtime-first
+    `kernel_runtime_event` + `headless.sdk_message`
+  - smoke 守卫确认没有 `turnId: ""` 的 runtime envelope
+- 已通过：changed-file lint
+  - `headlessRuntimeLoop.ts`
+  - `headlessRuntimeTurnId.ts`
+  - `headlessRuntimeTurnId.test.ts`
+- 整仓 `bun run lint` 未作为内核完成 blocker：当前失败来自既有 lint 存量，
+  例如 `src/Tool.ts` 的 useless continue 与 `src/bridge/bridgeMain.ts` /
+  CLI 文件中的 unused suppression，和本轮 runtime turn identity 收口无关。
 
-## 收口原则
+## 防回归原则
 
-后续收口应遵循以下原则：
+后续如果发现 kernel 边界回归，应遵循以下原则：
 
 1. 先收调用入口，再决定是否搬实现
 2. 先统一顶层宿主引用，再清理内部深路径
@@ -390,7 +392,7 @@ session ownership 已经按 runtime-first 收口；后续如果继续改，是 p
 5. CLI 始终保留第一宿主地位，剥离的是可复用核心实现，不是 CLI 宿主身份
 6. 等接口边界稳定后再补更强的 contract / smoke tests
 
-## 当前推荐执行阶段
+## 历史推荐执行阶段
 
 ### Phase 1
 

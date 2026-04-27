@@ -376,6 +376,7 @@ import { initializeGrowthBook } from '../../../../services/analytics/growthbook.
 import { errorMessage, toError } from '../../../../utils/errors.js'
 import { sleep } from '../../../../utils/sleep.js'
 import { isExtractModeActive } from '../../../../memdir/paths.js'
+import { resolveHeadlessRuntimeTurnId } from './headlessRuntimeTurnId.js'
 
 // Dead code elimination: conditional imports
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -1899,7 +1900,7 @@ function runHeadlessStreaming(
           // const-capture: TS loses `while ((command = dequeue()))` narrowing
           // inside the closure.
           const cmd = command
-          const runtimeTurnId = cmd.uuid ?? randomUUID()
+          const runtimeTurnId = resolveHeadlessRuntimeTurnId(cmd.uuid)
           headlessConversation.runTurn({
             turnId: runtimeTurnId,
             prompt: input,

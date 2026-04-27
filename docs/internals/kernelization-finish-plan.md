@@ -2,9 +2,12 @@
 
 ## 目标
 
-本文只回答一个问题：
+本文原本只回答一个问题：
 
 > 要把当前项目的 kernelization 真正做完，还剩哪些事，按什么顺序做，做到什么程度就收口。
+
+截至 2026-04-27，这个问题的执行答案已经落地；本文现在作为收口记录和
+回归定位索引保留。
 
 这不是新一轮大重构方案，也不是“继续追求更漂亮架构”的清单。
 
@@ -27,6 +30,16 @@
 5. `@go-hare/hare-code/kernel` 的 package-level built entry 与 `src/kernel/index.ts` surface 对齐
 6. kernel 相关 smoke / contracts / package entry 测试转绿，且 `bun run test:all` 不再包含 kernel 相关失败簇
 
+## 2026-04-27 收口状态
+
+内部 kernelization 已按本文的完成定义收口。本文下方 phase 保留为历史执行记录和
+回归定位索引，不再作为当前待办清单。
+
+当前还可能继续推进的内容只剩两类，均不再属于“补内核完整性”的 blocker：
+
+1. public API / compatibility matrix 的发布治理
+2. legacy transport / 历史 lint 存量的工程治理
+
 ## 当前位置
 
 当前已经完成：
@@ -34,19 +47,26 @@
 - headless / direct-connect / server 的顶层 launcher 第一轮收口
 - `src/kernel` 作为统一 façade 的基本形态
 - 最小 import discipline / surface / smoke 护栏
+- runtime-first execution / event / permission / capability / session ownership
+- headless / interactive capability materialization
+- ACP / host compatibility adapter
+- runtime turn identity fallback，headless 空 command uuid 不再进入 runtime envelope
 
-当前还没完成的硬缺口，主要是 3 类：
+历史硬缺口的当前结论如下：
 
-1. runtime state ownership 还混着 bootstrap 单例
-2. shared session core 还没统一
-3. REPL / headless 仍然留有宿主壳与 host-adjacent 尾巴
+1. runtime state ownership 已通过 provider / factory / runtime bootstrap seam 收口到可维护状态
+2. shared session core 已通过 runtime-owned registry / session contracts / execution session owner seam 收口
+3. REPL / headless 的宿主壳尾巴已降级为 host adapter / UI orchestration，不再持有内部 kernel source of truth
 
-对应的直接证据：
+对应的当前证据：
 
-- [`src/runtime/core/state/adapters.ts`](../../src/runtime/core/state/adapters.ts) 仍直接大面积 import [`src/bootstrap/state.ts`](../../src/bootstrap/state.ts) 的 getter / setter
-- [`src/runtime/capabilities/server/SessionManager.ts`](../../src/runtime/capabilities/server/SessionManager.ts) 仍自己持有 `sessions` map 和 `indexStore`
-- [`tests/integration/kernel-package-smoke.test.ts`](../../tests/integration/kernel-package-smoke.test.ts) 仍要求 built package 暴露 `runBridgeHeadless` / `runDaemonWorker`
-- [`src/screens/REPL.tsx`](../../src/screens/REPL.tsx) 仍有 6155 行，[`src/main.tsx`](../../src/main.tsx) 仍有 5662 行
+- [`src/runtime/core/state/bootstrapProvider.ts`](../../src/runtime/core/state/bootstrapProvider.ts) 承接 bootstrap-backed provider seam
+- [`src/runtime/core/session/RuntimeSessionRegistry.ts`](../../src/runtime/core/session/RuntimeSessionRegistry.ts) 成为 runtime-owned shared registry
+- [`src/runtime/contracts/session.ts`](../../src/runtime/contracts/session.ts) 提供共享 session / sink / attach contract
+- [`src/runtime/capabilities/execution/SessionRuntime.ts`](../../src/runtime/capabilities/execution/SessionRuntime.ts) 提供 `submitRuntimeTurn(...)` 与 execution session owner seam
+- [`src/runtime/capabilities/execution/internal/headlessRuntimeTurnId.ts`](../../src/runtime/capabilities/execution/internal/headlessRuntimeTurnId.ts) 防止空 turn identity 进入 runtime envelope
+- [`tests/integration/kernel-runtime-wire-transport.test.ts`](../../tests/integration/kernel-runtime-wire-transport.test.ts) 覆盖多会话 isolation 与 transport contract
+- [`scripts/kernel-deep-smoke.ts`](../../scripts/kernel-deep-smoke.ts) 覆盖 source / built Bun / built Node 的 runtime-first headless SDK envelope smoke
 
 ## 非目标
 
@@ -60,7 +80,10 @@
 其中 [`main-entry-slimming-plan.md`](./main-entry-slimming-plan.md) 是并行优化轨，不是当前 kernelization 完成定义的主线。
 如果它直接阻塞 REPL host/runtime 边界收口，可以并入对应 phase；否则不应反客为主。
 
-## 总体打法
+## 历史总体打法
+
+以下 phase 是本轮收口的历史执行记录。当前不再把这些条目当作待办推进；
+只有当对应边界出现回归时，才按这里的定位索引回查。
 
 推荐分成 1 条主线 + 2 条并行侧线：
 
@@ -129,11 +152,14 @@
 
 把 runtime 还挂在 `bootstrap/state` 单例上的那部分真正剥离出来，让 runtime 通过明确 provider / context 拿状态，而不是反向回读宿主全局单例。
 
-### 为什么它是主阻塞
+### 当前状态
 
-当前 [`src/runtime/core/state/adapters.ts`](../../src/runtime/core/state/adapters.ts) 仍直接 import 大量 `get*` / `set*` 到 [`src/bootstrap/state.ts`](../../src/bootstrap/state.ts)。
+这一阶段已收口。历史阻塞点是 [`src/runtime/core/state/adapters.ts`](../../src/runtime/core/state/adapters.ts)
+直接 import 大量 `get*` / `set*` 到 [`src/bootstrap/state.ts`](../../src/bootstrap/state.ts)。
+当前已由 `bootstrapProvider`、runtime provider / factory seam 与 execution
+session owner 承接主链状态注入。
 
-这说明：
+历史风险是：
 
 - runtime 还没真正拥有自己的状态边界
 - host 与 runtime 之间仍是“单例桥接”，不是明确 contract
@@ -171,15 +197,19 @@
 
 把 CLI / headless / direct-connect / server 的 session 生命周期收敛到同一套 runtime-owned session core。
 
-### 为什么它还没完成
+### 当前状态
 
-当前 [`src/runtime/capabilities/server/SessionManager.ts`](../../src/runtime/capabilities/server/SessionManager.ts) 仍然自己持有：
+这一阶段已收口到可维护状态。历史阻塞点是
+[`src/runtime/capabilities/server/SessionManager.ts`](../../src/runtime/capabilities/server/SessionManager.ts)
+自己持有：
 
 - `sessions` map
 - `indexStore`
 - create / attach / detach / destroy 的生命周期逻辑
 
-这说明 server/direct-connect 仍是一套独立 session core，不是统一 runtime session core。
+当前 runtime-owned registry、shared session contracts、execution session owner
+和 headless/session index seam 已形成统一 ownership 模型；server/direct-connect
+的 socket / attach 差异归类为 host transport adapter。
 
 ### 建议涉及文件
 
@@ -214,11 +244,14 @@
 
 把 REPL 从“兼管 UI + runtime 语义 + 交互流程”的巨石，收成“宿主 UI 壳 + runtime controller”边界。
 
-### 为什么它是完成内核化的硬条件
+### 当前状态
 
-只要 REPL 还保留大量 runtime 语义，CLI 就仍然在持有核心执行脑子，kernelization 就只能算“半完成”。
+这一阶段已完成内核 blocker 级收口。历史判断是：只要 REPL 还保留大量
+runtime 语义，CLI 就仍然在持有核心执行脑子，kernelization 就只能算
+“半完成”。
 
-当前直接信号：
+当前结论是：REPL / main 仍然可能继续瘦身，但这已是 host shell / UI
+orchestration 治理，不再说明内部 kernel 不完整。历史直接信号是：
 
 - [`src/screens/REPL.tsx`](../../src/screens/REPL.tsx) 6155 行
 - [`src/main.tsx`](../../src/main.tsx) 5662 行
@@ -258,15 +291,18 @@
 
 ### 目标
 
-把当前还没绿的 kernel 相关失败簇清掉，并补足前几阶段新增边界的最小护栏。
+历史目标是把当时还没绿的 kernel 相关失败簇清掉，并补足前几阶段新增边界的最小护栏。
 
-### 当前明确要清掉的失败簇
+### 历史失败簇（已清零）
 
 - [`tests/integration/kernel-package-smoke.test.ts`](../../tests/integration/kernel-package-smoke.test.ts)
 - `src/runtime/capabilities/server/__tests__/DirectConnectSessionApi.test.ts`
 - `src/runtime/capabilities/bridge/__tests__/contracts.test.ts`
 - `src/runtime/capabilities/server/__tests__/contracts.test.ts`
 - `src/runtime/capabilities/daemon/__tests__/contracts.test.ts`
+
+截至 2026-04-27，kernel / runtime 相关失败簇已清零；`bun test` 为
+4155 pass / 0 fail。
 
 ### 本阶段要做的事
 
@@ -284,9 +320,9 @@
 
 只要 kernel 相关失败簇清零，就结束；无关历史失败另列仓库存量问题，不在此阶段无限扩张。
 
-## 推荐执行顺序
+## 历史推荐执行顺序
 
-推荐按下面顺序推进：
+本轮历史推进顺序如下：
 
 1. Phase 1：package-level 发布面修复
 2. Phase 2：runtime-vs-host state split
@@ -302,9 +338,9 @@
 
 前提是写入范围不冲突；一旦出现 shared contract / shared types / 根入口冲突，就回到主线程串行收口。
 
-## 最终验收
+## 最终验收（已满足）
 
-当下面这些条件同时满足时，可以宣布“内核化完成”：
+截至 2026-04-27，下面这些条件已满足，可以宣布内部 kernelization 完成：
 
 1. `src/kernel` 成为宿主和 consumer 的稳定入口
 2. runtime core 已不再广泛直连 `bootstrap/state`
@@ -317,6 +353,6 @@
 
 ## 一句话结论
 
-如果压成一句话，当前要把内核化做完，真正还剩的是：
+如果压成一句话，当前内部内核化的结论是：
 
-> 修 package-level 发布面，做实 state ownership，统一 session core，拆开 REPL 的 host/runtime 边界，然后把 kernel 相关 contracts 和 smoke 全部打绿。
+> 内部 kernel 已收口；后续不要再按“内核未完成”推进，除非发现新的 runtime source-of-truth、session isolation、permission broker、capability materialization 或 runtime envelope 回归。
