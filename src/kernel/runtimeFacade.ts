@@ -47,12 +47,14 @@ import {
 import { createKernelRuntimeCapabilitiesFacade } from './runtimeCapabilities.js'
 import { createKernelRuntimeAgentsFacade } from './runtimeAgents.js'
 import { createKernelRuntimeCommandsFacade } from './runtimeCommands.js'
+import { createKernelRuntimeCoordinatorFacade } from './runtimeCoordinator.js'
 import { createKernelConversationFacade } from './runtimeConversation.js'
 import { createKernelRuntimeHooksFacade } from './runtimeHooks.js'
 import { createKernelRuntimeMcpFacade } from './runtimeMcp.js'
 import { createKernelRuntimePluginsFacade } from './runtimePlugins.js'
 import { createKernelRuntimeSkillsFacade } from './runtimeSkills.js'
 import { createKernelRuntimeTasksFacade } from './runtimeTasks.js'
+import { createKernelRuntimeTeamsFacade } from './runtimeTeams.js'
 import { createKernelRuntimeToolsFacade } from './runtimeTools.js'
 import {
   collectReplayEvents,
@@ -81,6 +83,8 @@ class KernelRuntimeFacade implements KernelRuntime {
   readonly plugins: KernelRuntime['plugins']
   readonly agents: KernelRuntime['agents']
   readonly tasks: KernelRuntime['tasks']
+  readonly teams: KernelRuntime['teams']
+  readonly coordinator: KernelRuntime['coordinator']
   readonly companion: KernelRuntime['companion']
   readonly kairos: KernelRuntime['kairos']
   readonly memory: KernelRuntime['memory']
@@ -108,6 +112,15 @@ class KernelRuntimeFacade implements KernelRuntime {
     this.plugins = createKernelRuntimePluginsFacade(this.client)
     this.agents = createKernelRuntimeAgentsFacade(this.client)
     this.tasks = createKernelRuntimeTasksFacade(this.client)
+    this.teams = createKernelRuntimeTeamsFacade({
+      client: this.client,
+      agents: this.agents,
+      tasks: this.tasks,
+    })
+    this.coordinator = createKernelRuntimeCoordinatorFacade({
+      agents: this.agents,
+      tasks: this.tasks,
+    })
     this.companion = createKernelRuntimeCompanionFacade(this.client)
     this.kairos = createKernelRuntimeKairosFacade(this.client)
     this.memory = createKernelRuntimeMemoryFacade(this.client)

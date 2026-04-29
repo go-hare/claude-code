@@ -70,6 +70,16 @@ import type {
   RuntimeTaskUpdateRequest,
 } from './task.js'
 import type {
+  RuntimeTeamCreateRequest,
+  RuntimeTeamCreateResult,
+  RuntimeTeamDescriptor,
+  RuntimeTeamDestroyRequest,
+  RuntimeTeamDestroyResult,
+  RuntimeTeamListSnapshot,
+  RuntimeTeamMessageRequest,
+  RuntimeTeamMessageResult,
+} from './team.js'
+import type {
   RuntimeToolCallRequest,
   RuntimeToolCallResult,
   RuntimeToolDescriptor,
@@ -124,6 +134,11 @@ export type KernelRuntimeCommandType =
   | 'create_task'
   | 'update_task'
   | 'assign_task'
+  | 'list_teams'
+  | 'get_team'
+  | 'create_team'
+  | 'send_team_message'
+  | 'destroy_team'
   | 'get_companion_state'
   | 'dispatch_companion_action'
   | 'react_companion'
@@ -428,6 +443,35 @@ export type KernelRuntimeAssignTaskCommand =
   KernelRuntimeCommandBase<'assign_task'> & RuntimeTaskAssignRequest
 
 export type KernelRuntimeTaskMutationResult = RuntimeTaskMutationResult
+
+export type KernelRuntimeListTeamsCommand =
+  KernelRuntimeCommandBase<'list_teams'>
+
+export type KernelRuntimeListTeamsResult = RuntimeTeamListSnapshot
+
+export type KernelRuntimeGetTeamCommand =
+  KernelRuntimeCommandBase<'get_team'> & {
+    teamName: string
+  }
+
+export type KernelRuntimeGetTeamResult = {
+  team: RuntimeTeamDescriptor | null
+}
+
+export type KernelRuntimeCreateTeamCommand =
+  KernelRuntimeCommandBase<'create_team'> & RuntimeTeamCreateRequest
+
+export type KernelRuntimeCreateTeamResult = RuntimeTeamCreateResult
+
+export type KernelRuntimeSendTeamMessageCommand =
+  KernelRuntimeCommandBase<'send_team_message'> & RuntimeTeamMessageRequest
+
+export type KernelRuntimeSendTeamMessageResult = RuntimeTeamMessageResult
+
+export type KernelRuntimeDestroyTeamCommand =
+  KernelRuntimeCommandBase<'destroy_team'> & RuntimeTeamDestroyRequest
+
+export type KernelRuntimeDestroyTeamResult = RuntimeTeamDestroyResult
 
 export type KernelRuntimeCompanionState = {
   seed: string
@@ -751,6 +795,11 @@ export type KernelRuntimeCommand =
   | KernelRuntimeCreateTaskCommand
   | KernelRuntimeUpdateTaskCommand
   | KernelRuntimeAssignTaskCommand
+  | KernelRuntimeListTeamsCommand
+  | KernelRuntimeGetTeamCommand
+  | KernelRuntimeCreateTeamCommand
+  | KernelRuntimeSendTeamMessageCommand
+  | KernelRuntimeDestroyTeamCommand
   | KernelRuntimeGetCompanionStateCommand
   | KernelRuntimeDispatchCompanionActionCommand
   | KernelRuntimeReactCompanionCommand

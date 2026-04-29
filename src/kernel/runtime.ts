@@ -151,6 +151,22 @@ import type {
   KernelTaskSnapshot,
   KernelTaskUpdateRequest,
 } from './runtimeTasks.js'
+import type {
+  KernelCoordinatorAssignmentFilter,
+  KernelRuntimeCoordinator,
+} from './runtimeCoordinator.js'
+import type {
+  KernelRuntimeTeams,
+  KernelTeamCreateRequest,
+  KernelTeamCreateResult,
+  KernelTeamDescriptor,
+  KernelTeamDetail,
+  KernelTeamDestroyRequest,
+  KernelTeamDestroyResult,
+  KernelTeamMessageRequest,
+  KernelTeamMessageResult,
+  KernelTeamSnapshot,
+} from './runtimeTeams.js'
 import type { KernelCompanionRuntime } from './companion.js'
 import type { KernelContextSnapshot } from './context.js'
 import type { KernelKairosRuntime } from './kairos.js'
@@ -289,6 +305,22 @@ export type {
   KernelTaskSnapshot,
   KernelTaskUpdateRequest,
 } from './runtimeTasks.js'
+export type {
+  KernelCoordinatorAssignmentFilter,
+  KernelRuntimeCoordinator,
+} from './runtimeCoordinator.js'
+export type {
+  KernelRuntimeTeams,
+  KernelTeamCreateRequest,
+  KernelTeamCreateResult,
+  KernelTeamDescriptor,
+  KernelTeamDetail,
+  KernelTeamDestroyRequest,
+  KernelTeamDestroyResult,
+  KernelTeamMessageRequest,
+  KernelTeamMessageResult,
+  KernelTeamSnapshot,
+} from './runtimeTeams.js'
 export type {
   KernelEventType,
   KernelKnownEvent,
@@ -466,6 +498,8 @@ export type KernelRuntime = {
   readonly plugins: KernelRuntimePlugins
   readonly agents: KernelRuntimeAgents
   readonly tasks: KernelRuntimeTasks
+  readonly teams: KernelRuntimeTeams
+  readonly coordinator: KernelRuntimeCoordinator
   readonly companion: KernelCompanionRuntime
   readonly kairos: KernelKairosRuntime
   readonly memory: KernelMemoryManager

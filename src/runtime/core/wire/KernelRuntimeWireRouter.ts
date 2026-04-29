@@ -81,6 +81,16 @@ import type {
   RuntimeTaskMutationResult,
   RuntimeTaskUpdateRequest,
 } from '../../contracts/task.js'
+import type {
+  RuntimeTeamCreateRequest,
+  RuntimeTeamCreateResult,
+  RuntimeTeamDescriptor,
+  RuntimeTeamDestroyRequest,
+  RuntimeTeamDestroyResult,
+  RuntimeTeamListSnapshot,
+  RuntimeTeamMessageRequest,
+  RuntimeTeamMessageResult,
+} from '../../contracts/team.js'
 import type { KernelTurnId, KernelTurnSnapshot } from '../../contracts/turn.js'
 import type {
   KernelRuntimeCompanionAction,
@@ -395,6 +405,26 @@ export type KernelRuntimeWireTaskRegistry = {
   ): Awaitable<RuntimeTaskMutationResult>
 }
 
+export type KernelRuntimeWireTeamRegistry = {
+  listTeams(context?: KernelRuntimeWireRequestContext): Awaitable<RuntimeTeamListSnapshot>
+  getTeam(
+    teamName: string,
+    context?: KernelRuntimeWireRequestContext,
+  ): Awaitable<RuntimeTeamDescriptor | null>
+  createTeam?(
+    request: RuntimeTeamCreateRequest,
+    context?: KernelRuntimeWireRequestContext,
+  ): Awaitable<RuntimeTeamCreateResult>
+  sendMessage?(
+    request: RuntimeTeamMessageRequest,
+    context?: KernelRuntimeWireRequestContext,
+  ): Awaitable<RuntimeTeamMessageResult>
+  destroyTeam?(
+    request: RuntimeTeamDestroyRequest,
+    context?: KernelRuntimeWireRequestContext,
+  ): Awaitable<RuntimeTeamDestroyResult>
+}
+
 export type KernelRuntimeWireCompanionRuntime = {
   getState(
     context?: KernelRuntimeWireRequestContext,
@@ -492,6 +522,7 @@ export type KernelRuntimeWireRouterOptions = {
   pluginCatalog?: KernelRuntimeWirePluginCatalog
   agentRegistry?: KernelRuntimeWireAgentRegistry
   taskRegistry?: KernelRuntimeWireTaskRegistry
+  teamRegistry?: KernelRuntimeWireTeamRegistry
   companionRuntime?: KernelRuntimeWireCompanionRuntime
   kairosRuntime?: KernelRuntimeWireKairosRuntime
   memoryManager?: KernelRuntimeWireMemoryManager
@@ -683,6 +714,16 @@ export class KernelRuntimeWireRouter {
           return [await this.handleUpdateTask(command)]
         case 'assign_task':
           return [await this.handleAssignTask(command)]
+        case 'list_teams':
+          return [await this.handleListTeams(command)]
+        case 'get_team':
+          return [await this.handleGetTeam(command)]
+        case 'create_team':
+          return [await this.handleCreateTeam(command)]
+        case 'send_team_message':
+          return [await this.handleSendTeamMessage(command)]
+        case 'destroy_team':
+          return [await this.handleDestroyTeam(command)]
         case 'get_companion_state':
           return [await this.handleGetCompanionState(command)]
         case 'dispatch_companion_action':
@@ -2223,6 +2264,146 @@ export class KernelRuntimeWireRouter {
       payload: sanitizeWirePayload(result),
       metadata: command.metadata,
     })
+    return this.eventBus.ack({
+      requestId: command.requestId,
+      payload: sanitizeWirePayload(result),
+    })
+  }
+
+  private async handleListTeams(
+    command: Extract<KernelRuntimeCommand, { type: 'list_teams' }>,
+  ): Promise<KernelRuntimeEnvelopeBase> {
+    if (!this.options.teamRegistry) {
+      return this.eventBus.error({
+        requestId: command.requestId,
+        code: 'unavailable',
+        message: 'Team registry is not available',
+        retryable: false,
+      })
+    }
+
+    await this.requireCatalogCapability('teams', command)
+    const snapshot = await this.options.teamRegistry.listTeams({
+      cwd: this.runtimeWorkspacePath,
+      metadata: command.metadata,
+    })
+    return this.eventBus.ack({
+      requestId: command.requestId,
+      payload: sanitizeWirePayload(snapshot),
+    })
+  }
+
+  private async handleGetTeam(
+    command: Extract<KernelRuntimeCommand, { type: 'get_team' }>,
+  ): Promise<KernelRuntimeEnvelopeBase> {
+    if (!this.options.teamRegistry) {
+      return this.eventBus.error({
+        requestId: command.requestId,
+        code: 'unavailable',
+        message: 'Team registry is not available',
+        retryable: false,
+      })
+    }
+
+    await this.requireCatalogCapability('teams', command)
+    const team = await this.options.teamRegistry.getTeam(command.teamName, {
+      cwd: this.runtimeWorkspacePath,
+      metadata: command.metadata,
+    })
+    return this.eventBus.ack({
+      requestId: command.requestId,
+      payload: {
+        team: sanitizeWirePayload(team),
+      },
+    })
+  }
+
+  private async handleCreateTeam(
+    command: Extract<KernelRuntimeCommand, { type: 'create_team' }>,
+  ): Promise<KernelRuntimeEnvelopeBase> {
+    const createTeam = this.options.teamRegistry?.createTeam
+    if (!createTeam) {
+      return this.eventBus.error({
+        requestId: command.requestId,
+        code: 'unavailable',
+        message: 'Team mutator is not available',
+        retryable: false,
+      })
+    }
+
+    await this.requireCatalogCapability('teams', command)
+    const result = await createTeam(stripWireCommandFields(command), {
+      cwd: this.runtimeWorkspacePath,
+      metadata: command.metadata,
+    })
+    this.eventBus.emit({
+      type: 'teams.created',
+      replayable: true,
+      payload: sanitizeWirePayload(result),
+      metadata: command.metadata,
+    })
+    return this.eventBus.ack({
+      requestId: command.requestId,
+      payload: sanitizeWirePayload(result),
+    })
+  }
+
+  private async handleSendTeamMessage(
+    command: Extract<KernelRuntimeCommand, { type: 'send_team_message' }>,
+  ): Promise<KernelRuntimeEnvelopeBase> {
+    const sendMessage = this.options.teamRegistry?.sendMessage
+    if (!sendMessage) {
+      return this.eventBus.error({
+        requestId: command.requestId,
+        code: 'unavailable',
+        message: 'Team messaging is not available',
+        retryable: false,
+      })
+    }
+
+    await this.requireCatalogCapability('teams', command)
+    const result = await sendMessage(stripWireCommandFields(command), {
+      cwd: this.runtimeWorkspacePath,
+      metadata: command.metadata,
+    })
+    this.eventBus.emit({
+      type: 'teams.message.sent',
+      replayable: true,
+      payload: sanitizeWirePayload(result),
+      metadata: command.metadata,
+    })
+    return this.eventBus.ack({
+      requestId: command.requestId,
+      payload: sanitizeWirePayload(result),
+    })
+  }
+
+  private async handleDestroyTeam(
+    command: Extract<KernelRuntimeCommand, { type: 'destroy_team' }>,
+  ): Promise<KernelRuntimeEnvelopeBase> {
+    const destroyTeam = this.options.teamRegistry?.destroyTeam
+    if (!destroyTeam) {
+      return this.eventBus.error({
+        requestId: command.requestId,
+        code: 'unavailable',
+        message: 'Team mutator is not available',
+        retryable: false,
+      })
+    }
+
+    await this.requireCatalogCapability('teams', command)
+    const result = await destroyTeam(stripWireCommandFields(command), {
+      cwd: this.runtimeWorkspacePath,
+      metadata: command.metadata,
+    })
+    if (result.success) {
+      this.eventBus.emit({
+        type: 'teams.destroyed',
+        replayable: true,
+        payload: sanitizeWirePayload(result),
+        metadata: command.metadata,
+      })
+    }
     return this.eventBus.ack({
       requestId: command.requestId,
       payload: sanitizeWirePayload(result),

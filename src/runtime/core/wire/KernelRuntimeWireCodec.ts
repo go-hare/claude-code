@@ -17,7 +17,9 @@ import type {
   KernelRuntimeCommandType,
   KernelRuntimeConnectMcpCommand,
   KernelRuntimeConnectHostCommand,
+  KernelRuntimeCreateTeamCommand,
   KernelRuntimeDispatchCompanionActionCommand,
+  KernelRuntimeDestroyTeamCommand,
   KernelRuntimeEnqueueKairosEventCommand,
   KernelRuntimeCreateTaskCommand,
   KernelRuntimeCreateConversationCommand,
@@ -34,6 +36,7 @@ import type {
   KernelRuntimeGetSessionTranscriptCommand,
   KernelRuntimeGetSystemPromptInjectionCommand,
   KernelRuntimeGetTaskCommand,
+  KernelRuntimeGetTeamCommand,
   KernelRuntimeInstallPluginCommand,
   KernelRuntimeInitCommand,
   KernelRuntimeListAgentsCommand,
@@ -48,6 +51,7 @@ import type {
   KernelRuntimeListPluginsCommand,
   KernelRuntimeListSkillsCommand,
   KernelRuntimeListTasksCommand,
+  KernelRuntimeListTeamsCommand,
   KernelRuntimeListToolsCommand,
   KernelRuntimePingCommand,
   KernelRuntimePublishHostEventCommand,
@@ -65,6 +69,7 @@ import type {
   KernelRuntimeResumeKairosCommand,
   KernelRuntimeResumeSessionCommand,
   KernelRuntimeRunHookCommand,
+  KernelRuntimeSendTeamMessageCommand,
   KernelRuntimeSetPluginEnabledCommand,
   KernelRuntimeRunTurnCommand,
   KernelRuntimeSetMcpEnabledCommand,
@@ -126,6 +131,11 @@ const COMMAND_TYPES = new Set<KernelRuntimeCommandType>([
   'create_task',
   'update_task',
   'assign_task',
+  'list_teams',
+  'get_team',
+  'create_team',
+  'send_team_message',
+  'destroy_team',
   'get_companion_state',
   'dispatch_companion_action',
   'react_companion',
@@ -385,6 +395,23 @@ export function parseKernelRuntimeCommand(
       return parseUpdateTaskCommand(record, requestId, metadata)
     case 'assign_task':
       return parseAssignTaskCommand(record, requestId, metadata)
+    case 'list_teams':
+      return withMetadata<KernelRuntimeListTeamsCommand>(
+        {
+          schemaVersion: KERNEL_RUNTIME_COMMAND_SCHEMA_VERSION,
+          type,
+          requestId,
+        },
+        metadata,
+      )
+    case 'get_team':
+      return parseGetTeamCommand(record, requestId, metadata)
+    case 'create_team':
+      return parseCreateTeamCommand(record, requestId, metadata)
+    case 'send_team_message':
+      return parseSendTeamMessageCommand(record, requestId, metadata)
+    case 'destroy_team':
+      return parseDestroyTeamCommand(record, requestId, metadata)
     case 'get_companion_state':
       return withMetadata<KernelRuntimeGetCompanionStateCommand>(
         {
@@ -1110,6 +1137,94 @@ function parseAssignTaskCommand(
     optionalStringArray(record, 'ownedFiles'),
   )
   assignOptional(command, 'status', optionalTaskStatus(record, 'status'))
+  assignOptional(command, 'metadata', optionalRecord(record, 'metadata'))
+  return withMetadata(command, metadata)
+}
+
+function parseGetTeamCommand(
+  record: JsonRecord,
+  requestId: string,
+  metadata: JsonRecord | undefined,
+): KernelRuntimeGetTeamCommand {
+  return withMetadata<KernelRuntimeGetTeamCommand>(
+    {
+      schemaVersion: KERNEL_RUNTIME_COMMAND_SCHEMA_VERSION,
+      type: 'get_team',
+      requestId,
+      teamName: requireString(record, 'teamName'),
+    },
+    metadata,
+  )
+}
+
+function parseCreateTeamCommand(
+  record: JsonRecord,
+  requestId: string,
+  metadata: JsonRecord | undefined,
+): KernelRuntimeCreateTeamCommand {
+  const command: KernelRuntimeCreateTeamCommand = {
+    schemaVersion: KERNEL_RUNTIME_COMMAND_SCHEMA_VERSION,
+    type: 'create_team',
+    requestId,
+    teamName: requireString(record, 'teamName'),
+  }
+  assignOptional(command, 'description', optionalString(record, 'description'))
+  assignOptional(
+    command,
+    'leadAgentType',
+    optionalString(record, 'leadAgentType'),
+  )
+  assignOptional(command, 'leadModel', optionalString(record, 'leadModel'))
+  assignOptional(
+    command,
+    'workspacePath',
+    optionalString(record, 'workspacePath'),
+  )
+  assignOptional(
+    command,
+    'leadSessionId',
+    optionalString(record, 'leadSessionId'),
+  )
+  assignOptional(
+    command,
+    'allowRename',
+    optionalBoolean(record, 'allowRename'),
+  )
+  assignOptional(command, 'metadata', optionalRecord(record, 'metadata'))
+  return withMetadata(command, metadata)
+}
+
+function parseSendTeamMessageCommand(
+  record: JsonRecord,
+  requestId: string,
+  metadata: JsonRecord | undefined,
+): KernelRuntimeSendTeamMessageCommand {
+  const command: KernelRuntimeSendTeamMessageCommand = {
+    schemaVersion: KERNEL_RUNTIME_COMMAND_SCHEMA_VERSION,
+    type: 'send_team_message',
+    requestId,
+    teamName: requireString(record, 'teamName'),
+    recipient: requireString(record, 'recipient'),
+    message: requireString(record, 'message'),
+  }
+  assignOptional(command, 'summary', optionalString(record, 'summary'))
+  assignOptional(command, 'sender', optionalString(record, 'sender'))
+  assignOptional(command, 'metadata', optionalRecord(record, 'metadata'))
+  return withMetadata(command, metadata)
+}
+
+function parseDestroyTeamCommand(
+  record: JsonRecord,
+  requestId: string,
+  metadata: JsonRecord | undefined,
+): KernelRuntimeDestroyTeamCommand {
+  const command: KernelRuntimeDestroyTeamCommand = {
+    schemaVersion: KERNEL_RUNTIME_COMMAND_SCHEMA_VERSION,
+    type: 'destroy_team',
+    requestId,
+    teamName: requireString(record, 'teamName'),
+  }
+  assignOptional(command, 'force', optionalBoolean(record, 'force'))
   assignOptional(command, 'metadata', optionalRecord(record, 'metadata'))
   return withMetadata(command, metadata)
 }

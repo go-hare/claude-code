@@ -24,6 +24,7 @@ import {
   type KernelRuntimeWireSessionManager,
   type KernelRuntimeWireSkillCatalog,
   type KernelRuntimeWireTaskRegistry,
+  type KernelRuntimeWireTeamRegistry,
   type KernelRuntimeWireToolCatalog,
   type KernelRuntimeWireTurnExecutor,
 } from '../runtime/core/wire/KernelRuntimeWireRouter.js'
@@ -68,6 +69,7 @@ import {
   createDefaultKernelRuntimeAgentRegistry,
   createDefaultKernelRuntimeTaskRegistry,
 } from './runtimeAgentTaskRegistries.js'
+import { createDefaultKernelRuntimeTeamRegistry } from './runtimeTeamsRegistry.js'
 import {
   createDefaultKernelRuntimeCompanionRuntime,
   createDefaultKernelRuntimeContextManager,
@@ -92,6 +94,7 @@ export type KernelRuntimeWireProtocolOptions = {
   pluginCatalog?: KernelRuntimeWirePluginCatalog
   agentRegistry?: KernelRuntimeWireAgentRegistry
   taskRegistry?: KernelRuntimeWireTaskRegistry
+  teamRegistry?: KernelRuntimeWireTeamRegistry
   companionRuntime?: KernelRuntimeWireCompanionRuntime
   kairosRuntime?: KernelRuntimeWireKairosRuntime
   memoryManager?: KernelRuntimeWireMemoryManager
@@ -203,6 +206,8 @@ export function createDefaultKernelRuntimeWireRouter(
     taskRegistry:
       options.taskRegistry ??
       createDefaultKernelRuntimeTaskRegistry(options.workspacePath),
+    teamRegistry:
+      options.teamRegistry ?? createDefaultKernelRuntimeTeamRegistry(),
     companionRuntime:
       options.companionRuntime ??
       createDefaultKernelRuntimeCompanionRuntime(),
@@ -302,7 +307,11 @@ export type {
   KernelRuntimeConnectMcpCommand,
   KernelRuntimeConnectMcpResult,
   KernelRuntimeCreateTaskCommand,
+  KernelRuntimeCreateTeamCommand,
+  KernelRuntimeCreateTeamResult,
   KernelRuntimeDecidePermissionCommand,
+  KernelRuntimeDestroyTeamCommand,
+  KernelRuntimeDestroyTeamResult,
   KernelRuntimeDisconnectHostCommand,
   KernelRuntimeExecuteCommandCommand,
   KernelRuntimeExecuteCommandResult,
@@ -311,6 +320,8 @@ export type {
   KernelRuntimeGetAgentRunCommand,
   KernelRuntimeGetAgentRunResult,
   KernelRuntimeGetTaskCommand,
+  KernelRuntimeGetTeamCommand,
+  KernelRuntimeGetTeamResult,
   KernelRuntimeHostDisconnectPolicy,
   KernelRuntimeInstallPluginCommand,
   KernelRuntimeInstallPluginResult,
@@ -332,6 +343,8 @@ export type {
   KernelRuntimeListSkillsResult,
   KernelRuntimeListTasksCommand,
   KernelRuntimeListTasksResult,
+  KernelRuntimeListTeamsCommand,
+  KernelRuntimeListTeamsResult,
   KernelRuntimeListToolsCommand,
   KernelRuntimeListToolsResult,
   KernelRuntimeReloadAgentsCommand,
@@ -350,6 +363,8 @@ export type {
   KernelRuntimeResolveSkillContextResult,
   KernelRuntimeRunHookCommand,
   KernelRuntimeRunHookResult,
+  KernelRuntimeSendTeamMessageCommand,
+  KernelRuntimeSendTeamMessageResult,
   KernelRuntimeSetMcpEnabledCommand,
   KernelRuntimeSetMcpEnabledResult,
   KernelRuntimeSetPluginEnabledCommand,
@@ -381,6 +396,7 @@ export type {
   KernelRuntimeWireRouter,
   KernelRuntimeWireSkillCatalog,
   KernelRuntimeWireTaskRegistry,
+  KernelRuntimeWireTeamRegistry,
   KernelRuntimeWireToolCatalog,
 } from '../runtime/core/wire/KernelRuntimeWireRouter.js'
 export type {

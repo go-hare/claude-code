@@ -14,6 +14,7 @@ import type {
 import type {
   KernelRuntimeAssignTaskCommand,
   KernelRuntimeDispatchCompanionActionCommand,
+  KernelRuntimeDestroyTeamCommand,
   KernelRuntimeEnqueueKairosEventCommand,
   KernelRuntimeAuthenticateMcpCommand,
   KernelRuntimeCancelAgentRunCommand,
@@ -22,6 +23,7 @@ import type {
   KernelRuntimeConnectMcpCommand,
   KernelRuntimeConnectHostCommand,
   KernelRuntimeCreateTaskCommand,
+  KernelRuntimeCreateTeamCommand,
   KernelRuntimeCreateConversationCommand,
   KernelRuntimeDecidePermissionCommand,
   KernelRuntimeDisconnectHostCommand,
@@ -34,6 +36,7 @@ import type {
   KernelRuntimeGetSessionTranscriptCommand,
   KernelRuntimeGetSystemPromptInjectionCommand,
   KernelRuntimeGetTaskCommand,
+  KernelRuntimeGetTeamCommand,
   KernelRuntimeHostDisconnectPolicy,
   KernelRuntimeInstallPluginCommand,
   KernelRuntimeListAgentRunsCommand,
@@ -48,6 +51,7 @@ import type {
   KernelRuntimeListPluginsCommand,
   KernelRuntimeListSkillsCommand,
   KernelRuntimeListTasksCommand,
+  KernelRuntimeListTeamsCommand,
   KernelRuntimeListToolsCommand,
   KernelRuntimeReloadAgentsCommand,
   KernelRuntimeReloadCapabilitiesCommand,
@@ -64,6 +68,7 @@ import type {
   KernelRuntimeResolveSkillContextCommand,
   KernelRuntimeSetSystemPromptInjectionCommand,
   KernelRuntimeRunHookCommand,
+  KernelRuntimeSendTeamMessageCommand,
   KernelRuntimeSetMcpEnabledCommand,
   KernelRuntimeSetPluginEnabledCommand,
   KernelRuntimeSpawnAgentCommand,
@@ -365,6 +370,36 @@ export type KernelRuntimeWireClient = {
   assignTask(
     command: Omit<
       KernelRuntimeWireClientCommand<KernelRuntimeAssignTaskCommand>,
+      'type'
+    >,
+  ): Promise<KernelRuntimeEnvelopeBase>
+  listTeams(
+    options?: Pick<
+      KernelRuntimeWireClientCommand<KernelRuntimeListTeamsCommand>,
+      'requestId' | 'metadata'
+    >,
+  ): Promise<KernelRuntimeEnvelopeBase>
+  getTeam(
+    options: Pick<
+      KernelRuntimeWireClientCommand<KernelRuntimeGetTeamCommand>,
+      'teamName' | 'requestId' | 'metadata'
+    >,
+  ): Promise<KernelRuntimeEnvelopeBase>
+  createTeam(
+    command: Omit<
+      KernelRuntimeWireClientCommand<KernelRuntimeCreateTeamCommand>,
+      'type'
+    >,
+  ): Promise<KernelRuntimeEnvelopeBase>
+  sendTeamMessage(
+    command: Omit<
+      KernelRuntimeWireClientCommand<KernelRuntimeSendTeamMessageCommand>,
+      'type'
+    >,
+  ): Promise<KernelRuntimeEnvelopeBase>
+  destroyTeam(
+    command: Omit<
+      KernelRuntimeWireClientCommand<KernelRuntimeDestroyTeamCommand>,
       'type'
     >,
   ): Promise<KernelRuntimeEnvelopeBase>
@@ -741,6 +776,31 @@ export function createKernelRuntimeWireClient(
       request<KernelRuntimeAssignTaskCommand>({
         ...command,
         type: 'assign_task',
+      }),
+    listTeams: (command = {}) =>
+      request<KernelRuntimeListTeamsCommand>({
+        ...command,
+        type: 'list_teams',
+      }),
+    getTeam: command =>
+      request<KernelRuntimeGetTeamCommand>({
+        ...command,
+        type: 'get_team',
+      }),
+    createTeam: command =>
+      request<KernelRuntimeCreateTeamCommand>({
+        ...command,
+        type: 'create_team',
+      }),
+    sendTeamMessage: command =>
+      request<KernelRuntimeSendTeamMessageCommand>({
+        ...command,
+        type: 'send_team_message',
+      }),
+    destroyTeam: command =>
+      request<KernelRuntimeDestroyTeamCommand>({
+        ...command,
+        type: 'destroy_team',
       }),
     getCompanionState: (command = {}) =>
       request<KernelRuntimeGetCompanionStateCommand>({

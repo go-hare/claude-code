@@ -47,6 +47,7 @@ const CAPABILITY_FAMILY_BY_NAME: Record<string, KernelCapabilityFamily> = {
   bridge: 'host',
   commands: 'extension',
   companion: 'autonomy',
+  coordinator: 'extension',
   context: 'execution',
   conversation: 'execution',
   daemon: 'host',
@@ -65,6 +66,7 @@ const CAPABILITY_FAMILY_BY_NAME: Record<string, KernelCapabilityFamily> = {
   sessions: 'execution',
   skills: 'extension',
   tasks: 'extension',
+  teams: 'extension',
   tools: 'extension',
   turn: 'execution',
 }

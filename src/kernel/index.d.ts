@@ -1096,6 +1096,83 @@ export type KernelTaskMutationResult = {
   assigned?: boolean
 }
 
+export type KernelTeamMemberDescriptor = {
+  agentId: string
+  name: string
+  agentType?: string
+  model?: string
+  color?: string
+  joinedAt: number
+  cwd: string
+  tmuxPaneId?: string
+  worktreePath?: string
+  sessionId?: string
+  backendType?: string
+  isActive?: boolean
+  mode?: string
+}
+
+export type KernelTeamDescriptor = {
+  teamName: string
+  description?: string
+  taskListId: string
+  teamFilePath: string
+  createdAt: number
+  leadAgentId: string
+  leadSessionId?: string
+  memberCount: number
+  activeMemberCount: number
+  members: readonly KernelTeamMemberDescriptor[]
+}
+
+export type KernelTeamSnapshot = {
+  teams: readonly KernelTeamDescriptor[]
+}
+
+export type KernelTeamCreateRequest = {
+  teamName: string
+  description?: string
+  leadAgentType?: string
+  leadModel?: string
+  workspacePath?: string
+  leadSessionId?: string
+  allowRename?: boolean
+}
+
+export type KernelTeamCreateResult = {
+  created: boolean
+  team: KernelTeamDescriptor
+  requestedTeamName?: string
+  message?: string
+}
+
+export type KernelTeamMessageRequest = {
+  teamName: string
+  recipient: string | '*'
+  message: string
+  summary?: string
+  sender?: string
+}
+
+export type KernelTeamMessageResult = {
+  success: boolean
+  teamName: string
+  recipients: readonly string[]
+  message: string
+}
+
+export type KernelTeamDestroyRequest = {
+  teamName: string
+  force?: boolean
+}
+
+export type KernelTeamDestroyResult = {
+  success: boolean
+  teamName: string
+  message: string
+  blockedMembers?: readonly string[]
+}
+
 export declare const KERNEL_RUNTIME_COMMAND_SCHEMA_VERSION: 'kernel.runtime.command.v1'
 
 export type KernelRuntimeCommandType =
@@ -1144,6 +1221,11 @@ export type KernelRuntimeCommandType =
   | 'create_task'
   | 'update_task'
   | 'assign_task'
+  | 'list_teams'
+  | 'get_team'
+  | 'create_team'
+  | 'send_team_message'
+  | 'destroy_team'
   | 'publish_host_event'
   | 'subscribe_events'
   | 'ping'
@@ -1531,6 +1613,35 @@ export type KernelRuntimeAssignTaskCommand =
 
 export type KernelRuntimeTaskMutationResult = KernelTaskMutationResult
 
+export type KernelRuntimeListTeamsCommand =
+  KernelRuntimeCommandBase<'list_teams'>
+
+export type KernelRuntimeListTeamsResult = KernelTeamSnapshot
+
+export type KernelRuntimeGetTeamCommand =
+  KernelRuntimeCommandBase<'get_team'> & {
+    teamName: string
+  }
+
+export type KernelRuntimeGetTeamResult = {
+  team: KernelTeamDescriptor | null
+}
+
+export type KernelRuntimeCreateTeamCommand =
+  KernelRuntimeCommandBase<'create_team'> & KernelTeamCreateRequest
+
+export type KernelRuntimeCreateTeamResult = KernelTeamCreateResult
+
+export type KernelRuntimeSendTeamMessageCommand =
+  KernelRuntimeCommandBase<'send_team_message'> & KernelTeamMessageRequest
+
+export type KernelRuntimeSendTeamMessageResult = KernelTeamMessageResult
+
+export type KernelRuntimeDestroyTeamCommand =
+  KernelRuntimeCommandBase<'destroy_team'> & KernelTeamDestroyRequest
+
+export type KernelRuntimeDestroyTeamResult = KernelTeamDestroyResult
+
 export type KernelRuntimePublishHostEventCommand =
   KernelRuntimeCommandBase<'publish_host_event'> & {
     event: KernelEvent
@@ -1592,6 +1703,11 @@ export type KernelRuntimeCommand =
   | KernelRuntimeCreateTaskCommand
   | KernelRuntimeUpdateTaskCommand
   | KernelRuntimeAssignTaskCommand
+  | KernelRuntimeListTeamsCommand
+  | KernelRuntimeGetTeamCommand
+  | KernelRuntimeCreateTeamCommand
+  | KernelRuntimeSendTeamMessageCommand
+  | KernelRuntimeDestroyTeamCommand
   | KernelRuntimePublishHostEventCommand
   | KernelRuntimeSubscribeEventsCommand
   | KernelRuntimePingCommand
@@ -1956,6 +2072,36 @@ export type KernelRuntimeWireClient = {
       'type'
     >,
   ): Promise<KernelRuntimeEnvelopeBase>
+  listTeams(
+    options?: Pick<
+      KernelRuntimeWireClientCommand<KernelRuntimeListTeamsCommand>,
+      'requestId' | 'metadata'
+    >,
+  ): Promise<KernelRuntimeEnvelopeBase>
+  getTeam(
+    options: Pick<
+      KernelRuntimeWireClientCommand<KernelRuntimeGetTeamCommand>,
+      'teamName' | 'requestId' | 'metadata'
+    >,
+  ): Promise<KernelRuntimeEnvelopeBase>
+  createTeam(
+    command: Omit<
+      KernelRuntimeWireClientCommand<KernelRuntimeCreateTeamCommand>,
+      'type'
+    >,
+  ): Promise<KernelRuntimeEnvelopeBase>
+  sendTeamMessage(
+    command: Omit<
+      KernelRuntimeWireClientCommand<KernelRuntimeSendTeamMessageCommand>,
+      'type'
+    >,
+  ): Promise<KernelRuntimeEnvelopeBase>
+  destroyTeam(
+    command: Omit<
+      KernelRuntimeWireClientCommand<KernelRuntimeDestroyTeamCommand>,
+      'type'
+    >,
+  ): Promise<KernelRuntimeEnvelopeBase>
   publishHostEvent(
     event: KernelEvent,
     options?: { requestId?: string; metadata?: Record<string, unknown> },
@@ -2233,6 +2379,28 @@ export type KernelRuntimeWireTaskRegistry = {
   ): KernelTaskMutationResult | Promise<KernelTaskMutationResult>
 }
 
+export type KernelRuntimeWireTeamRegistry = {
+  listTeams(
+    context?: { cwd?: string; metadata?: Record<string, unknown> },
+  ): KernelTeamSnapshot | Promise<KernelTeamSnapshot>
+  getTeam(
+    teamName: string,
+    context?: { cwd?: string; metadata?: Record<string, unknown> },
+  ): KernelTeamDescriptor | null | Promise<KernelTeamDescriptor | null>
+  createTeam?(
+    request: KernelTeamCreateRequest,
+    context?: { cwd?: string; metadata?: Record<string, unknown> },
+  ): KernelTeamCreateResult | Promise<KernelTeamCreateResult>
+  sendMessage?(
+    request: KernelTeamMessageRequest,
+    context?: { cwd?: string; metadata?: Record<string, unknown> },
+  ): KernelTeamMessageResult | Promise<KernelTeamMessageResult>
+  destroyTeam?(
+    request: KernelTeamDestroyRequest,
+    context?: { cwd?: string; metadata?: Record<string, unknown> },
+  ): KernelTeamDestroyResult | Promise<KernelTeamDestroyResult>
+}
+
 export type KernelRuntimeWireProtocolOptions = {
   runtimeId?: string
   workspacePath?: string
@@ -2248,6 +2416,7 @@ export type KernelRuntimeWireProtocolOptions = {
   pluginCatalog?: KernelRuntimeWirePluginCatalog
   agentRegistry?: KernelRuntimeWireAgentRegistry
   taskRegistry?: KernelRuntimeWireTaskRegistry
+  teamRegistry?: KernelRuntimeWireTeamRegistry
   companionRuntime?: {
     getState(
       context?: { cwd?: string; metadata?: Record<string, unknown> },
@@ -2604,6 +2773,46 @@ export type KernelRuntimeTasks = {
   assign(request: KernelTaskAssignRequest): Promise<KernelTaskMutationResult>
 }
 
+export type KernelTeamDetail = KernelTeamDescriptor & {
+  tasks: readonly KernelTaskDescriptor[]
+  runs: readonly KernelAgentRunDescriptor[]
+}
+
+export type KernelRuntimeTeams = {
+  list(): Promise<readonly KernelTeamDescriptor[]>
+  get(teamName: string): Promise<KernelTeamDetail | undefined>
+  create(request: KernelTeamCreateRequest): Promise<KernelTeamCreateResult>
+  send(request: KernelTeamMessageRequest): Promise<KernelTeamMessageResult>
+  destroy(request: KernelTeamDestroyRequest): Promise<KernelTeamDestroyResult>
+}
+
+export type KernelCoordinatorAssignmentFilter = {
+  taskListId?: string
+  owner?: string | readonly string[]
+  status?: KernelCoordinatorTaskStatus | readonly KernelCoordinatorTaskStatus[]
+  blocked?: boolean
+  hasOwnedFiles?: boolean
+  linkedBackgroundTaskId?: string
+  linkedAgentId?: string
+}
+
+export type KernelRuntimeCoordinator = {
+  assignTask(request: KernelTaskAssignRequest): Promise<KernelTaskMutationResult>
+  spawnWorker(request: KernelAgentSpawnRequest): Promise<KernelAgentSpawnResult>
+  listAssignments(
+    filter?: KernelCoordinatorAssignmentFilter,
+  ): Promise<readonly KernelTaskDescriptor[]>
+  getWorkerRun(runId: string): Promise<KernelAgentRunDescriptor | undefined>
+  getWorkerOutput(
+    runId: string,
+    options?: KernelAgentOutputOptions,
+  ): Promise<KernelAgentOutput>
+  cancelWorker(
+    runId: string,
+    options?: KernelAgentCancelOptions,
+  ): Promise<KernelAgentCancelResult>
+}
+
 export type KernelRuntimePermissions = {
   decide(decision: KernelPermissionDecision): Promise<KernelPermissionDecision>
 }
@@ -2692,6 +2901,8 @@ export type KernelRuntime = {
   readonly plugins: KernelRuntimePlugins
   readonly agents: KernelRuntimeAgents
   readonly tasks: KernelRuntimeTasks
+  readonly teams: KernelRuntimeTeams
+  readonly coordinator: KernelRuntimeCoordinator
   readonly companion: KernelCompanionRuntime
   readonly kairos: KernelKairosRuntime
   readonly memory: KernelMemoryManager
