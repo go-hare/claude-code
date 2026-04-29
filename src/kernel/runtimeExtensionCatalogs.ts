@@ -43,13 +43,22 @@ import type { PermissionMode } from '../types/permissions.js'
 import type { LoadedPlugin, PluginError } from '../types/plugin.js'
 import type { AppState } from '../state/AppState.js'
 import type { HookInput } from 'src/entrypoints/agentSdkTypes.js'
+import {
+  getRegisteredHooks,
+  registerHookCallbacks,
+} from '../bootstrap/state.js'
+import type { HookCallback } from '../types/hooks.js'
+import { normalizeLegacyToolName } from '../utils/permissions/permissionRuleParser.js'
 
 export function createDefaultKernelRuntimeHookCatalog(
   _workspacePath: string | undefined,
 ): KernelRuntimeWireHookCatalog {
-  let cachedHooks: readonly RuntimeHookDescriptor[] | undefined
+  let cachedStaticHooks: readonly RuntimeHookDescriptor[] | undefined
   let appStateCache: AppState | undefined
-  const registeredHooks: RuntimeHookRegisterRequest[] = []
+  const registeredHooks: Array<{
+    request: RuntimeHookRegisterRequest
+    executable: boolean
+  }> = []
 
   async function ensureAppState(): Promise<AppState> {
     if (!appStateCache) {
@@ -60,15 +69,43 @@ export function createDefaultKernelRuntimeHookCatalog(
   }
 
   function getRegisteredHookDescriptors(): readonly RuntimeHookDescriptor[] {
-    return registeredHooks.map(request => ({
+    return registeredHooks.map(({ request }) => ({
       ...request.hook,
       displayName:
         request.hook.displayName ?? request.handlerRef ?? request.hook.event,
     }))
   }
 
+  function getBootstrapRegisteredHookDescriptors(): readonly RuntimeHookDescriptor[] {
+    const descriptors: RuntimeHookDescriptor[] = []
+    const registered = getRegisteredHooks()
+    if (!registered) {
+      return descriptors
+    }
+
+    for (const [event, matchers] of Object.entries(registered)) {
+      for (const matcher of matchers ?? []) {
+        const source = 'pluginRoot' in matcher ? 'pluginHook' : 'builtinHook'
+        const pluginName = 'pluginName' in matcher ? matcher.pluginName : undefined
+        for (const hook of matcher.hooks) {
+          descriptors.push(
+            toRuntimeHookDescriptor({
+              event,
+              config: hook as Record<string, unknown>,
+              matcher: matcher.matcher,
+              source,
+              pluginName,
+            }),
+          )
+        }
+      }
+    }
+
+    return descriptors
+  }
+
   async function listHooks(): Promise<readonly RuntimeHookDescriptor[]> {
-    if (!cachedHooks) {
+    if (!cachedStaticHooks) {
       const [
         hooksModule,
         hooksSettings,
@@ -92,20 +129,23 @@ export function createDefaultKernelRuntimeHookCatalog(
           }),
         )
       const { enabled } = await loadAllPluginsCacheOnly()
-      cachedHooks = [
+      cachedStaticHooks = [
         ...appStateHooks,
         ...enabled.flatMap(plugin => toRuntimePluginHookDescriptors(plugin)),
-        ...getRegisteredHookDescriptors(),
       ]
       void hooksModule
     }
-    return cachedHooks
+    return dedupeHookDescriptors([
+      ...cachedStaticHooks,
+      ...getBootstrapRegisteredHookDescriptors(),
+      ...getRegisteredHookDescriptors(),
+    ])
   }
 
   return {
     listHooks,
     async reload() {
-      cachedHooks = undefined
+      cachedStaticHooks = undefined
       await listHooks()
     },
     async runHook(
@@ -140,11 +180,19 @@ export function createDefaultKernelRuntimeHookCatalog(
         hookInput,
         timeoutMs: 10_000,
       })
-      const errors = toRuntimeHookRunErrors(results)
+      const unboundRegisteredHooks = getUnboundRegisteredHookMatches(
+        request,
+        hookInput,
+        registeredHooks,
+      )
+      const errors = [
+        ...toRuntimeHookRunErrors(results),
+        ...toUnboundRegisteredHookErrors(unboundRegisteredHooks),
+      ]
 
       return {
         event: request.event,
-        handled: results.length > 0,
+        handled: results.length > 0 || unboundRegisteredHooks.length > 0,
         outputs:
           results.length > 0
             ? results.map(result => stripUndefinedFields({
@@ -163,8 +211,28 @@ export function createDefaultKernelRuntimeHookCatalog(
     async registerHook(
       request: RuntimeHookRegisterRequest,
     ): Promise<RuntimeHookMutationResult> {
-      registeredHooks.push(request)
-      cachedHooks = undefined
+      const callback = getExecutableCallbackFromMetadata(request)
+      if (callback && request.hook.type === 'callback') {
+        registerHookCallbacks({
+          [request.hook.event]: [
+            {
+              matcher: request.hook.matcher,
+              hooks: [
+                {
+                  type: 'callback',
+                  callback,
+                  timeout: request.hook.timeoutSeconds,
+                },
+              ],
+            },
+          ],
+        })
+      }
+
+      registeredHooks.push({
+        request,
+        executable: callback !== undefined && request.hook.type === 'callback',
+      })
       return {
         hook: {
           ...request.hook,
@@ -419,6 +487,36 @@ function toRuntimePluginHookDescriptors(
   return descriptors
 }
 
+function dedupeHookDescriptors(
+  hooks: readonly RuntimeHookDescriptor[],
+): readonly RuntimeHookDescriptor[] {
+  const seen = new Set<string>()
+  const deduped: RuntimeHookDescriptor[] = []
+
+  for (const hook of hooks) {
+    const key = [
+      hook.event,
+      hook.type,
+      hook.source,
+      hook.matcher ?? '',
+      hook.pluginName ?? '',
+      hook.displayName ?? '',
+      hook.timeoutSeconds ?? '',
+      hook.async ?? '',
+      hook.once ?? '',
+    ].join('\u0000')
+
+    if (seen.has(key)) {
+      continue
+    }
+
+    seen.add(key)
+    deduped.push(hook)
+  }
+
+  return deduped
+}
+
 function toRuntimeHookDescriptor(input: {
   event: string
   config: Record<string, unknown>
@@ -455,6 +553,45 @@ function toRuntimeHookRunErrors(
         (result.blocked ? 'Hook blocked continuation' : 'Hook execution failed'),
       code: result.blocked ? 'blocked' : 'execution_failed',
     }))
+}
+
+function getUnboundRegisteredHookMatches(
+  request: RuntimeHookRunRequest,
+  hookInput: HookInput,
+  entries: ReadonlyArray<{
+    request: RuntimeHookRegisterRequest
+    executable: boolean
+  }>,
+): RuntimeHookDescriptor[] {
+  const matchQuery = getRuntimeHookMatchQuery(request, hookInput)
+
+  return entries
+    .filter(entry => !entry.executable)
+    .map(entry => entry.request)
+    .filter(
+      registered =>
+        registered.hook.event === request.event &&
+        matchesRuntimeHookMatcher(matchQuery, registered.hook.matcher),
+    )
+    .map(registered => ({
+      ...registered.hook,
+      displayName:
+        registered.hook.displayName ??
+        registered.handlerRef ??
+        registered.hook.event,
+    }))
+}
+
+function toUnboundRegisteredHookErrors(
+  hooks: readonly RuntimeHookDescriptor[],
+): RuntimeHookRunError[] {
+  return hooks.map(hook => ({
+    message:
+      `Hook "${hook.displayName ?? hook.event}" is registered in the default kernel runtime ` +
+      'catalog, but no executable handler is bound to it.',
+    hook,
+    code: 'unbound_handler',
+  }))
 }
 
 function toRuntimeHookInput(
@@ -506,6 +643,86 @@ function toRuntimeHookInput(
   }
 
   return hookInput as HookInput
+}
+
+function getRuntimeHookMatchQuery(
+  request: RuntimeHookRunRequest,
+  hookInput: HookInput,
+): string | undefined {
+  switch (request.event) {
+    case 'PreToolUse':
+    case 'PostToolUse':
+    case 'PostToolUseFailure':
+    case 'PermissionRequest':
+    case 'PermissionDenied':
+      return stringOrUndefined(hookInput.tool_name) ?? request.matcher
+    case 'SessionStart':
+      return stringOrUndefined(hookInput.source) ?? request.matcher
+    case 'Setup':
+    case 'PreCompact':
+    case 'PostCompact':
+      return stringOrUndefined(hookInput.trigger) ?? request.matcher
+    case 'Notification':
+      return stringOrUndefined(hookInput.notification_type) ?? request.matcher
+    case 'SessionEnd':
+      return stringOrUndefined(hookInput.reason) ?? request.matcher
+    case 'StopFailure':
+      return stringOrUndefined(hookInput.error) ?? request.matcher
+    case 'SubagentStart':
+    case 'SubagentStop':
+      return stringOrUndefined(hookInput.agent_type) ?? request.matcher
+    case 'Elicitation':
+    case 'ElicitationResult':
+      return stringOrUndefined(hookInput.mcp_server_name) ?? request.matcher
+    case 'ConfigChange':
+      return stringOrUndefined(hookInput.source) ?? request.matcher
+    case 'InstructionsLoaded':
+      return stringOrUndefined(hookInput.load_reason) ?? request.matcher
+    case 'FileChanged':
+      return stringOrUndefined(hookInput.file_path) ?? request.matcher
+    default:
+      return request.matcher
+  }
+}
+
+function matchesRuntimeHookMatcher(
+  matchQuery: string | undefined,
+  matcher: string | undefined,
+): boolean {
+  if (!matchQuery || !matcher || matcher === '*') {
+    return true
+  }
+
+  if (/^[a-zA-Z0-9_|-]+$/.test(matcher)) {
+    if (matcher.includes('|')) {
+      const patterns = matcher
+        .split('|')
+        .map(pattern => normalizeLegacyToolName(pattern.trim()))
+      return patterns.includes(normalizeLegacyToolName(matchQuery))
+    }
+
+    return normalizeLegacyToolName(matchQuery) === normalizeLegacyToolName(matcher)
+  }
+
+  try {
+    return new RegExp(matcher).test(matchQuery)
+  } catch {
+    return false
+  }
+}
+
+function getExecutableCallbackFromMetadata(
+  request: RuntimeHookRegisterRequest,
+): HookCallback['callback'] | undefined {
+  const metadata = request.metadata
+  if (!metadata || typeof metadata !== 'object') {
+    return undefined
+  }
+
+  const candidate = (metadata as Record<string, unknown>).callback
+  return typeof candidate === 'function'
+    ? (candidate as HookCallback['callback'])
+    : undefined
 }
 
 function toRuntimeSkillDescriptor(
