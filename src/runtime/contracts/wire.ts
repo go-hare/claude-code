@@ -709,6 +709,14 @@ export type KernelRuntimeSessionTranscript = {
   tag?: string
   mode?: 'coordinator' | 'normal'
   turnInterruptionState: 'none' | 'interrupted_prompt'
+  taskSnapshot?: unknown
+  todoSnapshot?: unknown
+  nestedMemorySnapshot?: unknown
+  attributionSnapshots?: readonly unknown[]
+  fileHistorySnapshots?: readonly unknown[]
+  contentReplacements?: readonly unknown[]
+  contextCollapseCommits?: readonly unknown[]
+  contextCollapseSnapshot?: unknown
 }
 
 export type KernelRuntimeListSessionsCommand =
@@ -724,6 +732,8 @@ export type KernelRuntimeResumeSessionCommand =
     sessionId: string
     conversationId?: KernelConversationId
     workspacePath?: string
+    resumeInterruptedTurn?: boolean
+    resumeSessionAt?: string
   }
 
 export type KernelRuntimeResumeSessionResult = {

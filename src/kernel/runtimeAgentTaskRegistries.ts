@@ -41,6 +41,7 @@ import {
   type KernelRuntimeAgentExecutorOutput,
   type KernelRuntimeAgentExecutorResult,
 } from './runtimeAgentProcessExecutor.js'
+import { formatAgentId } from '../utils/agentId.js'
 
 export type KernelRuntimeAgentRegistryOptions = {
   executor?: false | KernelRuntimeAgentExecutor
@@ -93,12 +94,14 @@ export function createDefaultKernelRuntimeAgentRegistry(
       await listAgents(context)
     },
     async spawnAgent(request, context) {
-      return spawnAgentWithDescriptorCheck(request, context, {
+      const result = await spawnAgentWithDescriptorCheck(request, context, {
         listAgents,
         runs,
         controllers,
         executor,
       })
+      await persistAgentTaskExecutionLink(request, result)
+      return result
     },
     listAgentRuns(): RuntimeAgentRunListSnapshot {
       return {
@@ -256,7 +259,7 @@ async function spawnAgentWithDescriptorCheck(
     const runningRun = updateAgentRun(runtime.runs, run.runId, {
       status: 'running',
       startedAt: new Date().toISOString(),
-      agentId: run.runId,
+      agentId: run.agentId ?? run.runId,
       backgroundTaskId: run.runId,
       outputFile: output.outputFile,
       outputAvailable: true,
@@ -293,13 +296,14 @@ async function spawnAgentWithDescriptorCheck(
     }
   }
   return {
-    status: 'accepted',
-    runId: run.runId,
-    prompt: request.prompt,
-    agentType,
-    taskId: request.taskId,
-    taskListId: request.taskListId,
-    outputFile: run.outputFile,
+      status: 'accepted',
+      runId: run.runId,
+      prompt: request.prompt,
+      agentType,
+      agentId: run.agentId,
+      taskId: request.taskId,
+      taskListId: request.taskListId,
+      outputFile: run.outputFile,
     description: request.description,
     isAsync: run.runInBackground,
     run,
@@ -492,6 +496,7 @@ function createAcceptedAgentRun(
     createdAt: now,
     updatedAt: now,
     agentType: descriptor.agentType,
+    agentId: inferRuntimeAgentId(request, descriptor),
     description: request.description,
     model: request.model ?? descriptor.model,
     taskId: request.taskId,
@@ -508,6 +513,77 @@ function createAcceptedAgentRun(
     cwd: request.cwd ?? context?.cwd,
     metadata: request.metadata ?? context?.metadata,
   }
+}
+
+function inferRuntimeAgentId(
+  request: RuntimeAgentSpawnRequest,
+  descriptor: RuntimeAgentDescriptor,
+): string | undefined {
+  if (!request.teamName) {
+    return undefined
+  }
+  const agentName = sanitizeRuntimeAgentName(
+    request.name ?? request.agentType ?? descriptor.agentType ?? 'worker',
+  )
+  return formatAgentId(agentName, request.teamName)
+}
+
+function sanitizeRuntimeAgentName(value: string): string {
+  const trimmed = value.trim().replaceAll('@', '-')
+  return trimmed.length > 0 ? trimmed : 'worker'
+}
+
+async function persistAgentTaskExecutionLink(
+  request: RuntimeAgentSpawnRequest,
+  result: RuntimeAgentSpawnResult,
+): Promise<void> {
+  if (!request.taskId) {
+    return
+  }
+  const tasksModule = await import('../utils/tasks.js')
+  const taskListId = request.taskListId ?? tasksModule.getTaskListId()
+  const backgroundTaskId =
+    result.backgroundTaskId ?? result.runId ?? result.run?.runId
+  if (!backgroundTaskId) {
+    return
+  }
+  const linkedTask = await tasksModule.linkTaskToBackgroundTask(
+    taskListId,
+    request.taskId,
+    {
+      backgroundTaskId,
+      backgroundTaskType: 'agent_run',
+      agentId:
+        result.agentId ??
+        result.run?.agentId ??
+        inferSpawnResultAgentId(request, result),
+    },
+  )
+  if (!linkedTask || request.ownedFiles === undefined) {
+    return
+  }
+  const nextMetadata = {
+    ...(linkedTask.metadata ?? {}),
+    ownedFiles: uniqueStrings(request.ownedFiles),
+  }
+  await tasksModule.updateTask(taskListId, request.taskId, {
+    metadata: nextMetadata,
+  })
+}
+
+function inferSpawnResultAgentId(
+  request: RuntimeAgentSpawnRequest,
+  result: RuntimeAgentSpawnResult,
+): string | undefined {
+  if (result.agentType && request.teamName) {
+    return formatAgentId(
+      sanitizeRuntimeAgentName(
+        request.name ?? request.agentType ?? result.agentType,
+      ),
+      request.teamName,
+    )
+  }
+  return undefined
 }
 
 async function readAgentRunOutput(

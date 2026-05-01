@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { spawn } from 'child_process'
-import { existsSync, mkdtempSync, rmSync } from 'fs'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
@@ -365,6 +365,202 @@ describe('kernel runtime wire smoke', () => {
       })
       expect(exitCode).toBe(0)
       expect(stderr.join('')).toBe('')
+    },
+    { timeout: 30_000 },
+  )
+
+  test(
+    'resumes a transcript-backed conversation and preserves process-backed headless output over NDJSON',
+    async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'kernel-runtime-resume-output-'))
+      const transcriptPath = join(dir, 'resume-session.jsonl')
+      const sessionId = '550e8400-e29b-41d4-a716-446655440000'
+      const fakeHeadlessScript = `
+        const resumeIndex = process.argv.findIndex(arg => arg === "--resume");
+        const resumed = resumeIndex >= 0 ? process.argv[resumeIndex + 1] : "missing";
+        let input = "";
+        process.stdin.setEncoding("utf8");
+        process.stdin.on("data", chunk => {
+          input += chunk;
+        });
+        process.stdin.on("end", () => {
+          const text = input.trim();
+          console.log(JSON.stringify({
+            type: "assistant",
+            uuid: "assistant-after-resume",
+            session_id: resumed,
+            message: {
+              role: "assistant",
+              content: [{ type: "text", text: "echo:" + resumed }],
+            },
+          }));
+          console.log(JSON.stringify({
+            type: "result",
+            subtype: "success",
+            is_error: false,
+            result: "resume:" + resumed + ";prompt:" + text,
+            session_id: resumed,
+          }));
+        });
+      `
+      const nodeCommand = existsSync('/usr/local/bin/node')
+        ? '/usr/local/bin/node'
+        : 'node'
+      const child = spawn('bun', ['run', 'src/entrypoints/kernel-runtime.ts'], {
+        cwd: repoRoot,
+        env: {
+          ...process.env,
+          HARE_KERNEL_RUNTIME_HEADLESS_EXECUTOR: 'process',
+          HARE_KERNEL_RUNTIME_HEADLESS_COMMAND: nodeCommand,
+          HARE_KERNEL_RUNTIME_HEADLESS_ARGS_JSON: JSON.stringify([
+            '-e',
+            fakeHeadlessScript,
+            '--',
+          ]),
+        },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      })
+      const stderr: string[] = []
+      const envelopes: WireEnvelope[] = []
+      const waiters = new Set<() => void>()
+
+      writeFileSync(
+        transcriptPath,
+        `${[
+          {
+            type: 'user',
+            uuid: 'resume-user-1',
+            parentUuid: null,
+            sessionId,
+            cwd: dir,
+            timestamp: '2026-05-01T00:00:00.000Z',
+            version: '1.0.0',
+            message: {
+              role: 'user',
+              content: 'Hello from transcript',
+            },
+          },
+          {
+            type: 'assistant',
+            uuid: 'resume-assistant-1',
+            parentUuid: 'resume-user-1',
+            sessionId,
+            cwd: dir,
+            timestamp: '2026-05-01T00:00:01.000Z',
+            version: '1.0.0',
+            message: {
+              role: 'assistant',
+              content: [
+                {
+                  type: 'text',
+                  text: 'Hi from transcript',
+                },
+              ],
+            },
+          },
+        ].map(entry => JSON.stringify(entry)).join('\n')}\n`,
+        'utf8',
+      )
+      collectChildOutput(child, stderr, envelopes, waiters)
+
+      try {
+        try {
+          child.stdin.write(
+            command({
+              type: 'resume_session',
+              requestId: 'resume-1',
+              sessionId: transcriptPath,
+              conversationId: 'conversation-resume-1',
+              resumeSessionAt: 'resume-user-1',
+            }),
+          )
+          await waitForEnvelope(
+            envelopes,
+            waiters,
+            envelope =>
+              envelope.kind === 'ack' && envelope.requestId === 'resume-1',
+          )
+          await waitForEnvelope(envelopes, waiters, envelope => {
+            return (
+              envelope.payload?.type === 'conversation.transcript_message' &&
+              (
+                envelope.payload.payload as
+                  | { message?: { uuid?: string } }
+                  | undefined
+              )?.message?.uuid === 'resume-user-1'
+            )
+          })
+          expect(
+            envelopes.some(envelope => {
+              return (
+                envelope.payload?.type === 'conversation.transcript_message' &&
+                (
+                  envelope.payload.payload as
+                    | { message?: { uuid?: string } }
+                    | undefined
+                )?.message?.uuid === 'resume-assistant-1'
+              )
+            }),
+          ).toBe(false)
+
+          child.stdin.write(
+            command({
+              type: 'run_turn',
+              requestId: 'run-1',
+              conversationId: 'conversation-resume-1',
+              turnId: 'turn-1',
+              prompt: 'after resume',
+            }),
+          )
+          await waitForEnvelope(
+            envelopes,
+            waiters,
+            envelope => envelope.payload?.type === 'headless.sdk_message',
+          )
+          const output = await waitForEnvelope(envelopes, waiters, envelope => {
+            return (
+              envelope.payload?.type === 'turn.output_delta' &&
+              (envelope.payload.payload as { text?: string } | undefined)
+                ?.text === `resume:${transcriptPath};prompt:after resume`
+            )
+          })
+          const completed = await waitForEnvelope(
+            envelopes,
+            waiters,
+            envelope => envelope.payload?.type === 'turn.completed',
+          )
+
+          expect(output).toMatchObject({
+            kind: 'event',
+            conversationId: 'conversation-resume-1',
+            turnId: 'turn-1',
+            payload: {
+              type: 'turn.output_delta',
+              payload: {
+                text: `resume:${transcriptPath};prompt:after resume`,
+              },
+            },
+          })
+          expect(completed).toMatchObject({
+            kind: 'event',
+            conversationId: 'conversation-resume-1',
+            turnId: 'turn-1',
+            payload: {
+              type: 'turn.completed',
+            },
+          })
+        } finally {
+          child.stdin.end()
+        }
+
+        const exitCode = await new Promise<number | null>(resolve => {
+          child.on('exit', code => resolve(code))
+        })
+        expect(exitCode).toBe(0)
+        expect(stderr.join('')).toBe('')
+      } finally {
+        rmSync(dir, { recursive: true, force: true })
+      }
     },
     { timeout: 30_000 },
   )

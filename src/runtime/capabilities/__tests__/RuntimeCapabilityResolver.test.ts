@@ -97,6 +97,53 @@ describe('RuntimeCapabilityResolver', () => {
     )
   })
 
+  test('marks optional load failures as degraded without blocking the resolver', async () => {
+    const resolver = createRuntimeCapabilityResolver([
+      {
+        name: 'kairos',
+        metadata: { optional: true },
+        load: async () => {
+          throw new Error('provider unavailable')
+        },
+      },
+    ])
+
+    await expect(resolver.requireCapability('kairos')).resolves.toBeUndefined()
+    expect(resolver.getDescriptor('kairos')).toMatchObject({
+      name: 'kairos',
+      status: 'degraded',
+      error: {
+        code: 'Error',
+        message: 'provider unavailable',
+        retryable: true,
+      },
+      metadata: { optional: true },
+    })
+
+    await expect(resolver.requireCapability('kairos')).resolves.toBeUndefined()
+  })
+
+  test('supports explicit degraded predicates for partial capability availability', async () => {
+    const resolver = createRuntimeCapabilityResolver([
+      {
+        name: 'hooks',
+        degradeOnFailure: error =>
+          error instanceof Error && error.message.includes('plugin'),
+        load: async () => {
+          throw new Error('plugin hook load failed')
+        },
+      },
+    ])
+
+    await expect(resolver.requireCapability('hooks')).resolves.toBeUndefined()
+    expect(resolver.getDescriptor('hooks')).toMatchObject({
+      status: 'degraded',
+      error: {
+        message: 'plugin hook load failed',
+      },
+    })
+  })
+
   test('disabled capability returns a stable unavailable error', async () => {
     const resolver = createRuntimeCapabilityResolver([
       { name: 'kairos', enabled: false, metadata: { optional: true } },

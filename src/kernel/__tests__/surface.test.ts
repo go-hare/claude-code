@@ -6,6 +6,7 @@ import * as daemon from '../daemon.js'
 import * as context from '../context.js'
 import * as headlessController from '../headlessController.js'
 import * as headlessInputQueue from '../headlessInputQueue.js'
+import * as headlessLaunch from '../headlessLaunch.js'
 import * as headless from '../headless.js'
 import * as headlessMcp from '../headlessMcp.js'
 import * as headlessProvider from '../headlessProvider.js'
@@ -14,6 +15,7 @@ import * as events from '../events.js'
 import * as kernel from '../index.js'
 import * as kairos from '../kairos.js'
 import * as memory from '../memory.js'
+import * as outputProjection from '../outputProjection.js'
 import * as permissions from '../permissions.js'
 import * as runtime from '../runtime.js'
 import * as runtimeEvents from '../runtimeEvents.js'
@@ -33,9 +35,11 @@ const EXPECTED_KERNEL_EXPORTS = [
   'connectDefaultKernelHeadlessMcp',
   'connectDirectHostSession',
   'connectResponseSchema',
+  'collectKernelRuntimeEventEnvelopes',
   'consumeKernelRuntimeEventMessage',
   'createDefaultKernelHeadlessEnvironment',
   'createDefaultKernelRuntimeWireRouter',
+  'createHeadlessSDKMessageRuntimeEvent',
   'createDirectConnectSession',
   'createKernelCompanionRuntime',
   'createKernelContextManager',
@@ -53,7 +57,23 @@ const EXPECTED_KERNEL_EXPORTS = [
   'createKernelRuntimeWireClient',
   'createKernelRuntime',
   'createKernelSessionManager',
+  'emitKernelHeadlessRuntimeMessage',
+  'getKernelCommandExecutionResult',
+  'getKernelAgentRunCancelResult',
+  'getKernelAgentSpawnResult',
+  'getKernelHookMutationResult',
+  'getKernelHookRegistrySnapshot',
+  'getKernelHookRunResult',
+  'getKernelMcpLifecycleResult',
+  'getKernelMcpSnapshot',
   'filterKernelCapabilities',
+  'getKernelPermissionDecision',
+  'getKernelPermissionRequest',
+  'getKernelPluginMutationResult',
+  'getKernelPluginSnapshot',
+  'getKernelSkillPromptContextResult',
+  'getKernelSkillSnapshot',
+  'getKernelTaskMutationResult',
   'getKernelCapabilityFamily',
   'createKernelSession',
   'getDirectConnectErrorMessage',
@@ -63,8 +83,36 @@ const EXPECTED_KERNEL_EXPORTS = [
   'getKernelRuntimeEventTaxonomyEntry',
   'getKernelRuntimeEventType',
   'getKernelRuntimeEnvelopeFromMessage',
+  'getKernelToolCallResult',
+  'getKernelTurnOutputText',
+  'getKernelTurnTerminalSnapshot',
+  'getSDKMessageFromRuntimeEnvelope',
+  'getSDKResultTurnOutcome',
+  'isKernelCommandsExecutedEvent',
+  'isKernelAgentsRunCancelledEvent',
+  'isKernelAgentsSpawnedEvent',
   'isKernelCapabilityReady',
   'isKernelCapabilityUnavailable',
+  'isKernelHooksRanEvent',
+  'isKernelHooksRegisteredEvent',
+  'isKernelHooksReloadedEvent',
+  'isKernelMcpAuthenticatedEvent',
+  'isKernelMcpConnectedEvent',
+  'isKernelMcpEnabledChangedEvent',
+  'isKernelMcpReloadedEvent',
+  'isKernelPermissionRequestedEvent',
+  'isKernelPermissionResolvedEvent',
+  'isKernelPluginsEnabledChangedEvent',
+  'isKernelPluginsInstalledEvent',
+  'isKernelPluginsReloadedEvent',
+  'isKernelPluginsUninstalledEvent',
+  'isKernelPluginsUpdatedEvent',
+  'isKernelSkillsContextResolvedEvent',
+  'isKernelSkillsReloadedEvent',
+  'isKernelTasksAssignedEvent',
+  'isKernelTasksCreatedEvent',
+  'isKernelTasksUpdatedEvent',
+  'isKernelToolsCalledEvent',
   'isKernelRuntimeEventEnvelope',
   'isKernelRuntimeEventOfType',
   'isKernelRuntimeEnvelope',
@@ -73,6 +121,8 @@ const EXPECTED_KERNEL_EXPORTS = [
   'KernelPermissionBrokerDisposedError',
   'KernelPermissionDecisionError',
   'KernelRuntimeRequestError',
+  'KernelRuntimeOutputDeltaDedupe',
+  'KernelRuntimeSDKMessageDedupe',
   'KernelRuntimeEventReplayError',
   'normalizeKernelHeadlessEvent',
   'prepareKernelHeadlessStartup',
@@ -82,6 +132,7 @@ const EXPECTED_KERNEL_EXPORTS = [
   'runConnectHeadless',
   'runDaemonWorker',
   'runKernelHeadless',
+  'runKernelHeadlessLaunch',
   'runKernelHeadlessClient',
   'runKernelRuntimeWireProtocol',
   'startKernelServer',
@@ -89,6 +140,9 @@ const EXPECTED_KERNEL_EXPORTS = [
   'toKernelCapabilityView',
   'toKernelCapabilityViews',
   'toKernelRuntimeEventMessage',
+  'projectRuntimeEnvelopeToLegacySDKMessage',
+  'projectRuntimeEnvelopeToLegacyStreamJsonMessages',
+  'projectSDKMessageToLegacyStreamJsonMessages',
 ] as const
 
 describe('kernel index surface', () => {
@@ -119,6 +173,12 @@ describe('kernel index surface', () => {
     ).toBe(true)
     expect(
       Object.is(kernel.runKernelHeadless, headless.runKernelHeadless),
+    ).toBe(true)
+    expect(
+      Object.is(
+        kernel.runKernelHeadlessLaunch,
+        headlessLaunch.runKernelHeadlessLaunch,
+      ),
     ).toBe(true)
     expect(
       Object.is(
@@ -154,6 +214,18 @@ describe('kernel index surface', () => {
       Object.is(
         kernel.prepareKernelHeadlessStartup,
         headlessStartup.prepareKernelHeadlessStartup,
+      ),
+    ).toBe(true)
+    expect(
+      Object.is(
+        kernel.projectRuntimeEnvelopeToLegacyStreamJsonMessages,
+        outputProjection.projectRuntimeEnvelopeToLegacyStreamJsonMessages,
+      ),
+    ).toBe(true)
+    expect(
+      Object.is(
+        kernel.emitKernelHeadlessRuntimeMessage,
+        outputProjection.emitKernelHeadlessRuntimeMessage,
       ),
     ).toBe(true)
 

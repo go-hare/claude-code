@@ -19,4 +19,16 @@ describe('cli command graph', () => {
     expect(node.description).toContain('Add an MCP server')
     expect(listCliCommandGraph()).toContainEqual(node)
   })
+
+  test('keeps autonomy deep status parity with the CLI help surface', () => {
+    expect(getCliCommandGraphNode(['autonomy', 'status']).description).toBe(
+      'Print autonomy run, flow, team, pipe, and remote-control status',
+    )
+    expect(getCliCommandGraphNode(['autonomy', 'flow']).description).toBe(
+      'Inspect or manage a single autonomy flow',
+    )
+    expect(getCliCommandGraphNode(['autonomy', 'flow', 'resume']).description).toBe(
+      'Resume a waiting autonomy flow and print the prepared prompt',
+    )
+  })
 })

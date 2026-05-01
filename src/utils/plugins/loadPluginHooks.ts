@@ -86,9 +86,15 @@ function convertPluginHooksToMatchers(
 }
 
 /**
- * Load and register hooks from all enabled plugins
+ * Load hook matchers from all enabled plugins without mutating bootstrap state.
+ *
+ * Kernel/headless workers use this path to execute startup hooks with an
+ * explicit registry input instead of writing plugin hooks into process-global
+ * state.
  */
-export const loadPluginHooks = memoize(async (): Promise<void> => {
+export const loadPluginHookMatchers = memoize(async (): Promise<
+  Record<HookEvent, PluginHookMatcher[]>
+> => {
   const { enabled } = await loadAllPluginsCacheOnly()
   const allPluginHooks: Record<HookEvent, PluginHookMatcher[]> = {
     PreToolUse: [],
@@ -135,6 +141,15 @@ export const loadPluginHooks = memoize(async (): Promise<void> => {
     }
   }
 
+  return allPluginHooks
+})
+
+/**
+ * Load and register hooks from all enabled plugins.
+ */
+export const loadPluginHooks = memoize(async (): Promise<void> => {
+  const allPluginHooks = await loadPluginHookMatchers()
+
   // Clear-then-register as an atomic pair. Previously the clear lived in
   // clearPluginHookCache(), which meant any clearAllCaches() call (from
   // /plugins UI, pluginInstallationHelpers, thinkback, etc.) wiped plugin
@@ -151,8 +166,13 @@ export const loadPluginHooks = memoize(async (): Promise<void> => {
     (sum, matchers) => sum + matchers.reduce((s, m) => s + m.hooks.length, 0),
     0,
   )
+  const pluginCount = new Set(
+    Object.values(allPluginHooks)
+      .flat()
+      .map(matcher => matcher.pluginId),
+  ).size
   logForDebugging(
-    `Registered ${totalHooks} hooks from ${enabled.length} plugins`,
+    `Registered ${totalHooks} hooks from ${pluginCount} plugins`,
   )
 })
 
@@ -163,6 +183,7 @@ export function clearPluginHookCache(): void {
   // (gh-29767). The clear now lives inside loadPluginHooks() as an atomic
   // clear-then-register, so old hooks stay valid until the fresh load swaps
   // them out.
+  loadPluginHookMatchers.cache?.clear?.()
   loadPluginHooks.cache?.clear?.()
 }
 

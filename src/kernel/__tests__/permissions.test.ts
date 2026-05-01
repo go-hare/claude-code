@@ -95,9 +95,13 @@ describe('kernel permission facade', () => {
         type: 'permission.requested',
         payload: {
           permissionRequestId: 'permission-1',
+          conversationId: 'conversation-1',
+          turnId: 'turn-1',
           toolName: 'Bash',
           action: 'tool.call',
+          argumentsPreview: { command: 'pwd' },
           risk: 'medium',
+          policySnapshot: { mode: 'default' },
         },
       },
       {
@@ -108,9 +112,13 @@ describe('kernel permission facade', () => {
         type: 'permission.resolved',
         payload: {
           permissionRequestId: 'permission-1',
+          conversationId: 'conversation-1',
+          turnId: 'turn-1',
           toolName: 'Bash',
           action: 'tool.call',
+          argumentsPreview: { command: 'pwd' },
           risk: 'medium',
+          policySnapshot: { mode: 'default' },
           decidedBy: 'host',
           decision: 'allow_once',
           reason: 'approved',

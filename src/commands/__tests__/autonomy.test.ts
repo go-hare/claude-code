@@ -18,9 +18,13 @@ import {
   resetCommandQueue,
 } from '../../utils/messageQueueManager'
 import { cleanupTempDir, createTempDir } from '../../../tests/mocks/file-system'
+import { mkdir, writeFile } from 'fs/promises'
+import { join } from 'path'
+import { writeRegistry } from '../../utils/pipeRegistry'
 import { getAutonomyPanelBaseActionCountForTests } from '../autonomyPanel'
 
 let tempDir = ''
+let previousConfigDir: string | undefined
 
 async function callAutonomy(args = ''): Promise<{
   result?: string
@@ -36,6 +40,8 @@ async function callAutonomy(args = ''): Promise<{
 
 beforeEach(async () => {
   tempDir = await createTempDir('autonomy-command-')
+  previousConfigDir = process.env.CLAUDE_CONFIG_DIR
+  process.env.CLAUDE_CONFIG_DIR = join(tempDir, 'config')
   resetStateForTests()
   resetCommandQueue()
   setOriginalCwd(tempDir)
@@ -45,6 +51,11 @@ beforeEach(async () => {
 afterEach(async () => {
   resetStateForTests()
   resetCommandQueue()
+  if (previousConfigDir === undefined) {
+    delete process.env.CLAUDE_CONFIG_DIR
+  } else {
+    process.env.CLAUDE_CONFIG_DIR = previousConfigDir
+  }
   if (tempDir) {
     await cleanupTempDir(tempDir)
   }
@@ -258,5 +269,121 @@ describe('/autonomy', () => {
   test('invalid subcommands return usage text', async () => {
     const { result } = await callAutonomy('unknown')
     expect(result).toContain('Usage: /autonomy')
+  })
+
+  test('status --deep reports local autonomy health surfaces', async () => {
+    const run = await createAutonomyQueuedPrompt({
+      basePrompt: 'scheduled prompt',
+      trigger: 'scheduled-task',
+      rootDir: tempDir,
+      currentDir: tempDir,
+      sourceLabel: 'nightly',
+    })
+    expect(run).not.toBeNull()
+
+    await mkdir(join(tempDir, '.claude'), { recursive: true })
+    await writeFile(
+      join(tempDir, '.claude', 'scheduled_tasks.json'),
+      JSON.stringify({
+        tasks: [
+          {
+            id: 'cron1',
+            cron: '0 9 * * *',
+            prompt: 'Daily check',
+            createdAt: Date.now(),
+            recurring: true,
+          },
+        ],
+      }),
+    )
+    await mkdir(join(tempDir, '.claude', 'workflow-runs'), {
+      recursive: true,
+    })
+    await writeFile(
+      join(tempDir, '.claude', 'workflow-runs', 'workflow-1.json'),
+      JSON.stringify({
+        runId: 'workflow-1',
+        workflow: 'release',
+        status: 'running',
+        createdAt: 1,
+        updatedAt: 2,
+        currentStepIndex: 0,
+        steps: [
+          {
+            name: 'Run tests',
+            prompt: 'Run focused tests',
+            status: 'running',
+            startedAt: 2,
+          },
+        ],
+      }),
+    )
+
+    const teamDir = join(process.env.CLAUDE_CONFIG_DIR ?? '', 'teams', 'alpha')
+    await mkdir(teamDir, { recursive: true })
+    await writeFile(
+      join(teamDir, 'config.json'),
+      JSON.stringify({
+        name: 'alpha',
+        createdAt: Date.now(),
+        leadAgentId: 'team-lead@alpha',
+        members: [
+          {
+            agentId: 'team-lead@alpha',
+            name: 'team-lead',
+            joinedAt: Date.now(),
+            tmuxPaneId: '',
+            cwd: tempDir,
+            subscriptions: [],
+          },
+          {
+            agentId: 'worker@alpha',
+            name: 'worker',
+            joinedAt: Date.now(),
+            tmuxPaneId: 'in-process',
+            cwd: tempDir,
+            subscriptions: [],
+            backendType: 'in-process',
+            isActive: false,
+          },
+        ],
+      }),
+    )
+    await writeRegistry({
+      version: 1,
+      mainMachineId: 'machine-main-123456',
+      main: {
+        id: 'main-id',
+        pid: 123,
+        machineId: 'machine-main-123456',
+        startedAt: 1,
+        ip: '127.0.0.1',
+        mac: '00:11:22:33:44:55',
+        hostname: 'main-host',
+        pipeName: 'main-pipe',
+      },
+      subs: [],
+    })
+
+    const { result } = await callAutonomy('status --deep')
+
+    expect(result).toContain('# Autonomy Deep Status')
+    expect(result).toContain('Auto mode:')
+    expect(result).toContain('## Runs')
+    expect(result).toContain('Autonomy runs: 1')
+    expect(result).toContain('## Cron')
+    expect(result).toContain('Cron jobs: 1')
+    expect(result).toContain('## Workflow Runs')
+    expect(result).toContain('Workflow runs: 1')
+    expect(result).toContain('workflow-1: release: running')
+    expect(result).toContain('## Teams')
+    expect(result).toContain('alpha: teammates=1')
+    expect(result).toContain('@worker: idle backend=in-process')
+    expect(result).toContain('## Pipes')
+    expect(result).toContain('Pipe registry: 1 main, 0 sub(s)')
+    expect(result).toContain('## Runtime')
+    expect(result).toContain('Daemon:')
+    expect(result).toContain('## Remote Control')
+    expect(result).toContain('Remote Control:')
   })
 })

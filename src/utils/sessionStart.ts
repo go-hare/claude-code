@@ -21,6 +21,10 @@ type SessionStartHooksOptions = {
   forceSyncExecution?: boolean
 }
 
+type SetupHooksOptions = {
+  forceSyncExecution?: boolean
+}
+
 // Set by processSessionStartHooks when a hook emits initialUserMessage;
 // consumed once by takeInitialUserMessage. This side channel avoids changing
 // the Promise<HookResultMessage[]> return type that main.tsx and print.ts
@@ -180,7 +184,7 @@ export async function processSessionStartHooks(
 
 export async function processSetupHooks(
   trigger: 'init' | 'maintenance',
-  { forceSyncExecution }: { forceSyncExecution?: boolean } = {},
+  { forceSyncExecution }: SetupHooksOptions = {},
 ): Promise<HookResultMessage[]> {
   // Same rationale as processSessionStartHooks above.
   if (isBareMode()) {

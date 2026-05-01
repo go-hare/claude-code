@@ -8,11 +8,20 @@ import type {
   RuntimeTaskMutationResult,
   RuntimeTaskUpdateRequest,
 } from '../runtime/contracts/task.js'
+import type { KernelRuntimeEnvelopeBase } from '../runtime/contracts/events.js'
+import type { KernelRuntimeEventReplayOptions } from './runtime.js'
+import type { KernelRuntimeTaskEvent } from './runtimeEvents.js'
 import type { KernelRuntimeWireClient } from './wireProtocol.js'
 import {
+  collectReplayEvents,
   expectPayload,
   waitForRuntimeEventDelivery,
 } from './runtimeEnvelope.js'
+import {
+  isKernelTasksAssignedEvent,
+  isKernelTasksCreatedEvent,
+  isKernelTasksUpdatedEvent,
+} from './runtimeEvents.js'
 
 export type KernelCoordinatorTaskStatus = RuntimeCoordinatorTaskStatus
 export type KernelTaskExecutionMetadata = RuntimeTaskExecutionMetadata
@@ -52,6 +61,10 @@ export type KernelRuntimeTasks = {
   create(request: KernelTaskCreateRequest): Promise<KernelTaskMutationResult>
   update(request: KernelTaskUpdateRequest): Promise<KernelTaskMutationResult>
   assign(request: KernelTaskAssignRequest): Promise<KernelTaskMutationResult>
+  onEvent(handler: (event: KernelRuntimeTaskEvent) => void): () => void
+  replay(
+    options?: KernelRuntimeEventReplayOptions,
+  ): Promise<readonly KernelRuntimeTaskEvent[]>
 }
 
 export function createKernelRuntimeTasksFacade(
@@ -102,7 +115,27 @@ export function createKernelRuntimeTasksFacade(
       await waitForRuntimeEventDelivery()
       return toTaskMutationResult(payload)
     },
+    onEvent: handler =>
+      client.onEvent(envelope => {
+        if (isKernelTaskEvent(envelope)) {
+          handler(envelope)
+        }
+      }),
+    replay: async (options = {}) => {
+      const replayed = await collectReplayEvents(client, options)
+      return replayed.filter(isKernelTaskEvent)
+    },
   }
+}
+
+function isKernelTaskEvent(
+  envelope: KernelRuntimeEnvelopeBase,
+): envelope is KernelRuntimeTaskEvent {
+  return (
+    isKernelTasksCreatedEvent(envelope) ||
+    isKernelTasksUpdatedEvent(envelope) ||
+    isKernelTasksAssignedEvent(envelope)
+  )
 }
 
 function toTaskSnapshot(

@@ -389,6 +389,250 @@ describe('kernel team/coordinator facade', () => {
       await runtime.dispose()
     }
   })
+
+  test('invokes a coordinator assignment as one runtime-owned operation', async () => {
+    const createRequests: Array<Record<string, unknown>> = []
+    const assignRequests: Array<Record<string, unknown>> = []
+    const spawnRequests: Array<Record<string, unknown>> = []
+    const updateRequests: Array<Record<string, unknown>> = []
+
+    const runtime = await createKernelRuntime({
+      id: 'runtime-coordinator-invoke-test',
+      workspacePath: '/tmp/kernel-runtime-coordinator-invoke-test',
+      eventJournalPath: false,
+      conversationJournalPath: false,
+      capabilityResolver: {
+        listDescriptors: () => [
+          createCapabilityDescriptor('runtime', 'ready'),
+          createCapabilityDescriptor('agents', 'ready'),
+          createCapabilityDescriptor('tasks', 'ready'),
+          createCapabilityDescriptor('coordinator', 'ready'),
+        ],
+        requireCapability: async () => undefined,
+        reloadCapabilities: async () => [],
+      },
+      agentRegistry: {
+        async listAgents() {
+          return {
+            activeAgents: [
+              {
+                agentType: 'reviewer',
+                whenToUse: 'Review code',
+                source: 'projectSettings',
+                active: true,
+              },
+            ],
+            allAgents: [
+              {
+                agentType: 'reviewer',
+                whenToUse: 'Review code',
+                source: 'projectSettings',
+                active: true,
+              },
+            ],
+          }
+        },
+        async spawnAgent(request) {
+          spawnRequests.push(request as unknown as Record<string, unknown>)
+          return {
+            status: 'async_launched',
+            prompt: request.prompt,
+            runId: 'run-3',
+            agentId: 'agent-3',
+            backgroundTaskId: 'run-3',
+            taskId: request.taskId,
+            taskListId: request.taskListId,
+            run: {
+              runId: 'run-3',
+              status: 'running',
+              prompt: request.prompt,
+              createdAt: '2026-04-29T00:00:00.000Z',
+              updatedAt: '2026-04-29T00:00:00.000Z',
+              agentId: 'agent-3',
+            },
+          }
+        },
+      },
+      taskRegistry: {
+        async listTasks(taskListId) {
+          return {
+            taskListId: taskListId ?? 'alpha',
+            tasks: [],
+          }
+        },
+        async getTask(taskId, taskListId) {
+          return {
+            id: taskId,
+            subject: 'Ownership review',
+            description: 'Review file ownership',
+            status: 'in_progress',
+            taskListId: taskListId ?? 'alpha',
+            owner: 'reviewer',
+            blocks: [],
+            blockedBy: [],
+            ownedFiles: ['src/kernel/runtimeCoordinator.ts'],
+            execution: {
+              linkedBackgroundTaskId: 'run-3',
+              linkedBackgroundTaskType: 'agent_run',
+              linkedAgentId: 'agent-3',
+            },
+          }
+        },
+        async createTask(request) {
+          createRequests.push(request as unknown as Record<string, unknown>)
+          return {
+            task: {
+              id: '43',
+              subject: request.subject,
+              description: request.description,
+              status: request.status ?? 'pending',
+              taskListId: request.taskListId ?? 'alpha',
+              owner: request.owner,
+              blocks: [],
+              blockedBy: [],
+              ownedFiles: request.ownedFiles,
+            },
+            taskListId: request.taskListId ?? 'alpha',
+            taskId: '43',
+            updatedFields: ['subject', 'description'],
+            created: true,
+          }
+        },
+        async assignTask(request) {
+          assignRequests.push(request as unknown as Record<string, unknown>)
+          return {
+            task: {
+              id: request.taskId,
+              subject: 'Ownership review',
+              description: 'Review file ownership',
+              status: request.status ?? 'in_progress',
+              taskListId: request.taskListId ?? 'alpha',
+              owner: request.owner,
+              blocks: [],
+              blockedBy: [],
+              ownedFiles: request.ownedFiles,
+            },
+            taskListId: request.taskListId ?? 'alpha',
+            taskId: request.taskId,
+            updatedFields: ['owner', 'status', 'ownedFiles'],
+            assigned: true,
+          }
+        },
+        async updateTask(request) {
+          updateRequests.push(request as unknown as Record<string, unknown>)
+          return {
+            task: {
+              id: request.taskId,
+              subject: 'Ownership review',
+              description: 'Review file ownership',
+              status: 'in_progress',
+              taskListId: request.taskListId ?? 'alpha',
+              owner: 'reviewer',
+              blocks: [],
+              blockedBy: [],
+              ownedFiles: ['src/kernel/runtimeCoordinator.ts'],
+              execution: {
+                linkedBackgroundTaskId: 'run-3',
+                linkedBackgroundTaskType: 'agent_run',
+                linkedAgentId: 'agent-3',
+              },
+            },
+            taskListId: request.taskListId ?? 'alpha',
+            taskId: request.taskId,
+            updatedFields: ['metadata'],
+          }
+        },
+      },
+    })
+
+    try {
+      await runtime.start()
+
+      const result = await runtime.coordinator.invoke({
+        taskListId: 'alpha',
+        task: {
+          subject: 'Ownership review',
+          description: 'Review file ownership',
+        },
+        owner: 'reviewer',
+        status: 'in_progress',
+        ownedFiles: ['src/kernel/runtimeCoordinator.ts'],
+        worker: {
+          agentType: 'reviewer',
+          prompt: 'Review file ownership',
+        },
+      })
+
+      expect(createRequests).toEqual([
+        expect.objectContaining({
+          taskListId: 'alpha',
+          subject: 'Ownership review',
+          owner: 'reviewer',
+          status: 'in_progress',
+          ownedFiles: ['src/kernel/runtimeCoordinator.ts'],
+        }),
+      ])
+      expect(assignRequests).toEqual([
+        expect.objectContaining({
+          taskId: '43',
+          taskListId: 'alpha',
+          owner: 'reviewer',
+          ownedFiles: ['src/kernel/runtimeCoordinator.ts'],
+          status: 'in_progress',
+        }),
+      ])
+      expect(spawnRequests).toEqual([
+        expect.objectContaining({
+          agentType: 'reviewer',
+          prompt: 'Review file ownership',
+          taskId: '43',
+          taskListId: 'alpha',
+          ownedFiles: ['src/kernel/runtimeCoordinator.ts'],
+          runInBackground: true,
+        }),
+      ])
+      expect(updateRequests).toEqual([
+        expect.objectContaining({
+          taskId: '43',
+          taskListId: 'alpha',
+          metadata: {
+            taskExecution: {
+              linkedBackgroundTaskId: 'run-3',
+              linkedBackgroundTaskType: 'agent_run',
+              linkedAgentId: 'agent-3',
+            },
+          },
+        }),
+      ])
+      expect(result).toMatchObject({
+        task: {
+          id: '43',
+          execution: {
+            linkedBackgroundTaskId: 'run-3',
+            linkedBackgroundTaskType: 'agent_run',
+            linkedAgentId: 'agent-3',
+          },
+        },
+        worker: {
+          status: 'async_launched',
+          runId: 'run-3',
+          taskId: '43',
+          taskListId: 'alpha',
+        },
+        taskResult: {
+          created: true,
+        },
+        assignmentResult: {
+          assigned: true,
+        },
+        linkageResult: {
+          updatedFields: ['metadata'],
+        },
+      })
+    } finally {
+      await runtime.dispose()
+    }
+  })
 })
 
 function createCapabilityDescriptor(

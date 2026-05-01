@@ -54,10 +54,10 @@ import type { KernelRuntimeEnvelopeBase } from '../runtime/contracts/events.js'
 import type { KernelRuntimeId } from '../runtime/contracts/runtime.js'
 import type { RuntimeToolCallResult } from '../runtime/contracts/tool.js'
 import { runWithCwdOverride } from '../utils/cwd.js'
-import type { ToolPermissionContext } from '../Tool.js'
+import type { Tool, ToolPermissionContext } from '../Tool.js'
 import type { Command, LocalCommandResult } from '../types/command.js'
 import type { PermissionMode } from '../types/permissions.js'
-import { createDefaultKernelRuntimeMcpRegistry } from './runtimeMcpRegistry.js'
+import { createDefaultKernelRuntimeMcpPlane } from './runtimeMcpRegistry.js'
 import {
   contentBlocksToText,
   createDefaultKernelRuntimeHookCatalog,
@@ -166,6 +166,9 @@ export function createDefaultKernelRuntimeWireRouter(
       : (options.agentExecutor ??
         readAgentProcessExecutorOptionsFromEnv() ??
         {})
+  const defaultMcpPlane = options.mcpRegistry
+    ? undefined
+    : createDefaultKernelRuntimeMcpPlane(options.workspacePath)
 
   return createKernelRuntimeWireRouter({
     runtimeId,
@@ -182,10 +185,16 @@ export function createDefaultKernelRuntimeWireRouter(
       createDefaultKernelRuntimeCommandCatalog(options.workspacePath),
     toolCatalog:
       options.toolCatalog ??
-      createDefaultKernelRuntimeToolCatalog(options.workspacePath),
+      createDefaultKernelRuntimeToolCatalog(options.workspacePath, {
+        listMcpTools: defaultMcpPlane
+          ? () => defaultMcpPlane.listTools()
+          : undefined,
+        listMcpClients: defaultMcpPlane
+          ? () => defaultMcpPlane.listClients()
+          : undefined,
+      }),
     mcpRegistry:
-      options.mcpRegistry ??
-      createDefaultKernelRuntimeMcpRegistry(options.workspacePath),
+      options.mcpRegistry ?? defaultMcpPlane!.registry,
     hookCatalog:
       options.hookCatalog ??
       createDefaultKernelRuntimeHookCatalog(options.workspacePath),
@@ -652,8 +661,14 @@ function createDefaultKernelRuntimeCommandCatalog(
   }
 }
 
-function createDefaultKernelRuntimeToolCatalog(
+export function createDefaultKernelRuntimeToolCatalog(
   workspacePath: string | undefined,
+  options: {
+    listMcpTools?: () => Promise<readonly Tool[]>
+    listMcpClients?: () => Promise<
+      readonly import('../services/mcp/types.js').MCPServerConnection[]
+    >
+  } = {},
 ): KernelRuntimeWireToolCatalog {
   const commandCache = new Map<string, readonly Command[]>()
 
@@ -669,17 +684,44 @@ function createDefaultKernelRuntimeToolCatalog(
     return commands
   }
 
+  async function loadMcpTools(): Promise<readonly Tool[]> {
+    if (!options.listMcpTools) {
+      return []
+    }
+    try {
+      return await options.listMcpTools()
+    } catch {
+      return []
+    }
+  }
+
+  async function loadMcpClients(): Promise<
+    readonly import('../services/mcp/types.js').MCPServerConnection[]
+  > {
+    if (!options.listMcpClients) {
+      return []
+    }
+    try {
+      return await options.listMcpClients()
+    } catch {
+      return []
+    }
+  }
+
   return {
     async listTools() {
-      const [{ getEmptyToolPermissionContext }, { getTools }, descriptors] =
+      const [{ getEmptyToolPermissionContext }, toolPolicy, descriptors] =
         await Promise.all([
           import('../Tool.js'),
           import('../runtime/capabilities/tools/ToolPolicy.js'),
           import('../runtime/capabilities/tools/runtimeToolDescriptors.js'),
         ])
       void workspacePath
+      const mcpTools = await loadMcpTools()
       return descriptors.toRuntimeToolDescriptors(
-        getTools(getEmptyToolPermissionContext()),
+        toolPolicy.assembleToolPool(getEmptyToolPermissionContext(), [
+          ...mcpTools,
+        ]),
       )
     },
     async callTool(request, context) {
@@ -688,12 +730,14 @@ function createDefaultKernelRuntimeToolCatalog(
         await prepareDefaultKernelRuntimeCatalogs()
         const [
           { findToolByName, getEmptyToolPermissionContext },
-          { getTools },
+          toolPolicy,
           { createAssistantMessage },
+          { hasPermissionsToUseTool },
         ] = await Promise.all([
           import('../Tool.js'),
           import('../runtime/capabilities/tools/ToolPolicy.js'),
           import('../utils/messages.js'),
+          import('../utils/permissions/permissions.js'),
         ])
         const permissionMode = toDefaultKernelRuntimePermissionMode(
           request.permissionMode,
@@ -704,7 +748,9 @@ function createDefaultKernelRuntimeToolCatalog(
           mode: permissionMode,
           shouldAvoidPermissionPrompts: true,
         } satisfies ToolPermissionContext
-        const tools = getTools(toolPermissionContext)
+        const tools = toolPolicy.assembleToolPool(toolPermissionContext, [
+          ...(await loadMcpTools()),
+        ])
         const tool = findToolByName(tools, request.toolName)
         if (!tool) {
           return createRuntimeToolErrorResult({
@@ -736,8 +782,13 @@ function createDefaultKernelRuntimeToolCatalog(
             {
               permissionMode,
               tools,
+              mcpClients: await loadMcpClients(),
             },
           )
+        const toolUseID = `kernel_tool_${Date.now().toString(36)}_${Math.random()
+          .toString(36)
+          .slice(2)}`
+        const parentMessage = createAssistantMessage({ content: '' })
         const isValidCall = await tool.validateInput?.(
           parsedInput.data,
           toolUseContext,
@@ -766,9 +817,12 @@ function createDefaultKernelRuntimeToolCatalog(
         }
 
         if (permissionMode !== 'bypassPermissions') {
-          const permissionDecision = await tool.checkPermissions(
+          const permissionDecision = await hasPermissionsToUseTool(
+            tool,
             permissionInput,
             toolUseContext,
+            parentMessage,
+            toolUseID,
           )
           if (permissionDecision.behavior !== 'allow') {
             return createRuntimeToolErrorResult({
@@ -783,16 +837,15 @@ function createDefaultKernelRuntimeToolCatalog(
               },
             })
           }
-          if (permissionDecision.updatedInput) {
+          if (
+            'updatedInput' in permissionDecision &&
+            permissionDecision.updatedInput
+          ) {
             callInput = permissionDecision.updatedInput
           }
         }
 
-        const toolUseID = `kernel_tool_${Date.now().toString(36)}_${Math.random()
-          .toString(36)
-          .slice(2)}`
         const progressEvents: unknown[] = []
-        const parentMessage = createAssistantMessage({ content: '' })
         const result = await tool.call(
           callInput,
           {

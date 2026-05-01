@@ -1,12 +1,26 @@
 import type {
+  KernelRuntimeEnvelopeBase,
+} from '../runtime/contracts/events.js'
+import type {
   RuntimeSkillContext,
+  RuntimeSkillCatalogSnapshot,
   RuntimeSkillDescriptor,
   RuntimeSkillPromptContextRequest,
   RuntimeSkillPromptContextResult,
   RuntimeSkillSource,
 } from '../runtime/contracts/skill.js'
+import type { KernelRuntimeEventReplayOptions } from './runtime.js'
+import type { KernelRuntimeSkillEvent } from './runtimeEvents.js'
 import type { KernelRuntimeWireClient } from './wireProtocol.js'
-import { expectPayload } from './runtimeEnvelope.js'
+import {
+  collectReplayEvents,
+  expectPayload,
+  waitForRuntimeEventDelivery,
+} from './runtimeEnvelope.js'
+import {
+  isKernelSkillsContextResolvedEvent,
+  isKernelSkillsReloadedEvent,
+} from './runtimeEvents.js'
 
 export type KernelSkillContext = RuntimeSkillContext
 export type KernelSkillDescriptor = RuntimeSkillDescriptor
@@ -31,6 +45,10 @@ export type KernelRuntimeSkills = {
     nameOrRequest: string | KernelSkillPromptContextRequest,
     options?: Omit<KernelSkillPromptContextRequest, 'name'>,
   ): Promise<KernelSkillPromptContextResult>
+  onEvent(handler: (event: KernelRuntimeSkillEvent) => void): () => void
+  replay(
+    options?: KernelRuntimeEventReplayOptions,
+  ): Promise<readonly KernelRuntimeSkillEvent[]>
 }
 
 export function createKernelRuntimeSkillsFacade(
@@ -51,9 +69,10 @@ export function createKernelRuntimeSkillsFacade(
     list,
     get: async name => (await list()).find(skill => skill.name === name),
     reload: async () => {
-      const payload = expectPayload<{ skills?: unknown }>(
+      const payload = expectPayload<Partial<RuntimeSkillCatalogSnapshot>>(
         await client.reloadSkills(),
       )
+      await waitForRuntimeEventDelivery()
       return toSkillDescriptors(payload.skills)
     },
     resolveContext: async (nameOrRequest, options = {}) => {
@@ -61,11 +80,32 @@ export function createKernelRuntimeSkillsFacade(
         typeof nameOrRequest === 'string'
           ? { ...options, name: nameOrRequest }
           : nameOrRequest
-      return expectPayload<KernelSkillPromptContextResult>(
+      const result = expectPayload<KernelSkillPromptContextResult>(
         await client.resolveSkillContext(request),
       )
+      await waitForRuntimeEventDelivery()
+      return result
+    },
+    onEvent: handler =>
+      client.onEvent(envelope => {
+        if (isKernelSkillEvent(envelope)) {
+          handler(envelope)
+        }
+      }),
+    replay: async (options = {}) => {
+      const replayed = await collectReplayEvents(client, options)
+      return replayed.filter(isKernelSkillEvent)
     },
   }
+}
+
+function isKernelSkillEvent(
+  envelope: KernelRuntimeEnvelopeBase,
+): envelope is KernelRuntimeSkillEvent {
+  return (
+    isKernelSkillsReloadedEvent(envelope) ||
+    isKernelSkillsContextResolvedEvent(envelope)
+  )
 }
 
 function toSkillDescriptors(value: unknown): readonly KernelSkillDescriptor[] {

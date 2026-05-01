@@ -1,7 +1,15 @@
 import { describe, expect, test } from 'bun:test'
 
-import { createDefaultKernelRuntimeMcpRegistry } from '../runtimeMcpRegistry.js'
-import type { ScopedMcpServerConfig } from '../../services/mcp/types.js'
+import {
+  createDefaultKernelRuntimeMcpPlane,
+  createDefaultKernelRuntimeMcpRegistry,
+} from '../runtimeMcpRegistry.js'
+import type { Tool } from '../../Tool.js'
+import type {
+  MCPServerConnection,
+  ScopedMcpServerConfig,
+  ServerResource,
+} from '../../services/mcp/types.js'
 
 function createHttpOauthServer(
   scope: ScopedMcpServerConfig['scope'] = 'user',
@@ -19,10 +27,12 @@ function createHttpOauthServer(
 describe('createDefaultKernelRuntimeMcpRegistry', () => {
   test('returns an authorization URL when callback completion is not provided', async () => {
     const config = createHttpOauthServer()
+    let skipBrowserOpenUsed = false
     const registry = createDefaultKernelRuntimeMcpRegistry(undefined, {
       async getClaudeCodeMcpConfigs() {
         return { servers: { github: config } }
       },
+      async getMcpToolsCommandsAndResources() {},
       async isMcpServerDisabled() {
         return false
       },
@@ -30,7 +40,14 @@ describe('createDefaultKernelRuntimeMcpRegistry', () => {
       async reconnectMcpServer() {
         throw new Error('reconnect should not run for URL-only auth requests')
       },
-      async performOAuthFlow(_serverName, _config, onAuthorizationUrl) {
+      async performOAuthFlow(
+        _serverName,
+        _config,
+        onAuthorizationUrl,
+        _abortSignal,
+        options,
+      ) {
+        skipBrowserOpenUsed = options?.skipBrowserOpen === true
         onAuthorizationUrl('https://auth.example/authorize')
         const cancelled = new Error('cancelled after authorization URL')
         cancelled.name = 'AuthenticationCancelledError'
@@ -64,16 +81,19 @@ describe('createDefaultKernelRuntimeMcpRegistry', () => {
         state: 'needs-auth',
       }),
     ])
+    expect(skipBrowserOpenUsed).toBe(true)
   })
 
   test('completes OAuth auth with callback URL and reconnects the server', async () => {
     const config = createHttpOauthServer('project')
     let clearedAuthCache = 0
     let callbackBridgeUsed = false
+    let skipBrowserOpenUsed = false
     const registry = createDefaultKernelRuntimeMcpRegistry(undefined, {
       async getClaudeCodeMcpConfigs() {
         return { servers: { github: config } }
       },
+      async getMcpToolsCommandsAndResources() {},
       async isMcpServerDisabled() {
         return false
       },
@@ -90,8 +110,15 @@ describe('createDefaultKernelRuntimeMcpRegistry', () => {
           },
         }
       },
-      async performOAuthFlow(_serverName, _config, onAuthorizationUrl, _abortSignal, options) {
+      async performOAuthFlow(
+        _serverName,
+        _config,
+        onAuthorizationUrl,
+        _abortSignal,
+        options,
+      ) {
         onAuthorizationUrl('https://auth.example/authorize')
+        skipBrowserOpenUsed = options?.skipBrowserOpen === true
         options?.onWaitingForCallback?.(callbackUrl => {
           callbackBridgeUsed = callbackUrl === 'https://callback.example/done'
         })
@@ -111,6 +138,7 @@ describe('createDefaultKernelRuntimeMcpRegistry', () => {
     })
 
     expect(callbackBridgeUsed).toBe(true)
+    expect(skipBrowserOpenUsed).toBe(true)
     expect(clearedAuthCache).toBe(1)
     expect(result).toMatchObject({
       serverName: 'github',
@@ -132,6 +160,7 @@ describe('createDefaultKernelRuntimeMcpRegistry', () => {
       async getClaudeCodeMcpConfigs() {
         return { servers: { github: config } }
       },
+      async getMcpToolsCommandsAndResources() {},
       async isMcpServerDisabled() {
         return false
       },
@@ -171,4 +200,115 @@ describe('createDefaultKernelRuntimeMcpRegistry', () => {
       },
     })
   })
+
+  test('materializes MCP resources, tool bindings, and tools through the shared plane', async () => {
+    const config = createHttpOauthServer('project')
+    let fetches = 0
+    const plane = createDefaultKernelRuntimeMcpPlane(undefined, {
+      async getClaudeCodeMcpConfigs() {
+        return { servers: { github: config } }
+      },
+      async getMcpToolsCommandsAndResources(onConnectionAttempt) {
+        fetches += 1
+        onConnectionAttempt({
+          client: {
+            name: 'github',
+            type: 'connected',
+            config,
+            capabilities: { tools: {}, resources: {} },
+            client: {} as never,
+            cleanup: async () => {},
+          } satisfies MCPServerConnection,
+          tools: [
+            createMcpTool('mcp__github__list_issues', 'github', 'list_issues'),
+          ],
+          commands: [],
+          resources: [
+            {
+              server: 'github',
+              uri: 'repo://hare-code',
+              name: 'hare-code',
+            } satisfies ServerResource,
+          ],
+        })
+      },
+      async isMcpServerDisabled() {
+        return false
+      },
+      async setMcpServerEnabled() {},
+      async reconnectMcpServer(serverName, serverConfig) {
+        return {
+          client: {
+            name: serverName,
+            type: 'connected',
+            config: serverConfig,
+            capabilities: {},
+            client: {} as never,
+            cleanup: async () => {},
+          },
+        }
+      },
+      async performOAuthFlow() {},
+      async revokeServerTokens() {},
+      clearMcpAuthCache() {},
+      isAuthFlowCancelled() {
+        return false
+      },
+    })
+
+    expect(await plane.registry.listResources()).toEqual([
+      {
+        server: 'github',
+        uri: 'repo://hare-code',
+        name: 'hare-code',
+      },
+    ])
+    expect(await plane.registry.listToolBindings()).toEqual([
+      {
+        server: 'github',
+        serverToolName: 'list_issues',
+        runtimeToolName: 'mcp__github__list_issues',
+      },
+    ])
+    expect((await plane.listTools()).map(tool => tool.name)).toEqual([
+      'mcp__github__list_issues',
+    ])
+    expect(fetches).toBe(1)
+
+    await plane.registry.listToolBindings()
+    expect(fetches).toBe(1)
+
+    await plane.registry.reload?.()
+    await plane.registry.listToolBindings()
+    expect(fetches).toBe(2)
+  })
 })
+
+function createMcpTool(
+  name: string,
+  serverName: string,
+  toolName: string,
+): Tool {
+  return {
+    name,
+    isMcp: true,
+    mcpInfo: { serverName, toolName },
+    inputSchema: {
+      safeParse(input: unknown) {
+        return { success: true, data: input as Record<string, unknown> }
+      },
+    },
+    async description() {
+      return toolName
+    },
+    async prompt() {
+      return toolName
+    },
+    isReadOnly() {
+      return true
+    },
+    async call() {
+      return { data: { ok: true } }
+    },
+  } as unknown as Tool
+}

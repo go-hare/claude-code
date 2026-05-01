@@ -5,10 +5,12 @@ import {
   getBudgetContinuationCount,
   getCurrentTurnTokenBudget,
   getPromptId,
+  getRegisteredHooks,
   getSdkBetas,
   getSessionId,
   getTeleportedSessionInfo,
   incrementBudgetContinuationCount,
+  registerHookCallbacks,
   resetStateForTests,
   setAllowedChannels,
   setPromptId,
@@ -102,5 +104,32 @@ describe('createBootstrapStateProvider', () => {
 
     expect(getCurrentTurnTokenBudget()).toBeNull()
     expect(getBudgetContinuationCount()).toBe(0)
+  })
+
+  test('isolates registered hooks inside the active provider state', () => {
+    const provider = createBootstrapStateProvider()
+
+    provider.runWithState(() => {
+      registerHookCallbacks({
+        Notification: [
+          {
+            matcher: 'runtime',
+            hooks: [
+              {
+                type: 'callback',
+                timeout: 1,
+                callback: async () => ({
+                  systemMessage: 'scoped-hook',
+                }),
+              },
+            ],
+          },
+        ],
+      })
+
+      expect(getRegisteredHooks()?.Notification).toHaveLength(1)
+    })
+
+    expect(getRegisteredHooks()).toBeNull()
   })
 })

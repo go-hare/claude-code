@@ -38,8 +38,8 @@
 
 ```mermaid
 flowchart LR
-  A["`src/main.tsx`"] --> B["`runHeadlessLaunch(...)`"]
-  B --> C["`runKernelHeadless(...)`"]
+  A["`src/main.tsx`"] --> B["正式 kernel public headless launch/executor 入口"]
+  B --> C["`runKernelHeadless(...)` / runtime-owned headless execution"]
   C --> D["`@go-hare/hare-code/kernel`"]
 
   D --> E["`createKernelRuntime()` / `KernelRuntime`"]
@@ -57,6 +57,10 @@ flowchart LR
 - `CLI headless` 是当前产品执行基线，重点是把一次非交互请求跑成结果。
 - `@go-hare/hare-code/kernel` 与 `KernelRuntimeWireProtocol` 是 public contract 的正式承载面。
 - interactive REPL / Ink UI / keybindings / desktop 私有 glue 属于 host-private layer，不是 embedding 最小 contract。
+
+下文如果需要简写，会用 `runKernelHeadlessLaunch(...)` 指代这条正式的
+kernel public headless launch/executor 路径；若最终导出名有微调，应以实际
+kernel public export 为准。
 
 ### 1.3 状态标签说明
 
@@ -100,11 +104,29 @@ flowchart LR
 contract。详细清单见 `docs/internals/kernelization-status.md` 中的“接口文档对应的状态快照”；这里仅保留会影响 contract 判断的摘要：
 
 - headless / interactive CLI 的 `commands`、`tools`、`agents` 装配，已经进入 runtime-owned materializer / refresh bundle，CLI host 不再是唯一装配 owner。
+- 正式的 kernel public headless launch/executor 入口已经成立；startup orchestration 也随该入口一起进入 kernel public path，不再停留在 host-side wrapper。
 - MCP、hooks、plugins、startup warmup 等宿主期装配，已经有 runtime service / adapter 收口，React/CLI 层逐步退回 UI 与 host callback。
 - `SessionRuntime.submitRuntimeTurn(...)`、`RuntimeEventBus` 与 runtime-first stream publisher 已经成为执行主链；`submitMessage(...)` / `ask(...)` 只保留兼容投影。
 - ACP 已直接消费 runtime envelope，legacy SDK-message / `stream-json` 仅保留 transport compatibility，不再是内部执行事实源。
 - public event taxonomy、agents/tasks mutate contract 与 agent run lifecycle 已进入 package root、wire、client 主链。
-- 当前边界仍然是：runtime 拥有 headless 默认能力装配，CLI 是第一个 host；未完成的 MCP / hook / plugin 深层执行能力不能提前宣称为 public contract 已齐备。
+- `createKernelRuntime(...)` 现在已正式透传 runtime-level `provider` /
+  `defaultProvider` init contract；`runtime.permissions.onEvent(...)` /
+  `replay(...)` 与 typed helper 已可直接消费 `permission.requested` /
+  `permission.resolved`，无需 host 再手拆 raw envelope。
+- `KernelTranscript` / `get_session_transcript` 也已对齐 richer resumed state：
+  `taskSnapshot`、`todoSnapshot`、`nestedMemorySnapshot`、
+  `attributionSnapshots`、`fileHistorySnapshots`、`contentReplacements`、
+  `contextCollapseCommits`、`contextCollapseSnapshot` 现在都进入 public
+  transcript shape；resume replay 已不再只是内部 router 私有状态。
+- legacy output compatibility projection 现在也已有正式 kernel adapter：
+  runtime envelope <-> legacy SDK / stream-json projection，以及 terminal
+  result holdback / suppress helper 已进入 `@go-hare/hare-code/kernel`
+  surface，host 不再需要 import `compatProjection` /
+  `headlessStreamEmission` 内部路径。
+- interrupted-turn auto resume 也不再只是
+  `CLAUDE_CODE_RESUME_INTERRUPTED_TURN` 环境变量私有开关；当前 public
+  headless run options 已可显式表达该策略，同时继续保留 env fallback 兼容。
+- 当前边界仍然是：runtime 拥有 headless 默认能力装配与 startup orchestration，CLI 是第一个 host；未完成的 MCP / hook / plugin 深层执行能力不能提前宣称为 public contract 已齐备。
 
 ### 2.2 2026-04-28 封板补充口径
 
@@ -133,7 +155,7 @@ contract。详细清单见 `docs/internals/kernelization-status.md` 中的“接
 
 因此，后续所有“CLI 和开放接口功能一致”的讨论，默认比较对象应是：
 
-1. `claude-code/src/main.tsx` -> `runHeadlessLaunch(...)` -> `runKernelHeadless(...)`
+1. `claude-code/src/main.tsx` -> 正式 kernel public headless launch/executor 入口 -> `runKernelHeadless(...)`
 2. `@go-hare/hare-code/kernel` 的 public surface + `KernelRuntimeWireProtocol`
 
 而不是：
@@ -162,7 +184,7 @@ contract。详细清单见 `docs/internals/kernelization-status.md` 中的“接
 - interactive REPL 更多是“产品壳”
 - `CLI headless` 才是当前最接近外部 host embedding 的执行基线
 
-### 2.5 当前对齐结论：命令面很宽，执行契约仍偏薄
+### 2.5 当前对齐结论：命令面已齐，基础执行契约已收口到正式 kernel launch path
 
 状态：`Implemented`
 
@@ -174,11 +196,13 @@ contract。详细清单见 `docs/internals/kernelization-status.md` 中的“接
 - agents / tasks / teams
 - companion / Kairos / memory / sessions / host events
 
-但这不等于“public interface 已经和 CLI headless 等价”。
+同时，正式 kernel public headless launch/executor 入口已经成立，startup orchestration 也已随该入口进入 kernel public path，不再需要 host-side wrapper 继续承接主编排。
 
-本轮审查发现，当前最大的缺口不是命令数量，而是：
+这仍不等于“public interface 已经和 CLI headless 完全等价”。当前剩余差距主要转到：
 
-> public contract 已经能“表示很多事”，但还不能稳定地“像 CLI headless 那样把一次 turn 跑完”。
+- provider / auth / fallback model 的稳定语义钉实
+- permission broker 的 CLI 等价策略承诺
+- output / terminal event 的长期兼容边界
 
 ### 2.6 差异表：CLI headless vs public interface
 
@@ -186,26 +210,26 @@ contract。详细清单见 `docs/internals/kernelization-status.md` 中的“接
 
 | 能力域 | CLI headless 已有 | public interface 现状 | 当前判断 |
 | --- | --- | --- | --- |
-| turn 基础执行 | `runHeadlessLaunch()` -> `runKernelHeadless()` 跑完整非交互 turn | `createConversation()` / `runTurn()` / `waitForTurn()` / `abortTurn()` | 基础骨架已具备 |
-| workspace / session | `cwd`、`continue`、`resume`、`resumeSessionAt`、`rewindFiles` | `workspacePath`、`sessionId`、`list_sessions`、`resume_session`、`get_session_transcript` | 有基础，但续接语义仍不够集中 |
-| provider | `userSpecifiedModel`、`fallbackModel`、CLI 环境里的 provider 解析 | `RuntimeProviderSelection`、`provider`、`providerOverride`、`authRef` | shape 有了，执行语义未完全钉死 |
-| permissions | `permissionPromptToolName`、`toolPermissionContext`、headless permission runtime | `decide_permission` + broker contract | 命令有，CLI 等价策略未正式承诺 |
+| turn 基础执行 | 正式 kernel public headless launch/executor 入口 -> `runKernelHeadless()` 跑完整非交互 turn | 正式 headless launch/executor 入口 + `createConversation()` / `runTurn()` / `waitForTurn()` / `abortTurn()` | 正式入口已具备 |
+| workspace / session | `cwd`、`continue`、`resume`、`resumeSessionAt`、`rewindFiles` | public headless launch `runOptions` 已透传 `continue` / `resume` / `resumeSessionAt` / `rewindFiles`；wire sessions 已有 `list_sessions`、`resume_session`、`get_session_transcript` | desktop worker package path 已齐；future 只剩把更多续接语义做成 long-running conversation first-class API |
+| provider | `userSpecifiedModel`、`fallbackModel`、CLI 环境里的 provider 解析 | `RuntimeProviderSelection`、`provider`、`defaultProvider`、`providerOverride`、`authRef` | runtime init / conversation / turn 三层 precedence 已进入 public path |
+| permissions | `permissionPromptToolName`、`toolPermissionContext`、headless permission runtime | `decide_permission` + broker contract + typed permission events/helper | 基础 contract 已齐，CLI 等价策略仍需继续钉实 |
 | attachments | headless runtime 可消费 input / attachments | `run_turn.attachments` 已有 | 基础具备 |
 | MCP / tools / hooks / skills / plugins | CLI headless 启动前装配完整运行环境 | wire surface 已有 list / call / reload / connect / mutate | 命令面完整 |
 | agents / tasks / teams / Kairos / companion / memory | CLI / runtime 已具备能力域 | wire surface 已有对应命令 | 命令面完整，但激活与装配条件不够清楚 |
-| output / events | output format、partial messages、replay user messages、runtime envelopes | `turn.output_delta`、`subscribe_events`、`publish_host_event` | 有基础，但输出控制仍偏 CLI 私有 |
-| startup orchestration | startup hooks、prefetch、session persistence、auth status、effort、advisor、fast mode | public contract 无对应最小集合 | 这是当前最大缺口 |
+| output / events | output format、partial messages、replay user messages、runtime envelopes | public headless launch `runOptions` 已暴露 `verbose` / `outputFormat` / `replayUserMessages` / `includePartialMessages`；typed events 与 legacy SDK / stream-json projection 已有回归 | desktop-required output knobs 已齐；future 是 CLI terminal 展示策略的长期兼容，不是缺事件或缺 knob |
+| startup orchestration | startup hooks、prefetch、session persistence、auth status、effort、advisor、fast mode | 已进入正式 kernel public headless launch path | 不再是缺口 |
 | interactive / TUI | `launchRepl()`、banner、deep link、terminal UX | public interface 无 | 不应进入 embedding 最小契约 |
 
-### 2.7 需要先冻结的最小 public embedding contract
+### 2.7 当前已冻结的最小 public embedding contract
 
 状态：`Normative`
 
-在继续 desktop / worker 设计之前，应先明确以下五项是否进入正式 public contract：
+在继续 desktop / worker 设计之前，下列五项现在都应按正式 public contract 理解；其中第 1 项已经连同 startup orchestration 一起进入 kernel public path，剩余项继续作为语义稳定化重点：
 
 1. 官方 headless turn executor
-   - 不要求名称必须是 `createKernelRuntimeInProcessTurnExecutor()`
-   - 但必须存在一个正式、公开、可测试的“CLI headless 等价 turn 执行入口”
+   - 现在已经存在正式、公开、可测试的“CLI headless 等价 turn 执行入口”
+   - 该入口同时承接 startup orchestration，而不是继续把这层编排留在 host wrapper
 
 2. provider resolution contract
    - `RuntimeProviderSelection`
@@ -223,6 +247,7 @@ contract。详细清单见 `docs/internals/kernelization-status.md` 中的“接
    - `workspacePath`
    - `sessionId`
    - resume / replay / transcript 的边界
+   - richer resumed state 的 transcript / replay 对齐
 
 5. output / terminal event contract
    - 哪些 runtime events 是 public
@@ -311,6 +336,9 @@ import {
 - Memory / Context / Compaction：project/user memory、session transcript、context assembly、auto/manual compaction hooks。
 - Session / Logs / Background：session list/resume、logs、background/daemon worker lifecycle。
 - Events：把 CLI 内部 message、tool、hook、plugin、skill、companion、Kairos 状态统一转成 public kernel events。
+  当前 package root 也已开放 `collectKernelRuntimeEventEnvelopes(...)` 与
+  `runtime.publishHostEvent(...)`，host 可直接消费 typed runtime event
+  envelope 并发布 host-level semantic event，而不必绕 raw wire client。
 
 ## 5. Public Runtime 总入口
 
@@ -331,12 +359,11 @@ permission 这些第一层 host-facing manager；其中 extension manager 仍是
 projection；默认 tool executor 能通过非交互 `ToolUseContext` 执行 builtin tool
 validation、permission mode、progress 与 result；MCP 已补上
 connect/auth/set-enabled lifecycle；hooks 已补上 `run_hook` / `register_hook`
-contract；skills 已补上 `resolve_skill_context` contract；plugins 已补上
+contract 与默认非交互 runner；skills 已补上 `resolve_skill_context` contract；plugins 已补上
 `set_plugin_enabled` / `install_plugin` / `uninstall_plugin` / `update_plugin` lifecycle mutation；agents/tasks 已补上 `spawn_agent` 与
 agent run status/output/result/cancel、task create/update/assignment 这一组
-mutate/invoke wire contract。仍未内建的是完整 MCP auth interactive executor、
-默认 hook runner、plugin marketplace
-discovery/options 和 coordinator 专用 invocation。
+mutate/invoke wire contract。仍未内建的是 MCP OAuth 浏览器 UX host policy、
+plugin marketplace discovery/options 和 coordinator 专用 invocation 深化。
 
 ```ts
 export function createKernelRuntime(
@@ -400,6 +427,7 @@ export type KernelTurn = {
   复用 wire router / in-process transport，也可通过 `transportConfig.kind =
   'stdio'` 启动 source-level `kernel-runtime` runner。后续 transport 缺口是 IPC /
   WebSocket / Unix socket 这类非 NDJSON 承载层。
+- 正式 kernel public headless launch/executor 入口是 CLI headless 等价的 public path；它负责把 startup orchestration 一并收进 kernel public path，再下钻到 runtime-owned headless execution。
 - `runTurn(...)` 返回 turn 已启动 snapshot；`waitForTurn(...)` /
   `runTurnAndWait(...)` 订阅同一个 runtime envelope stream 并解析
   `turn.completed` / `turn.failed`，避免 SDK consumer 自己实现终态等待和 replay
@@ -820,16 +848,49 @@ export type KernelCapabilityDescriptor = {
   `mcp.connected` / `mcp.authenticated` / `mcp.enabled_changed` event 已落地。
   默认 registry 已能按配置尝试 reconnect 与持久化 enable/disable；完整 OAuth
   交互仍由 host / runtime MCP service hook 注入。
+- 默认 kernel runtime 的 MCP live plane 也已补齐到同一条主链：共享
+  `createDefaultKernelRuntimeMcpPlane(...)` 现在同时供默认 `mcpRegistry`
+  与默认 `toolCatalog` 复用，`list_mcp_resources` / `list_mcp_tools` /
+  `list_tools` / `call_tool` 已不再分裂成 builtin-only 与 MCP-only 两套视图。
 - `KernelRuntime.hooks` / `KernelRuntime.skills` / `KernelRuntime.plugins` 的
   catalog / lifecycle manager：`list_hooks` / `reload_hooks` / `run_hook` /
   `register_hook`、`list_skills` / `reload_skills` /
   `resolve_skill_context`、`list_plugins` / `reload_plugins` /
   `set_plugin_enabled` / `install_plugin` / `uninstall_plugin` /
   `update_plugin` wire command、in-process / stdio client method、SDK
-  façade、filter、mutation result、`hooks.ran` / `hooks.registered` /
+  façade、filter、mutation result、`hooks.reloaded` / `hooks.ran` /
+  `hooks.registered` /
   `skills.context_resolved` / `plugins.enabled_changed` /
-  `plugins.installed` / `plugins.uninstalled` / `plugins.updated` event 与 package declaration 已落地。默认 skill resolver 已能通过 prompt command 生成 prompt content；默认 hook runner 与更深 plugin marketplace/options lifecycle
-  仍由 host / runtime service hook 注入，避免把内部 UI callback 泄到 public API。
+  `plugins.installed` / `plugins.uninstalled` / `plugins.updated` event、
+  `runtime.hooks.onEvent(...)` / `replay(...)` typed facade 与 package
+  declaration 已落地。默认 skill resolver 已能通过 prompt command 生成
+  prompt content；其中通过 `registerHook(...metadata.callback)` 注册的本地
+  callback hook 已开始由 kernel 默认 hook catalog 直接执行，不再依赖
+  bootstrap 全局 hook registry。默认 hook runner 已能在 runtime catalog 内
+  执行 settings / bootstrap-registered / plugin hook matchers；plugin
+  marketplace/options lifecycle 仍由 host / runtime service hook 注入，避免把
+  内部 UI callback 泄到 public API。
+- `KernelRuntime.commands` / `KernelRuntime.tools` / `KernelRuntime.skills`
+  现在也已补齐 typed event facade：`runtime.commands.onEvent(...)` /
+  `replay(...)`、`runtime.tools.onEvent(...)` / `replay(...)`、
+  `runtime.skills.onEvent(...)` / `replay(...)` 均已进入 package root。
+  `commands.executed` / `tools.called` / `skills.reloaded` /
+  `skills.context_resolved` payload 可直接通过
+  `getKernelCommandExecutionResult(...)` / `getKernelToolCallResult(...)` /
+  `getKernelSkillSnapshot(...)` /
+  `getKernelSkillPromptContextResult(...)` 消费，不再要求 host 自己拆 raw
+  replay envelope。
+- session continuation 的集中化也开始落地：`resumeSessionAt` 不再只存在于
+  headless print loop，现已进入 `resume_session` wire 主链与
+  `runtime.sessions.resume(...)` façade；runtime wire router 与 headless
+  bootstrap 复用同一套 transcript slicing helper，而不是继续各自维护一套
+  resume message 裁剪语义。
+- MCP OAuth callback 的 desktop-required 主链已落地：`authenticate_mcp`
+  / `KernelRuntime.mcp.authenticate(...)` 可携带 `callbackUrl`，默认 runtime MCP
+  registry 会用 `skipBrowserOpen + onWaitingForCallback` 把 host 提交的 callback
+  URL 注入现有 `performMCPOAuthFlow`，再清 auth cache 并 reconnect server；
+  `clearAuth(...)` 也走同一 lifecycle registry，不再要求 host 绕过 runtime
+  私自处理 token 清理。
 - `KernelRuntime.agents` / `KernelRuntime.tasks` 的 registry / task-list
   manager：`list_agents` / `reload_agents` / `spawn_agent`、`list_tasks` /
   `get_task` / `create_task` / `update_task` / `assign_task` 以及
@@ -839,11 +900,23 @@ export type KernelCapabilityDescriptor = {
   mutation 默认复用现有 task-list 存储与 TaskCreated / TaskCompleted hook；
   agent spawn 是 runtime-owned spawner contract，run lifecycle 由同一个
   runtime registry 管理，真实 executor 可由 host / runner 注入，不能回退成
-  host 私有 side-channel。
+  host 私有 side-channel。`KernelRuntime.coordinator.invoke(...)` 现在也已补上
+  第一层组合操作：同一条 runtime-owned chain 内可串起 task create /
+  assign、worker spawn 与 `taskExecution` linkage 回写。默认
+  `agentRegistry.spawnAgent(...)` 在携带 `taskId` 时也会自动把
+  `linkedBackgroundTaskId` / `linkedAgentId` 与 `ownedFiles` 回写到 task
+  storage，不再要求 host 自己补一轮 metadata patch。与此同时，
+  `runtime.agents.onEvent(...)` / `replay(...)` 与
+  `runtime.tasks.onEvent(...)` / `replay(...)` 也已开放 typed facade，
+  `agents.spawned` / `agents.run.cancelled` / `tasks.created` /
+  `tasks.updated` / `tasks.assigned` 不再要求 host 自己拆 raw envelope。
 - `reload_capabilities` wire command、`capabilities.required` /
   `capabilities.reloaded` event。
 - runtime-owned materializer / refresh bundle 已接住 headless / interactive
   command、agent、plugin、MCP、hook、startup refresh 的主要装配责任。
+- `degraded` capability policy 已进入 resolver：optional 或显式
+  `degradeOnFailure` capability 加载失败时会保留 error 并进入 `degraded`，
+  非 optional capability 仍保持 `failed` / unavailable 语义。
 
 仍是 future，不能写成已完成：
 
@@ -851,16 +924,17 @@ export type KernelCapabilityDescriptor = {
   当前默认 command/tool executor 已能覆盖 builtin non-interactive local
   command、prompt command projection 与 builtin tool call，但不代表所有
   plugin / MCP / interactive UI 命令都已具备 hostless 执行语义。
-- 完整 MCP OAuth 浏览器 / callback / clear-auth 交互内建 executor；
-  当前 auth command contract 和 hook 已落地，但默认交互策略仍由 host /
-  runtime MCP service 显式注入。
-- 默认 hook runner、plugin marketplace discovery/options lifecycle、
-  coordinator invocation schema。hook run / register、skill prompt context
-  resolve、plugin enable / disable / install / uninstall / update 的第一层 public contract
-  已落地；剩余是把真实 hook / plugin service executor 更深地 runtime-owned 化。agent executor lifecycle 的第一层 spawn/status/output/result/cancel
-  contract 已落地；剩余是把真实 coordinator / subagent executor 写入该 run
-  registry。
-- `degraded` 的实际 resolver policy、部分加载成功的降级规则和跨 host 展示文案。
+- 完整 MCP OAuth 浏览器自动打开策略、错误展示与跨 host UX；
+  callback URL completion 与 clear-auth runtime lifecycle 已有默认 registry
+  path；浏览器打开、错误文案与远程宿主交互属于 host-owned UX，
+  不能写成 kernel 默认自动打开已完成。
+- plugin marketplace discovery/options lifecycle、
+  更深的 coordinator / subagent executor。默认 hook runner、hook run /
+  register、skill prompt context resolve、plugin enable / disable / install /
+  uninstall / update 的第一层 public contract 已落地；`KernelRuntime.coordinator.invoke(...)` 也已形成第一层
+  invocation schema；剩余是把 plugin marketplace/options executor、更深的
+  coordinator / subagent executor 写入该 run registry。
+- 跨 host 的 degraded 展示文案与长期兼容矩阵。
 - descriptor snapshot 与 manager object 之间的长期 semver 兼容矩阵。
 
 ## 9. Command 系统
@@ -1116,9 +1190,9 @@ export type KernelHookEventName =
   `RuntimeHookSource`、`RuntimeHookType`、`RuntimeHookRunRequest`、
   `RuntimeHookRunResult`、`RuntimeHookRegisterRequest` 与
   `RuntimeHookMutationResult`。
-- 默认 router 不内建完整 hook runner；实际 hook 执行仍由 host / runtime
-  service 注入，避免 public API 直接绑定 CLI UI callback 或 private
-  `ToolUseContext`。
+- 默认 router 已内建非交互 hook runner，可执行 settings hooks、
+  bootstrap-registered hooks 与显式加载的 plugin hook matchers；CLI UI
+  callback 与 private `ToolUseContext` 仍不得泄入 public API。
 - hooks 可以来自 settings、agent frontmatter、plugins、host-provided hooks。
 - `registeredHooks` 进入 runtime bootstrap seam，不让 host 直接写 bootstrap singleton。
 - hook 运行过程和结果要输出 `hooks.ran` / `hooks.registered` public event。
@@ -1587,13 +1661,15 @@ Future 但尚未落地为代码：
 - `claude-code/src/kernel/mcp.ts`
   - 目标态为完整 MCP lifecycle manager；当前 public surface 已先由
     `runtimeMcp.ts` 承载 readonly/status/reload 与 connect/auth/set-enabled
-    lifecycle。剩余是完整 OAuth 浏览器 / callback / clear-auth 交互内建
-    executor，而不是 public contract 缺失。
+    lifecycle。`callbackUrl` completion 与 `clearAuth(...)` 已进入默认 runtime
+    MCP registry path；剩余是完整 OAuth 浏览器自动打开、错误展示与跨 host
+    UX，而不是 public contract 缺失。
 - `claude-code/src/kernel/runtimeHooks.ts`
   - 已开放 hook catalog + run / register façade：`list(filter?)` /
     `reload()` / `run(...)` / `register(...)` 走 `list_hooks` /
     `reload_hooks` / `run_hook` / `register_hook` wire command；默认 hook
-    runner 仍由 runtime service 注入，unregister 仍是后续完整 registry。
+    runner 已接入 settings / bootstrap / plugin matcher 执行路径，
+    unregister 仍是后续完整 registry。
 - `claude-code/src/kernel/runtimeSkills.ts`
   - 已开放 skill readonly catalog：`list(filter?)` / `get(name)` /
     `reload()` / `resolveContext(...)` 走 `list_skills` / `reload_skills` /
@@ -1722,8 +1798,8 @@ Future 但尚未落地为代码：
   source-level `kernel-runtime` runner 已覆盖 stdin/stdout smoke；package
   root 已导出 wire runner / default router / command schema version，package
   bin 已覆盖。
-- package-level：构建后 smoke `import('@go-hare/hare-code/kernel')`，确认新增导出真实可用。
-- runner-level：常驻 `kernel-runtime` runner 可启动、响应 `init_runtime` / `ping`，并能通过协议创建 conversation。
+- package-level：构建后 smoke `import('@go-hare/hare-code/kernel')`，确认新增导出真实可用；package-only worker smoke 也已覆盖只 import `@go-hare/hare-code/kernel` 后调用 `runKernelRuntimeWireProtocol(...)` 的最小 runner 场景。
+- runner-level：常驻 `kernel-runtime` runner 可启动、响应 `init_runtime` / `ping`，并能通过协议创建 conversation；真实 NDJSON 进程 smoke 已覆盖 `resume_session(resumeSessionAt)` 后继续跑 process-backed headless executor，并保持 `headless.sdk_message` / `turn.output_delta` / `turn.completed`。
 - CLI parity：CLI 使用 public kernel capability 后，原有 commands/tools/hooks/skills/plugins/MCP/agents/pet/Kairos 行为不回退。
 - host isolation：desktop/worker 测试只能依赖 `@go-hare/hare-code/kernel`，不能 import `claude-code/src/*`。
 - surface guard：每新增一个 public export，必须同步更新 `src/kernel/__tests__/surface.test.ts`、`src/kernel/__tests__/packageEntry.test.ts`、`tests/integration/kernel-package-smoke.test.ts` 的导出集合。
@@ -1756,11 +1832,11 @@ Future 但尚未落地为代码：
    plugins status catalog + enable/disable/install/uninstall/update lifecycle 与
    agents registry/spawn/run lifecycle contract、tasks list/create/update/assign manager、
    permission decision bridge、默认 command/tool executor；
-   默认 hook runner、plugin marketplace discovery/options、
-   完整 MCP auth interactive executor、真实 agent/coordinator executor 与
-   coordinator invocation 仍按完整 contract 继续补齐。
+   plugin marketplace discovery/options、MCP OAuth 浏览器 UX host policy、
+   真实 agent/coordinator executor 与 coordinator invocation 深化仍按完整
+   contract 继续补齐。
 5. companion、Kairos、memory/context/sessions 已进入 `KernelRuntime` surface，并补齐 runtime/wire 调用路径；剩余工作只应是行为深化或宿主对齐，不再是“是否开放”。
-6. 增加 package-level smoke，确保 `@go-hare/hare-code/kernel` 可导入新增接口。
-7. 增加 runner/wire smoke，确保常驻 runtime 可被 Python/Go/机器人 host 通过协议使用。
+6. 增加 package-level smoke，确保 `@go-hare/hare-code/kernel` 可导入新增接口；当前已补 package-only worker smoke，验证 worker 只依赖包入口即可启动 wire runner。
+7. 增加 runner/wire smoke，确保常驻 runtime 可被 Python/Go/机器人 host 通过协议使用；当前已覆盖 `resume_session` + process-backed output 的真实 NDJSON 回归。
 8. 桌面端实现 worker wrapper，worker 代码只 import `@go-hare/hare-code/kernel`，对 main 暴露 `KernelRuntimeWireProtocol`。
 9. 桌面端替换旧 SDK session 路径，保留 SSE/reconnect 的外层行为。

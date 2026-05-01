@@ -10,8 +10,17 @@ import type {
   RuntimePluginUninstallRequest,
   RuntimePluginUpdateRequest,
 } from '../runtime/contracts/plugin.js'
+import type { KernelRuntimeEventReplayOptions } from './runtime.js'
+import type { KernelRuntimePluginEvent } from './runtimeEvents.js'
 import type { KernelRuntimeWireClient } from './wireProtocol.js'
-import { expectPayload } from './runtimeEnvelope.js'
+import { collectReplayEvents, expectPayload } from './runtimeEnvelope.js'
+import {
+  isKernelPluginsEnabledChangedEvent,
+  isKernelPluginsInstalledEvent,
+  isKernelPluginsReloadedEvent,
+  isKernelPluginsUninstalledEvent,
+  isKernelPluginsUpdatedEvent,
+} from './runtimeEvents.js'
 
 export type KernelPluginComponents = RuntimePluginComponents
 export type KernelPluginDescriptor = RuntimePluginDescriptor
@@ -67,6 +76,10 @@ export type KernelRuntimePlugins = {
     nameOrRequest: string | KernelPluginUpdateRequest,
     options?: Omit<KernelPluginUpdateRequest, 'name'>,
   ): Promise<KernelPluginMutationResult>
+  onEvent(handler: (event: KernelRuntimePluginEvent) => void): () => void
+  replay(
+    options?: KernelRuntimeEventReplayOptions,
+  ): Promise<readonly KernelRuntimePluginEvent[]>
 }
 
 export function createKernelRuntimePluginsFacade(
@@ -137,7 +150,29 @@ export function createKernelRuntimePluginsFacade(
         await client.updatePlugin(request),
       )
     },
+    onEvent: handler =>
+      client.onEvent(envelope => {
+        if (isKernelPluginEvent(envelope)) {
+          handler(envelope)
+        }
+      }),
+    replay: async (options = {}) => {
+      const replayed = await collectReplayEvents(client, options)
+      return replayed.filter(isKernelPluginEvent)
+    },
   }
+}
+
+function isKernelPluginEvent(
+  envelope: import('../runtime/contracts/events.js').KernelRuntimeEnvelopeBase,
+): envelope is KernelRuntimePluginEvent {
+  return (
+    isKernelPluginsReloadedEvent(envelope) ||
+    isKernelPluginsEnabledChangedEvent(envelope) ||
+    isKernelPluginsInstalledEvent(envelope) ||
+    isKernelPluginsUninstalledEvent(envelope) ||
+    isKernelPluginsUpdatedEvent(envelope)
+  )
 }
 
 function toPluginSnapshot(value: {

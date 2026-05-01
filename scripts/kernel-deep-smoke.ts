@@ -3,7 +3,7 @@
 import { access } from 'fs/promises'
 import { randomUUID } from 'crypto'
 import { join, resolve } from 'path'
-import { spawn } from 'bun'
+import { spawn } from 'child_process'
 
 type Target = {
   name: string
@@ -25,6 +25,53 @@ type RunResult = {
   stderr: string
   exitCode: number
 }
+
+const NODE_RUNNER_CONFIG_ENV = 'KERNEL_DEEP_SMOKE_RUNNER_CONFIG'
+const NODE_RUNNER_SCRIPT = `
+const { spawn } = require("child_process");
+
+const config = JSON.parse(process.env.${NODE_RUNNER_CONFIG_ENV});
+const child = spawn(config.binary, config.args, {
+  cwd: config.cwd,
+  env: {
+    ...process.env,
+    ...config.env,
+  },
+  stdio: ["pipe", "pipe", "pipe"],
+});
+
+let stdout = "";
+let stderr = "";
+
+child.stdout.on("data", chunk => {
+  stdout += chunk.toString();
+});
+child.stderr.on("data", chunk => {
+  stderr += chunk.toString();
+});
+
+child.stdin.write(config.prompt);
+child.stdin.end();
+
+const timeout = setTimeout(() => {
+  child.kill("SIGTERM");
+  setTimeout(() => {
+    child.kill("SIGKILL");
+  }, 2000).unref?.();
+}, config.timeoutMs);
+timeout.unref?.();
+
+child.on("close", code => {
+  clearTimeout(timeout);
+  process.stdout.write(
+    JSON.stringify({
+      exitCode: code ?? 1,
+      stderr,
+      stdout,
+    }),
+  );
+});
+`
 
 const repoRoot = resolve(import.meta.dir, '..')
 const defaultOriginalPath = '/Users/apple/Downloads/claude-code-main'
@@ -137,33 +184,52 @@ async function runTarget(
     await assertFile(join(target.cwd, 'scripts/dev.ts'))
   }
   const command = commandForTarget(target, env.OPENAI_MODEL)
-  const proc = spawn(command, {
-    cwd: target.cwd,
-    env: {
-      ...process.env,
-      ...env,
-    },
-    stdin: 'pipe',
-    stdout: 'pipe',
-    stderr: 'pipe',
+  const [binary, ...args] = command
+
+  return await new Promise<RunResult>(resolveRun => {
+    const proc = spawn('node', ['-e', NODE_RUNNER_SCRIPT], {
+      cwd: target.cwd,
+      env: {
+        ...process.env,
+        [NODE_RUNNER_CONFIG_ENV]: JSON.stringify({
+          args,
+          binary,
+          cwd: target.cwd,
+          env,
+          prompt,
+          timeoutMs,
+        }),
+      },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+
+    let runnerStdout = ''
+    let stderr = ''
+
+    proc.stdout?.on('data', chunk => {
+      runnerStdout += chunk.toString()
+    })
+    proc.stderr?.on('data', chunk => {
+      stderr += chunk.toString()
+    })
+
+    proc.on('close', code => {
+      if (code !== 0) {
+        resolveRun({
+          exitCode: code ?? 1,
+          stderr,
+          stdout: runnerStdout,
+        })
+        return
+      }
+
+      const parsed = JSON.parse(runnerStdout) as RunResult
+      resolveRun({
+        ...parsed,
+        stderr: parsed.stderr || stderr,
+      })
+    })
   })
-
-  proc.stdin.write(prompt)
-  proc.stdin.end()
-
-  const timeout = setTimeout(() => {
-    proc.kill('SIGTERM')
-  }, timeoutMs)
-  timeout.unref?.()
-
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ])
-  clearTimeout(timeout)
-
-  return { stdout, stderr, exitCode }
 }
 
 function assertSmokeResult(target: Target, result: RunResult): void {

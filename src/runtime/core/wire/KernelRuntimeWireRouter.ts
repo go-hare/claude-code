@@ -126,6 +126,7 @@ import {
   RuntimeEventBus,
   RuntimeEventReplayError,
 } from '../events/RuntimeEventBus.js'
+import { applyResumeSessionAtToTranscript } from '../session/sessionContinuation.js'
 import {
   KernelRuntimeWireCommandParseError,
   parseKernelRuntimeCommandLine,
@@ -209,6 +210,8 @@ type Awaitable<T> = T | Promise<T>
 
 export type KernelRuntimeWireRequestContext = {
   cwd?: string
+  resumeInterruptedTurn?: boolean
+  resumeSessionAt?: string
   metadata?: Record<string, unknown>
 }
 
@@ -2937,9 +2940,23 @@ export class KernelRuntimeWireRouter {
     const transcript = this.options.sessionManager
       ? await this.options.sessionManager.resumeSession(command.sessionId, {
           cwd: workspacePath ?? this.runtimeWorkspacePath,
+          resumeInterruptedTurn: command.resumeInterruptedTurn,
+          resumeSessionAt: command.resumeSessionAt,
           metadata: command.metadata,
         })
       : undefined
+    const resumedTranscript = transcript
+      ? applyResumeSessionAtToTranscript(transcript, command.resumeSessionAt)
+      : undefined
+    if (resumedTranscript?.error) {
+      return this.eventBus.error({
+        requestId: command.requestId,
+        code: 'invalid_request',
+        message: resumedTranscript.error,
+        retryable: false,
+      })
+    }
+    const effectiveTranscript = resumedTranscript?.transcript
 
     const createConversationCommand: KernelRuntimeCreateConversationCommand = {
       schemaVersion: command.schemaVersion,
@@ -2951,51 +2968,53 @@ export class KernelRuntimeWireRouter {
       sessionMeta: sanitizeWirePayload({
         resumeSource: pathResume ? 'transcript_path' : 'session_id',
         sessionId: command.sessionId,
+        resumeInterruptedTurn: command.resumeInterruptedTurn,
+        resumeSessionAt: command.resumeSessionAt,
       }),
       metadata: command.metadata,
     }
     const ack = await this.handleCreateConversation(createConversationCommand)
     const snapshot = ack.payload as KernelConversationSnapshot
-    if (shouldHydrateTranscript && transcript) {
+    if (shouldHydrateTranscript && effectiveTranscript) {
       this.hydrateResumedConversationTranscript(
         snapshot.conversationId,
         command.sessionId,
-        transcript,
+        effectiveTranscript,
       )
       this.hydrateResumedConversationTodo(
         snapshot.conversationId,
         command.sessionId,
-        transcript,
+        effectiveTranscript,
       )
       this.hydrateResumedConversationNestedMemory(
         snapshot.conversationId,
         command.sessionId,
-        transcript,
+        effectiveTranscript,
       )
       this.hydrateResumedConversationTasks(
         snapshot.conversationId,
         command.sessionId,
-        transcript,
+        effectiveTranscript,
       )
       this.hydrateResumedConversationAttribution(
         snapshot.conversationId,
         command.sessionId,
-        transcript,
+        effectiveTranscript,
       )
       this.hydrateResumedConversationFileHistory(
         snapshot.conversationId,
         command.sessionId,
-        transcript,
+        effectiveTranscript,
       )
       this.hydrateResumedConversationContentReplacements(
         snapshot.conversationId,
         command.sessionId,
-        transcript,
+        effectiveTranscript,
       )
       this.hydrateResumedConversationContextCollapse(
         snapshot.conversationId,
         command.sessionId,
-        transcript,
+        effectiveTranscript,
       )
     }
     return this.eventBus.ack({

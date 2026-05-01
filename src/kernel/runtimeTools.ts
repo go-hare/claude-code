@@ -1,12 +1,22 @@
 import type {
+  KernelRuntimeEnvelopeBase,
+} from '../runtime/contracts/events.js'
+import type {
   RuntimeToolDescriptor,
   RuntimeToolCallRequest,
   RuntimeToolCallResult,
   RuntimeToolSafety,
   RuntimeToolSource,
 } from '../runtime/contracts/tool.js'
+import type { KernelRuntimeEventReplayOptions } from './runtime.js'
+import type { KernelRuntimeToolEvent } from './runtimeEvents.js'
 import type { KernelRuntimeWireClient } from './wireProtocol.js'
-import { expectPayload } from './runtimeEnvelope.js'
+import {
+  collectReplayEvents,
+  expectPayload,
+  waitForRuntimeEventDelivery,
+} from './runtimeEnvelope.js'
+import { isKernelToolsCalledEvent } from './runtimeEvents.js'
 
 export type KernelToolDescriptor = RuntimeToolDescriptor
 export type KernelToolCallRequest = RuntimeToolCallRequest
@@ -34,6 +44,10 @@ export type KernelRuntimeTools = {
     input?: unknown,
     options?: Omit<KernelToolCallRequest, 'toolName' | 'input'>,
   ): Promise<KernelToolCallResult>
+  onEvent(handler: (event: KernelRuntimeToolEvent) => void): () => void
+  replay(
+    options?: KernelRuntimeEventReplayOptions,
+  ): Promise<readonly KernelRuntimeToolEvent[]>
 }
 
 export function createKernelRuntimeToolsFacade(
@@ -56,9 +70,29 @@ export function createKernelRuntimeToolsFacade(
         typeof nameOrRequest === 'string'
           ? { ...options, toolName: nameOrRequest, input }
           : nameOrRequest
-      return expectPayload<KernelToolCallResult>(await client.callTool(request))
+      const result = expectPayload<KernelToolCallResult>(
+        await client.callTool(request),
+      )
+      await waitForRuntimeEventDelivery()
+      return result
+    },
+    onEvent: handler =>
+      client.onEvent(envelope => {
+        if (isKernelToolEvent(envelope)) {
+          handler(envelope)
+        }
+      }),
+    replay: async (options = {}) => {
+      const replayed = await collectReplayEvents(client, options)
+      return replayed.filter(isKernelToolEvent)
     },
   }
+}
+
+function isKernelToolEvent(
+  envelope: KernelRuntimeEnvelopeBase,
+): envelope is KernelRuntimeToolEvent {
+  return isKernelToolsCalledEvent(envelope)
 }
 
 function toToolDescriptors(value: unknown): readonly KernelToolDescriptor[] {

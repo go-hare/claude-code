@@ -346,10 +346,7 @@ export class RuntimePermissionBroker {
     decision?: KernelPermissionDecision,
   ): void {
     const payload: Record<string, unknown> = {
-      permissionRequestId: request.permissionRequestId,
-      toolName: request.toolName,
-      action: request.action,
-      risk: request.risk,
+      ...request,
     }
     if (decision?.decidedBy !== undefined) {
       payload.decidedBy = decision.decidedBy
@@ -359,6 +356,12 @@ export class RuntimePermissionBroker {
     }
     if (decision?.reason !== undefined) {
       payload.reason = decision.reason
+    }
+    if (decision?.expiresAt !== undefined) {
+      payload.expiresAt = decision.expiresAt
+    }
+    if (decision?.metadata !== undefined) {
+      payload.decisionMetadata = decision.metadata
     }
 
     this.options.eventBus?.emit({

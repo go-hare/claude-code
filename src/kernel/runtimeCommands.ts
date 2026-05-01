@@ -1,4 +1,7 @@
 import type {
+  KernelRuntimeEnvelopeBase,
+} from '../runtime/contracts/events.js'
+import type {
   RuntimeCommandDescriptor,
   RuntimeCommandExecuteRequest,
   RuntimeCommandExecutionResult,
@@ -6,8 +9,15 @@ import type {
   RuntimeCommandKind,
   RuntimeCommandResult,
 } from '../runtime/contracts/command.js'
+import type { KernelRuntimeEventReplayOptions } from './runtime.js'
+import type { KernelRuntimeCommandEvent } from './runtimeEvents.js'
 import type { KernelRuntimeWireClient } from './wireProtocol.js'
-import { expectPayload } from './runtimeEnvelope.js'
+import {
+  collectReplayEvents,
+  expectPayload,
+  waitForRuntimeEventDelivery,
+} from './runtimeEnvelope.js'
+import { isKernelCommandsExecutedEvent } from './runtimeEvents.js'
 
 export type KernelCommandDescriptor = RuntimeCommandDescriptor
 export type KernelCommandEntry = RuntimeCommandGraphEntry
@@ -38,6 +48,10 @@ export type KernelRuntimeCommands = {
     nameOrRequest: string | KernelCommandExecuteRequest,
     options?: Omit<KernelCommandExecuteRequest, 'name'>,
   ): Promise<KernelCommandExecutionResult>
+  onEvent(handler: (event: KernelRuntimeCommandEvent) => void): () => void
+  replay(
+    options?: KernelRuntimeEventReplayOptions,
+  ): Promise<readonly KernelRuntimeCommandEvent[]>
 }
 
 export function createKernelRuntimeCommandsFacade(
@@ -65,11 +79,29 @@ export function createKernelRuntimeCommandsFacade(
         typeof nameOrRequest === 'string'
           ? { ...options, name: nameOrRequest }
           : nameOrRequest
-      return expectPayload<KernelCommandExecutionResult>(
+      const result = expectPayload<KernelCommandExecutionResult>(
         await client.executeCommand(request),
       )
+      await waitForRuntimeEventDelivery()
+      return result
+    },
+    onEvent: handler =>
+      client.onEvent(envelope => {
+        if (isKernelCommandEvent(envelope)) {
+          handler(envelope)
+        }
+      }),
+    replay: async (options = {}) => {
+      const replayed = await collectReplayEvents(client, options)
+      return replayed.filter(isKernelCommandEvent)
     },
   }
+}
+
+function isKernelCommandEvent(
+  envelope: KernelRuntimeEnvelopeBase,
+): envelope is KernelRuntimeCommandEvent {
+  return isKernelCommandsExecutedEvent(envelope)
 }
 
 function toCommandEntries(value: unknown): readonly KernelCommandEntry[] {

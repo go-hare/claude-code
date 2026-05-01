@@ -344,6 +344,7 @@ import {
   handleRewindFiles,
   loadInitialMessages,
 } from './headlessBootstrap.js'
+import { resolveHeadlessResumeInterruptedTurn } from './headlessResumePolicy.js'
 import {
   completeHeadlessRewind,
   failHeadless,
@@ -453,6 +454,7 @@ export async function runHeadlessRuntimeLoop(
     sdkUrl: string | undefined
     replayUserMessages: boolean | undefined
     includePartialMessages: boolean | undefined
+    resumeInterruptedTurn?: boolean | undefined
     forkSession: boolean | undefined
     rewindFiles: string | undefined
     enableAuthStatus: boolean | undefined
@@ -981,6 +983,7 @@ function runHeadlessStreaming(
     fallbackModel: string | undefined
     replayUserMessages?: boolean | undefined
     includePartialMessages?: boolean | undefined
+    resumeInterruptedTurn?: boolean | undefined
     enableAuthStatus?: boolean | undefined
     agent?: string | undefined
     setSDKStatus?: (status: SDKStatus) => void
@@ -1249,12 +1252,10 @@ function runHeadlessStreaming(
 
   // Auto-resume interrupted turns on restart so CC continues from where it
   // left off without requiring the SDK to re-send the prompt.
-  const resumeInterruptedTurnEnv =
-    process.env.CLAUDE_CODE_RESUME_INTERRUPTED_TURN
   if (
     turnInterruptionState &&
     turnInterruptionState.kind !== 'none' &&
-    resumeInterruptedTurnEnv
+    resolveHeadlessResumeInterruptedTurn(options.resumeInterruptedTurn)
   ) {
     logForDebugging(
       `[print.ts] Auto-resuming interrupted turn (kind: ${turnInterruptionState.kind})`,

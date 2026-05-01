@@ -39,9 +39,11 @@ const EXPECTED_KERNEL_EXPORTS = [
   'connectDefaultKernelHeadlessMcp',
   'connectDirectHostSession',
   'connectResponseSchema',
+  'collectKernelRuntimeEventEnvelopes',
   'consumeKernelRuntimeEventMessage',
   'createDefaultKernelHeadlessEnvironment',
   'createDefaultKernelRuntimeWireRouter',
+  'createHeadlessSDKMessageRuntimeEvent',
   'createDirectConnectSession',
   'createKernelCompanionRuntime',
   'createKernelContextManager',
@@ -60,13 +62,59 @@ const EXPECTED_KERNEL_EXPORTS = [
   'createKernelRuntime',
   'createKernelSessionManager',
   'createKernelSession',
+  'emitKernelHeadlessRuntimeMessage',
+  'getKernelCommandExecutionResult',
+  'getKernelAgentRunCancelResult',
+  'getKernelAgentSpawnResult',
+  'getKernelHookMutationResult',
+  'getKernelHookRegistrySnapshot',
+  'getKernelHookRunResult',
+  'getKernelMcpLifecycleResult',
+  'getKernelMcpSnapshot',
+  'getKernelPermissionDecision',
+  'getKernelPermissionRequest',
+  'getKernelPluginMutationResult',
+  'getKernelPluginSnapshot',
+  'getKernelSkillPromptContextResult',
+  'getKernelSkillSnapshot',
+  'getKernelTaskMutationResult',
   'getDirectConnectErrorMessage',
   'getKernelEventFromEnvelope',
   'getKernelRuntimeEnvelopeFromMessage',
+  'getKernelToolCallResult',
+  'getKernelTurnOutputText',
+  'getKernelTurnTerminalSnapshot',
+  'getSDKMessageFromRuntimeEnvelope',
+  'getSDKResultTurnOutcome',
+  'isKernelCommandsExecutedEvent',
+  'isKernelAgentsRunCancelledEvent',
+  'isKernelAgentsSpawnedEvent',
+  'isKernelHooksRanEvent',
+  'isKernelHooksRegisteredEvent',
+  'isKernelHooksReloadedEvent',
+  'isKernelMcpAuthenticatedEvent',
+  'isKernelMcpConnectedEvent',
+  'isKernelMcpEnabledChangedEvent',
+  'isKernelMcpReloadedEvent',
   'isKernelRuntimeEnvelope',
+  'isKernelPermissionRequestedEvent',
+  'isKernelPermissionResolvedEvent',
+  'isKernelPluginsEnabledChangedEvent',
+  'isKernelPluginsInstalledEvent',
+  'isKernelPluginsReloadedEvent',
+  'isKernelPluginsUninstalledEvent',
+  'isKernelPluginsUpdatedEvent',
+  'isKernelSkillsContextResolvedEvent',
+  'isKernelSkillsReloadedEvent',
+  'isKernelTasksAssignedEvent',
+  'isKernelTasksCreatedEvent',
+  'isKernelTasksUpdatedEvent',
+  'isKernelToolsCalledEvent',
   'KernelPermissionBrokerDisposedError',
   'KernelPermissionDecisionError',
+  'KernelRuntimeOutputDeltaDedupe',
   'KernelRuntimeRequestError',
+  'KernelRuntimeSDKMessageDedupe',
   'KernelRuntimeEventReplayError',
   'normalizeKernelHeadlessEvent',
   'prepareKernelHeadlessStartup',
@@ -74,11 +122,15 @@ const EXPECTED_KERNEL_EXPORTS = [
   'runConnectHeadless',
   'runDaemonWorker',
   'runKernelHeadless',
+  'runKernelHeadlessLaunch',
   'runKernelHeadlessClient',
   'runKernelRuntimeWireProtocol',
   'startKernelServer',
   'startServer',
   'toKernelRuntimeEventMessage',
+  'projectRuntimeEnvelopeToLegacySDKMessage',
+  'projectRuntimeEnvelopeToLegacyStreamJsonMessages',
+  'projectSDKMessageToLegacyStreamJsonMessages',
 ] as const
 
 const packageEntry = await import('../../entrypoints/kernel.js')
@@ -117,11 +169,23 @@ describe('kernel package entry', () => {
     expect(declaration).toContain('createKernelHeadlessInputQueue(')
     expect(declaration).toContain('createKernelHeadlessProviderEnv(')
     expect(declaration).toContain('normalizeKernelHeadlessEvent(')
+    expect(declaration).toContain('runKernelHeadlessLaunch(')
+    expect(declaration).toContain('export type KernelHeadlessRunOptions = {')
+    expect(declaration).toContain('continue: boolean | undefined')
+    expect(declaration).toContain('resume: string | boolean | undefined')
+    expect(declaration).toContain('resumeSessionAt: string | undefined')
+    expect(declaration).toContain('verbose: boolean | undefined')
+    expect(declaration).toContain('outputFormat: string | undefined')
+    expect(declaration).toContain('replayUserMessages: boolean | undefined')
+    expect(declaration).toContain('includePartialMessages: boolean | undefined')
+    expect(declaration).toContain('rewindFiles: string | undefined')
+    expect(declaration).toContain('export type KernelHeadlessLaunchRunOptions = Partial<')
     expect(declaration).toContain('runtimeEventSink?: KernelRuntimeEventSink')
     expect(declaration).toContain("schemaVersion: 'kernel.runtime.v1'")
     expect(declaration).toContain('KERNEL_RUNTIME_COMMAND_SCHEMA_VERSION:')
     expect(declaration).toContain('runKernelRuntimeWireProtocol(')
     expect(declaration).toContain("KernelRuntimeCommandBase<'connect_host'>")
+    expect(declaration).toContain('resumeSessionAt?: string')
     expect(declaration).toContain(
       "KernelRuntimeCommandBase<'decide_permission'>",
     )
@@ -134,8 +198,19 @@ describe('kernel package entry', () => {
     expect(declaration).toContain('conversationJournalPath?: string | false')
     expect(declaration).toContain('export type RuntimeProviderSelection = {')
     expect(declaration).toContain('provider?: RuntimeProviderSelection')
+    expect(declaration).toContain('defaultProvider?: RuntimeProviderSelection')
     expect(declaration).toContain('providerOverride?: RuntimeProviderSelection')
     expect(declaration).toContain('providerSelection?: RuntimeProviderSelection')
+    expect(declaration).toContain('onEvent(handler: (event: KernelRuntimePermissionEvent) => void)')
+    expect(declaration).toContain('onEvent(handler: (event: KernelRuntimeCommandEvent) => void)')
+    expect(declaration).toContain('onEvent(handler: (event: KernelRuntimeToolEvent) => void)')
+    expect(declaration).toContain('onEvent(handler: (event: KernelRuntimeHookEvent) => void)')
+    expect(declaration).toContain('onEvent(handler: (event: KernelRuntimeMcpEvent) => void)')
+    expect(declaration).toContain('onEvent(handler: (event: KernelRuntimeSkillEvent) => void)')
+    expect(declaration).toContain('onEvent(handler: (event: KernelRuntimePluginEvent) => void)')
+    expect(declaration).toContain('emitKernelHeadlessRuntimeMessage(')
+    expect(declaration).toContain('projectRuntimeEnvelopeToLegacyStreamJsonMessages(')
+    expect(declaration).toContain('KernelLegacySDKMessage')
     expect(declaration).toContain(
       'capabilityResolver?: KernelRuntimeWireCapabilityResolver',
     )
@@ -169,14 +244,57 @@ describe('kernel package entry', () => {
     expect(declaration).toContain('getKernelRuntimeEventType(')
     expect(declaration).toContain('getKernelRuntimeEventCategory(')
     expect(declaration).toContain('getKernelRuntimeEventTaxonomyEntry(')
+    expect(declaration).toContain('collectKernelRuntimeEventEnvelopes(')
     expect(declaration).toContain('isKernelRuntimeEventEnvelope(')
     expect(declaration).toContain('isKernelRuntimeEventOfType<')
     expect(declaration).toContain('isKernelTurnTerminalEvent(')
+    expect(declaration).toContain('isKernelCommandsExecutedEvent(')
+    expect(declaration).toContain('isKernelHooksReloadedEvent(')
+    expect(declaration).toContain('isKernelHooksRanEvent(')
+    expect(declaration).toContain('isKernelHooksRegisteredEvent(')
+    expect(declaration).toContain('isKernelToolsCalledEvent(')
+    expect(declaration).toContain('isKernelMcpReloadedEvent(')
+    expect(declaration).toContain('isKernelMcpConnectedEvent(')
+    expect(declaration).toContain('isKernelMcpAuthenticatedEvent(')
+    expect(declaration).toContain('isKernelMcpEnabledChangedEvent(')
+    expect(declaration).toContain('isKernelSkillsReloadedEvent(')
+    expect(declaration).toContain('isKernelSkillsContextResolvedEvent(')
+    expect(declaration).toContain('isKernelPluginsReloadedEvent(')
+    expect(declaration).toContain('isKernelPluginsEnabledChangedEvent(')
+    expect(declaration).toContain('isKernelPluginsInstalledEvent(')
+    expect(declaration).toContain('isKernelPluginsUninstalledEvent(')
+    expect(declaration).toContain('isKernelPluginsUpdatedEvent(')
+    expect(declaration).toContain('isKernelAgentsSpawnedEvent(')
+    expect(declaration).toContain('isKernelAgentsRunCancelledEvent(')
+    expect(declaration).toContain('isKernelTasksCreatedEvent(')
+    expect(declaration).toContain('isKernelTasksUpdatedEvent(')
+    expect(declaration).toContain('isKernelTasksAssignedEvent(')
+    expect(declaration).toContain('getKernelMcpSnapshot(')
+    expect(declaration).toContain('getKernelMcpLifecycleResult(')
+    expect(declaration).toContain('getKernelPluginSnapshot(')
+    expect(declaration).toContain('getKernelPluginMutationResult(')
+    expect(declaration).toContain('getKernelCommandExecutionResult(')
+    expect(declaration).toContain('getKernelToolCallResult(')
+    expect(declaration).toContain('getKernelSkillSnapshot(')
+    expect(declaration).toContain('getKernelSkillPromptContextResult(')
+    expect(declaration).toContain('getKernelAgentSpawnResult(')
+    expect(declaration).toContain('getKernelAgentRunCancelResult(')
+    expect(declaration).toContain('getKernelTaskMutationResult(')
+    expect(declaration).toContain('getKernelHookRegistrySnapshot(')
+    expect(declaration).toContain('getKernelHookRunResult(')
+    expect(declaration).toContain('getKernelHookMutationResult(')
     expect(declaration).toContain('export type KernelPermissionRequest = {')
     expect(declaration).toContain('export type KernelPermissionBroker = {')
     expect(declaration).toContain('createKernelPermissionBroker(')
     expect(declaration).toContain('export type KernelRuntime = {')
+    expect(declaration).toContain(
+      'export type KernelRuntimeHostEventPublishOptions =',
+    )
+    expect(declaration).toContain(
+      'export type KernelRuntimeHostEventPublishResult =',
+    )
     expect(declaration).toContain('createKernelRuntime(')
+    expect(declaration).toContain('publishHostEvent(')
     expect(declaration).toContain('export type KernelCompanionRuntime = {')
     expect(declaration).toContain('createKernelCompanionRuntime(')
     expect(declaration).toContain('export type KernelKairosRuntime = {')
@@ -242,6 +360,7 @@ describe('kernel package entry', () => {
     expect(declaration).toContain("'reload_mcp'")
     expect(declaration).toContain("'connect_mcp'")
     expect(declaration).toContain("'authenticate_mcp'")
+    expect(declaration).toContain('callbackUrl?: string')
     expect(declaration).toContain("'set_mcp_enabled'")
     expect(declaration).toContain("'list_hooks'")
     expect(declaration).toContain("'reload_hooks'")
@@ -318,7 +437,16 @@ describe('kernel package entry', () => {
     expect(declaration).toContain('createTask(')
     expect(declaration).toContain('updateTask(')
     expect(declaration).toContain('assignTask(')
+    expect(declaration).toContain('invoke(')
+    expect(declaration).toContain('KernelCoordinatorInvokeRequest')
+    expect(declaration).toContain('KernelCoordinatorInvokeResult')
     expect(declaration).toContain('spawn(request: KernelAgentSpawnRequest)')
+    expect(declaration).toContain(
+      'onEvent(handler: (event: KernelRuntimeAgentEvent) => void)',
+    )
+    expect(declaration).toContain(
+      'Promise<readonly KernelRuntimeAgentEvent[]>',
+    )
     expect(declaration).toContain('runs(')
     expect(declaration).toContain('KernelAgentRunFilter')
     expect(declaration).toContain('status(runId: string)')
@@ -326,6 +454,12 @@ describe('kernel package entry', () => {
     expect(declaration).toContain('cancel(')
     expect(declaration).toContain('create(request: KernelTaskCreateRequest)')
     expect(declaration).toContain('update(request: KernelTaskUpdateRequest)')
+    expect(declaration).toContain(
+      'onEvent(handler: (event: KernelRuntimeTaskEvent) => void)',
+    )
+    expect(declaration).toContain(
+      'Promise<readonly KernelRuntimeTaskEvent[]>',
+    )
     expect(declaration).toContain('assign(request: KernelTaskAssignRequest)')
     expect(declaration).toContain('execute(')
     expect(declaration).toContain('call(')
@@ -374,6 +508,12 @@ describe('kernel package entry', () => {
     )
     expect(
       Object.is(packageEntry.runKernelHeadless, kernel.runKernelHeadless),
+    ).toBe(true)
+    expect(
+      Object.is(
+        packageEntry.runKernelHeadlessLaunch,
+        kernel.runKernelHeadlessLaunch,
+      ),
     ).toBe(true)
     expect(
       Object.is(

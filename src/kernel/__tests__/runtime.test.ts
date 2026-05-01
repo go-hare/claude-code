@@ -43,6 +43,91 @@ describe('createKernelRuntime', () => {
         },
       },
     })
+    const permissionRequestedEnvelope = createEventEnvelope({
+      messageId: 'message-permission-requested',
+      conversationId: 'conversation-test',
+      turnId: 'turn-test',
+      payload: {
+        type: 'permission.requested',
+        replayable: true,
+        payload: {
+          permissionRequestId: 'permission-1',
+          conversationId: 'conversation-test',
+          turnId: 'turn-test',
+          toolName: 'Bash',
+          action: 'tool.call',
+          argumentsPreview: { command: 'pwd' },
+          risk: 'medium',
+          policySnapshot: { mode: 'default' },
+        },
+      },
+    })
+    const permissionResolvedEnvelope = createEventEnvelope({
+      messageId: 'message-permission-resolved',
+      conversationId: 'conversation-test',
+      turnId: 'turn-test',
+      payload: {
+        type: 'permission.resolved',
+        replayable: true,
+        payload: {
+          permissionRequestId: 'permission-1',
+          conversationId: 'conversation-test',
+          turnId: 'turn-test',
+          toolName: 'Bash',
+          action: 'tool.call',
+          argumentsPreview: { command: 'pwd' },
+          risk: 'medium',
+          policySnapshot: { mode: 'default' },
+          decision: 'allow_once',
+          decidedBy: 'host',
+          reason: 'approved',
+        },
+      },
+    })
+    const hooksReloadedEnvelope = createEventEnvelope({
+      messageId: 'message-hooks-reloaded',
+      payload: {
+        type: 'hooks.reloaded',
+        replayable: true,
+        payload: {
+          hooks: [
+            {
+              event: 'PreToolUse',
+              type: 'command',
+              source: 'projectSettings',
+            },
+          ],
+        },
+      },
+    })
+    const hooksRanEnvelope = createEventEnvelope({
+      messageId: 'message-hooks-ran',
+      payload: {
+        type: 'hooks.ran',
+        replayable: true,
+        payload: {
+          event: 'PreToolUse',
+          handled: true,
+          outputs: [{ matcher: 'Bash' }],
+        },
+      },
+    })
+    const hooksRegisteredEnvelope = createEventEnvelope({
+      messageId: 'message-hooks-registered',
+      payload: {
+        type: 'hooks.registered',
+        replayable: true,
+        payload: {
+          hook: {
+            event: 'SessionEnd',
+            type: 'callback',
+            source: 'sessionHook',
+          },
+          registered: true,
+          handlerRef: 'session-end',
+        },
+      },
+    })
     const unknownEnvelope = createEventEnvelope({
       messageId: 'message-unknown',
       payload: {
@@ -87,6 +172,73 @@ describe('createKernelRuntime', () => {
       true,
     )
     expect(runtimeEvents.isKernelTurnTerminalEvent(outputEnvelope)).toBe(false)
+    expect(runtimeEvents.getKernelTurnOutputText(outputEnvelope)).toBe('hello')
+    expect(runtimeEvents.getKernelTurnTerminalSnapshot(completedEnvelope)).toEqual(
+      {
+        conversationId: 'conversation-test',
+        turnId: 'turn-test',
+        state: 'completed',
+      },
+    )
+    expect(
+      runtimeEvents.isKernelPermissionRequestedEvent(
+        permissionRequestedEnvelope,
+      ),
+    ).toBe(true)
+    expect(
+      runtimeEvents.isKernelPermissionResolvedEvent(permissionResolvedEnvelope),
+    ).toBe(true)
+    expect(
+      runtimeEvents.getKernelPermissionRequest(permissionRequestedEnvelope),
+    ).toMatchObject({
+      permissionRequestId: 'permission-1',
+      toolName: 'Bash',
+      argumentsPreview: { command: 'pwd' },
+    })
+    expect(
+      runtimeEvents.getKernelPermissionDecision(permissionResolvedEnvelope),
+    ).toMatchObject({
+      permissionRequestId: 'permission-1',
+      decision: 'allow_once',
+      decidedBy: 'host',
+      reason: 'approved',
+    })
+    expect(
+      runtimeEvents.isKernelHooksReloadedEvent(hooksReloadedEnvelope),
+    ).toBe(true)
+    expect(runtimeEvents.isKernelHooksRanEvent(hooksRanEnvelope)).toBe(true)
+    expect(
+      runtimeEvents.isKernelHooksRegisteredEvent(hooksRegisteredEnvelope),
+    ).toBe(true)
+    expect(
+      runtimeEvents.getKernelHookRegistrySnapshot(hooksReloadedEnvelope),
+    ).toEqual({
+      hooks: [
+        {
+          event: 'PreToolUse',
+          type: 'command',
+          source: 'projectSettings',
+        },
+      ],
+    })
+    expect(runtimeEvents.getKernelHookRunResult(hooksRanEnvelope)).toMatchObject(
+      {
+        event: 'PreToolUse',
+        handled: true,
+        outputs: [{ matcher: 'Bash' }],
+      },
+    )
+    expect(
+      runtimeEvents.getKernelHookMutationResult(hooksRegisteredEnvelope),
+    ).toMatchObject({
+      hook: {
+        event: 'SessionEnd',
+        type: 'callback',
+        source: 'sessionHook',
+      },
+      registered: true,
+      handlerRef: 'session-end',
+    })
 
     expect(runtimeEvents.getKernelRuntimeEventType(unknownEnvelope)).toBe(
       'unknown.event',
@@ -102,6 +254,60 @@ describe('createKernelRuntime', () => {
     ).toBe(false)
     expect(runtimeEvents.getKernelRuntimeEventType(ackEnvelope)).toBeUndefined()
     expect(runtimeEvents.isKernelRuntimeEventEnvelope(ackEnvelope)).toBe(false)
+  })
+
+  test('passes runtime default providers through init and resolves them for turns', async () => {
+    const seen: Array<{
+      providerSelection?: { providerId: string; kind?: string; model?: string }
+      conversationProvider?: { providerId: string; kind?: string; model?: string }
+    }> = []
+    const runtime = await createKernelRuntime({
+      id: 'runtime-default-provider-test',
+      workspacePath: '/tmp/kernel-runtime-default-provider-test',
+      eventJournalPath: false,
+      conversationJournalPath: false,
+      defaultProvider: {
+        providerId: 'default-openai',
+        kind: 'openai-compatible',
+        model: 'default-model',
+      },
+      runTurnExecutor: async function* (context) {
+        seen.push({
+          providerSelection: context.providerSelection,
+          conversationProvider: context.conversation.snapshot().provider,
+        })
+        yield { type: 'completed', stopReason: 'end_turn' }
+      },
+    })
+
+    try {
+      await runtime.start()
+      const conversation = await runtime.createConversation()
+      expect(conversation.snapshot().provider).toMatchObject({
+        providerId: 'default-openai',
+        kind: 'openai-compatible',
+        model: 'default-model',
+      })
+
+      await conversation.runTurnAndWait('hello')
+
+      expect(seen).toEqual([
+        {
+          providerSelection: {
+            providerId: 'default-openai',
+            kind: 'openai-compatible',
+            model: 'default-model',
+          },
+          conversationProvider: {
+            providerId: 'default-openai',
+            kind: 'openai-compatible',
+            model: 'default-model',
+          },
+        },
+      ])
+    } finally {
+      await runtime.dispose()
+    }
   })
 
   test('creates an in-process runtime conversation facade', async () => {
@@ -469,6 +675,336 @@ describe('createKernelRuntime', () => {
 
       await conversation.dispose()
       expect(conversation.snapshot().state).toBe('disposed')
+    } finally {
+      unsubscribe()
+      await runtime.dispose()
+    }
+  })
+
+  test('surfaces typed permission events, replay, and richer transcript state', async () => {
+    const transcript = {
+      sessionId: 'session-1',
+      fullPath: '/tmp/kernel-runtime-permission/session-1.jsonl',
+      messages: [{ type: 'summary', text: 'resume fixture' }],
+      turnInterruptionState: 'none' as const,
+      taskSnapshot: { id: 'task-1' },
+      todoSnapshot: { todos: ['a'] },
+      nestedMemorySnapshot: { docs: ['CLAUDE.md'] },
+      attributionSnapshots: [{ id: 'attr-1' }],
+      fileHistorySnapshots: [{ path: 'foo.ts' }],
+      contentReplacements: [{ id: 'replacement-1' }],
+      contextCollapseCommits: [{ sha: 'abc123' }],
+      contextCollapseSnapshot: { id: 'collapse-1' },
+    }
+    const runtime = await createKernelRuntime({
+      id: 'runtime-permission-events-test',
+      workspacePath: '/tmp/kernel-runtime-permission',
+      eventJournalPath: false,
+      conversationJournalPath: false,
+      sessionManager: {
+        listSessions: async () => [],
+        resumeSession: async () => transcript,
+        getSessionTranscript: async () => transcript,
+      },
+      runTurnExecutor: async function* (context) {
+        const decision = await context.permissionBroker!.requestPermission({
+          permissionRequestId: 'permission-1',
+          conversationId: context.command.conversationId,
+          turnId: context.command.turnId,
+          toolName: 'Bash',
+          action: 'tool.call',
+          argumentsPreview: { command: 'pwd' },
+          risk: 'medium',
+          policySnapshot: { mode: 'default' },
+        })
+        yield {
+          type: 'output',
+          payload: { text: `decision:${decision.decision}` },
+        }
+        yield { type: 'completed', stopReason: 'end_turn' }
+      },
+    })
+
+    const permissionEvents: runtimeEvents.KernelRuntimePermissionEvent[] = []
+    const unsubscribe = runtime.permissions.onEvent(event => {
+      permissionEvents.push(event)
+    })
+
+    try {
+      await runtime.start()
+      const transcriptResult = await runtime.sessions.getTranscript('session-1')
+      expect(transcriptResult).toMatchObject({
+        taskSnapshot: { id: 'task-1' },
+        todoSnapshot: { todos: ['a'] },
+        nestedMemorySnapshot: { docs: ['CLAUDE.md'] },
+        attributionSnapshots: [{ id: 'attr-1' }],
+        fileHistorySnapshots: [{ path: 'foo.ts' }],
+        contentReplacements: [{ id: 'replacement-1' }],
+        contextCollapseCommits: [{ sha: 'abc123' }],
+        contextCollapseSnapshot: { id: 'collapse-1' },
+      })
+
+      const conversation = await runtime.createConversation()
+      const turn = await conversation.startTurn('hello')
+
+      await waitFor(() =>
+        permissionEvents.some(event =>
+          runtimeEvents.isKernelPermissionRequestedEvent(event),
+        ),
+      )
+
+      const request = runtimeEvents.getKernelPermissionRequest(
+        permissionEvents[0]!,
+      )
+      expect(request).toMatchObject({
+        permissionRequestId: 'permission-1',
+        conversationId: conversation.id,
+        turnId: turn.id,
+        argumentsPreview: { command: 'pwd' },
+      })
+
+      await runtime.decidePermission({
+        permissionRequestId: 'permission-1',
+        decision: 'allow_once',
+        decidedBy: 'host',
+        reason: 'approved',
+      })
+
+      const terminal = await turn.wait()
+      expect(terminal.state).toBe('completed')
+
+      await waitFor(() =>
+        permissionEvents.some(event =>
+          runtimeEvents.isKernelPermissionResolvedEvent(event),
+        ),
+      )
+
+      expect(
+        runtimeEvents.getKernelPermissionDecision(permissionEvents[1]!),
+      ).toMatchObject({
+        permissionRequestId: 'permission-1',
+        decision: 'allow_once',
+        decidedBy: 'host',
+        reason: 'approved',
+      })
+
+      const replayedPermissions = await runtime.permissions.replay({
+        conversationId: conversation.id,
+        turnId: turn.id,
+      })
+      expect(replayedPermissions.map(event => event.payload.type)).toEqual([
+        'permission.requested',
+        'permission.resolved',
+      ])
+
+      const replayed = await conversation.replayEvents()
+      const outputEnvelope = replayed.find(envelope =>
+        runtimeEvents.isKernelRuntimeEventOfType(envelope, 'turn.output_delta'),
+      )
+      const terminalEnvelope = replayed.find(envelope =>
+        runtimeEvents.isKernelTurnTerminalEvent(envelope),
+      )
+      expect(runtimeEvents.getKernelTurnOutputText(outputEnvelope!)).toBe(
+        'decision:allow_once',
+      )
+      expect(
+        runtimeEvents.getKernelTurnTerminalSnapshot(terminalEnvelope!),
+      ).toMatchObject({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        state: 'completed',
+      })
+    } finally {
+      unsubscribe()
+      await runtime.dispose()
+    }
+  })
+
+  test('surfaces typed hook events, replay, and payload helpers', async () => {
+    const hookDescriptors = [
+      {
+        event: 'PreToolUse',
+        type: 'command',
+        source: 'projectSettings',
+        matcher: 'Bash',
+      },
+    ] as const
+    const runtime = await createKernelRuntime({
+      id: 'runtime-hook-events-test',
+      workspacePath: '/tmp/kernel-runtime-hooks',
+      eventJournalPath: false,
+      conversationJournalPath: false,
+      capabilityResolver: {
+        listDescriptors: () => [createCapabilityDescriptor('hooks', 'ready')],
+        requireCapability: async () => {},
+        reloadCapabilities: async () => [],
+      },
+      hookCatalog: {
+        listHooks: async () => hookDescriptors,
+        reload: async () => ({ hooks: hookDescriptors }),
+        runHook: async request => ({
+          event: request.event,
+          handled: true,
+          outputs: [{ input: request.input, matcher: request.matcher }],
+          metadata: request.metadata,
+        }),
+        registerHook: async request => ({
+          hook: request.hook,
+          registered: true,
+          handlerRef: request.handlerRef,
+          metadata: request.metadata,
+        }),
+      },
+    })
+
+    const hookEvents: runtimeEvents.KernelRuntimeHookEvent[] = []
+    const unsubscribe = runtime.hooks.onEvent(event => {
+      hookEvents.push(event)
+    })
+
+    try {
+      await runtime.start()
+
+      expect(await runtime.hooks.reload()).toEqual(hookDescriptors)
+      expect(
+        await runtime.hooks.run('PreToolUse', { tool: 'Bash' }, {
+          matcher: 'Bash',
+          metadata: { source: 'sdk' },
+        }),
+      ).toMatchObject({
+        event: 'PreToolUse',
+        handled: true,
+        metadata: { source: 'sdk' },
+      })
+      expect(
+        await runtime.hooks.register(
+          {
+            event: 'SessionEnd',
+            type: 'callback',
+            source: 'sessionHook',
+          },
+          { handlerRef: 'session-end', metadata: { source: 'sdk' } },
+        ),
+      ).toMatchObject({
+        hook: {
+          event: 'SessionEnd',
+          type: 'callback',
+          source: 'sessionHook',
+        },
+        registered: true,
+        handlerRef: 'session-end',
+      })
+
+      await waitFor(() => hookEvents.length >= 3)
+
+      expect(hookEvents.map(event => event.payload.type)).toEqual([
+        'hooks.reloaded',
+        'hooks.ran',
+        'hooks.registered',
+      ])
+      expect(
+        runtimeEvents.getKernelHookRegistrySnapshot(hookEvents[0]!),
+      ).toEqual({
+        hooks: hookDescriptors,
+      })
+      expect(runtimeEvents.getKernelHookRunResult(hookEvents[1]!)).toMatchObject(
+        {
+          event: 'PreToolUse',
+          handled: true,
+          outputs: [{ input: { tool: 'Bash' }, matcher: 'Bash' }],
+          metadata: { source: 'sdk' },
+        },
+      )
+      expect(
+        runtimeEvents.getKernelHookMutationResult(hookEvents[2]!),
+      ).toMatchObject({
+        hook: {
+          event: 'SessionEnd',
+          type: 'callback',
+          source: 'sessionHook',
+        },
+        registered: true,
+        handlerRef: 'session-end',
+        metadata: { source: 'sdk' },
+      })
+
+      const replayedHooks = await runtime.hooks.replay()
+      expect(replayedHooks.map(event => event.payload.type)).toEqual([
+        'hooks.reloaded',
+        'hooks.ran',
+        'hooks.registered',
+      ])
+    } finally {
+      unsubscribe()
+      await runtime.dispose()
+    }
+  })
+
+  test('publishes host events through the public runtime facade', async () => {
+    const runtime = await createKernelRuntime({
+      id: 'runtime-host-event-test',
+      workspacePath: '/tmp/kernel-runtime-host-event-test',
+      eventJournalPath: false,
+      conversationJournalPath: false,
+    })
+
+    const events: KernelRuntimeEnvelopeBase[] = []
+    const unsubscribe = runtime.onEvent(event => {
+      events.push(event)
+    })
+
+    try {
+      await runtime.start()
+
+      const published = await runtime.publishHostEvent(
+        {
+          type: 'host.focus_changed',
+          replayable: true,
+          payload: { focused: false },
+          metadata: { source: 'sdk' },
+        },
+        {
+          requestId: 'publish-host-event-request',
+          metadata: { caller: 'runtime-test' },
+        },
+      )
+
+      expect(published).toMatchObject({
+        published: true,
+        eventId: expect.any(String),
+      })
+
+      await waitFor(() =>
+        events.some(event =>
+          runtimeEvents.isKernelRuntimeEventOfType(
+            event,
+            'host.focus_changed',
+          ),
+        ),
+      )
+
+      const typedEvents = kernel.collectKernelRuntimeEventEnvelopes(events)
+      expect(typedEvents.map(event => event.payload.type)).toContain(
+        'host.focus_changed',
+      )
+      expect(
+        typedEvents.find(event => event.payload.type === 'host.focus_changed'),
+      ).toMatchObject({
+        metadata: {
+          caller: 'runtime-test',
+        },
+        payload: {
+          metadata: {
+            source: 'sdk',
+            publishedBy: 'host',
+            requestId: 'publish-host-event-request',
+          },
+          payload: { focused: false },
+        },
+      })
+
+      const replayed = await runtime.replayEvents()
+      expect(collectTypedEventTypes(replayed)).toContain('host.focus_changed')
     } finally {
       unsubscribe()
       await runtime.dispose()
@@ -984,7 +1520,7 @@ describe('createKernelRuntime', () => {
         authenticateServer: request => ({
           serverName: request.serverName,
           state: request.action === 'clear' ? 'needs-auth' : 'connected',
-          message: request.action ?? 'authenticate',
+          message: request.callbackUrl ?? request.action ?? 'authenticate',
           metadata: request.metadata,
         }),
         setServerEnabled: request => ({
@@ -1110,6 +1646,26 @@ describe('createKernelRuntime', () => {
           taskSnapshot.tasks.find(task => task.id === taskId) ?? null,
       },
     })
+    const commandEvents: runtimeEvents.KernelRuntimeCommandEvent[] = []
+    const unsubscribeCommands = runtime.commands.onEvent(event => {
+      commandEvents.push(event)
+    })
+    const toolEvents: runtimeEvents.KernelRuntimeToolEvent[] = []
+    const unsubscribeTools = runtime.tools.onEvent(event => {
+      toolEvents.push(event)
+    })
+    const mcpEvents: runtimeEvents.KernelRuntimeMcpEvent[] = []
+    const unsubscribeMcp = runtime.mcp.onEvent(event => {
+      mcpEvents.push(event)
+    })
+    const skillEvents: runtimeEvents.KernelRuntimeSkillEvent[] = []
+    const unsubscribeSkills = runtime.skills.onEvent(event => {
+      skillEvents.push(event)
+    })
+    const pluginEvents: runtimeEvents.KernelRuntimePluginEvent[] = []
+    const unsubscribePlugins = runtime.plugins.onEvent(event => {
+      pluginEvents.push(event)
+    })
 
     try {
       await runtime.start()
@@ -1130,6 +1686,24 @@ describe('createKernelRuntime', () => {
           text: 'executed:status:brief',
         },
       })
+      await waitFor(() => commandEvents.length >= 1)
+      expect(commandEvents.map(event => event.payload.type)).toEqual([
+        'commands.executed',
+      ])
+      expect(
+        runtimeEvents.getKernelCommandExecutionResult(commandEvents[0]!),
+      ).toMatchObject({
+        name: 'status',
+        kind: 'local',
+        result: {
+          type: 'text',
+          text: 'executed:status:brief',
+        },
+      })
+      const replayedCommandEvents = await runtime.commands.replay()
+      expect(replayedCommandEvents.map(event => event.payload.type)).toEqual([
+        'commands.executed',
+      ])
       expect(
         namesOf(await runtime.commands.descriptors({ modelInvocable: true })),
       ).toEqual(['review'])
@@ -1148,6 +1722,22 @@ describe('createKernelRuntime', () => {
           input: { file_path: 'README.md' },
         },
       })
+      await waitFor(() => toolEvents.length >= 1)
+      expect(toolEvents.map(event => event.payload.type)).toEqual([
+        'tools.called',
+      ])
+      expect(runtimeEvents.getKernelToolCallResult(toolEvents[0]!)).toMatchObject(
+        {
+          toolName: 'Read',
+          output: {
+            input: { file_path: 'README.md' },
+          },
+        },
+      )
+      const replayedToolEvents = await runtime.tools.replay()
+      expect(replayedToolEvents.map(event => event.payload.type)).toEqual([
+        'tools.called',
+      ])
       expect(
         namesOf(await runtime.tools.list({ concurrencySafe: false })),
       ).toEqual(['Bash'])
@@ -1179,11 +1769,13 @@ describe('createKernelRuntime', () => {
       })
       expect(
         await runtime.mcp.authenticate('github', {
+          callbackUrl: 'https://callback.example/done',
           metadata: { flow: 'oauth' },
         }),
       ).toMatchObject({
         serverName: 'github',
         state: 'connected',
+        message: 'https://callback.example/done',
         metadata: { flow: 'oauth' },
       })
       expect(await runtime.mcp.disable('linear')).toMatchObject({
@@ -1198,6 +1790,39 @@ describe('createKernelRuntime', () => {
         serverName: 'github',
         state: 'needs-auth',
       })
+      await waitFor(() => mcpEvents.length >= 6)
+      expect(mcpEvents.map(event => event.payload.type)).toEqual([
+        'mcp.reloaded',
+        'mcp.connected',
+        'mcp.authenticated',
+        'mcp.enabled_changed',
+        'mcp.enabled_changed',
+        'mcp.authenticated',
+      ])
+      expect(runtimeEvents.getKernelMcpSnapshot(mcpEvents[0]!)).toMatchObject({
+        toolBindings: mcpToolBindings,
+      })
+      expect(
+        runtimeEvents.getKernelMcpLifecycleResult(mcpEvents[1]!),
+      ).toMatchObject({
+        serverName: 'github',
+        state: 'connected',
+      })
+      expect(
+        runtimeEvents.getKernelMcpLifecycleResult(mcpEvents[5]!),
+      ).toMatchObject({
+        serverName: 'github',
+        state: 'needs-auth',
+      })
+      const replayedMcpEvents = await runtime.mcp.replay()
+      expect(replayedMcpEvents.map(event => event.payload.type)).toEqual([
+        'mcp.reloaded',
+        'mcp.connected',
+        'mcp.authenticated',
+        'mcp.enabled_changed',
+        'mcp.enabled_changed',
+        'mcp.authenticated',
+      ])
       expect(
         (await runtime.hooks.list({ source: 'pluginHook' })).map(
           hook => hook.pluginName,
@@ -1263,6 +1888,28 @@ describe('createKernelRuntime', () => {
         allowedTools: ['Read'],
         metadata: { source: 'sdk' },
       })
+      await waitFor(() => skillEvents.length >= 2)
+      expect(skillEvents.map(event => event.payload.type)).toEqual([
+        'skills.reloaded',
+        'skills.context_resolved',
+      ])
+      expect(runtimeEvents.getKernelSkillSnapshot(skillEvents[0]!)).toMatchObject(
+        {
+          skills: skillDescriptors,
+        },
+      )
+      expect(
+        runtimeEvents.getKernelSkillPromptContextResult(skillEvents[1]!),
+      ).toMatchObject({
+        name: 'review',
+        context: 'inline',
+        content: 'skill:review:focus',
+      })
+      const replayedSkillEvents = await runtime.skills.replay()
+      expect(replayedSkillEvents.map(event => event.payload.type)).toEqual([
+        'skills.reloaded',
+        'skills.context_resolved',
+      ])
       expect(
         namesOf(await runtime.plugins.list({ hasComponent: 'hooks' })),
       ).toEqual(['audit-plugin'])
@@ -1318,6 +1965,37 @@ describe('createKernelRuntime', () => {
         oldVersion: '1.0.0',
         newVersion: '1.1.0',
       })
+      await waitFor(() => pluginEvents.length >= 6)
+      expect(pluginEvents.map(event => event.payload.type)).toEqual([
+        'plugins.reloaded',
+        'plugins.enabled_changed',
+        'plugins.enabled_changed',
+        'plugins.installed',
+        'plugins.uninstalled',
+        'plugins.updated',
+      ])
+      expect(
+        runtimeEvents.getKernelPluginSnapshot(pluginEvents[0]!),
+      ).toMatchObject({
+        plugins: pluginDescriptors,
+      })
+      expect(
+        runtimeEvents.getKernelPluginMutationResult(pluginEvents[5]!),
+      ).toMatchObject({
+        name: 'audit-plugin',
+        action: 'update',
+        oldVersion: '1.0.0',
+        newVersion: '1.1.0',
+      })
+      const replayedPluginEvents = await runtime.plugins.replay()
+      expect(replayedPluginEvents.map(event => event.payload.type)).toEqual([
+        'plugins.reloaded',
+        'plugins.enabled_changed',
+        'plugins.enabled_changed',
+        'plugins.installed',
+        'plugins.uninstalled',
+        'plugins.updated',
+      ])
       expect(
         (await runtime.agents.list({ skill: 'review' })).map(
           agent => agent.agentType,
@@ -1393,6 +2071,11 @@ describe('createKernelRuntime', () => {
         'tasks',
       ])
     } finally {
+      unsubscribeCommands()
+      unsubscribeTools()
+      unsubscribeMcp()
+      unsubscribeSkills()
+      unsubscribePlugins()
       await runtime.dispose()
     }
   })
@@ -1561,6 +2244,14 @@ describe('createKernelRuntime', () => {
       const type = (envelope.payload as { type?: string } | undefined)?.type
       if (type) events.push(type)
     })
+    const agentEvents: runtimeEvents.KernelRuntimeAgentEvent[] = []
+    const unsubscribeAgents = runtime.agents.onEvent(event => {
+      agentEvents.push(event)
+    })
+    const taskEvents: runtimeEvents.KernelRuntimeTaskEvent[] = []
+    const unsubscribeTasks = runtime.tasks.onEvent(event => {
+      taskEvents.push(event)
+    })
 
     try {
       await runtime.start()
@@ -1662,6 +2353,57 @@ describe('createKernelRuntime', () => {
           'tasks.assigned',
         ]),
       )
+      expect(agentEvents.map(event => event.payload.type)).toEqual([
+        'agents.spawned',
+        'agents.run.cancelled',
+      ])
+      expect(
+        runtimeEvents.getKernelAgentSpawnResult(agentEvents[0]!),
+      ).toMatchObject({
+        status: 'async_launched',
+        runId: 'agent-sdk-run-1',
+        agentId: 'agent-sdk-1',
+      })
+      expect(
+        runtimeEvents.getKernelAgentRunCancelResult(agentEvents[1]!),
+      ).toMatchObject({
+        runId: 'agent-sdk-run-1',
+        cancelled: true,
+        status: 'cancelled',
+      })
+      expect(taskEvents.map(event => event.payload.type)).toEqual([
+        'tasks.created',
+        'tasks.updated',
+        'tasks.assigned',
+      ])
+      expect(
+        runtimeEvents.getKernelTaskMutationResult(taskEvents[0]!),
+      ).toMatchObject({
+        created: true,
+        task: { id: '1', subject: 'SDK mutations' },
+      })
+      expect(
+        runtimeEvents.getKernelTaskMutationResult(taskEvents[1]!),
+      ).toMatchObject({
+        task: { id: '1', status: 'in_progress' },
+      })
+      expect(
+        runtimeEvents.getKernelTaskMutationResult(taskEvents[2]!),
+      ).toMatchObject({
+        assigned: true,
+        task: { id: '1', owner: 'reviewer' },
+      })
+      const replayedAgentEvents = await runtime.agents.replay()
+      expect(replayedAgentEvents.map(event => event.payload.type)).toEqual([
+        'agents.spawned',
+        'agents.run.cancelled',
+      ])
+      const replayedTaskEvents = await runtime.tasks.replay()
+      expect(replayedTaskEvents.map(event => event.payload.type)).toEqual([
+        'tasks.created',
+        'tasks.updated',
+        'tasks.assigned',
+      ])
       expect(requiredCapabilities).toEqual([
         'agents',
         'agents',
@@ -1675,6 +2417,8 @@ describe('createKernelRuntime', () => {
       ])
     } finally {
       unsubscribe()
+      unsubscribeAgents()
+      unsubscribeTasks()
       await runtime.dispose()
     }
   })

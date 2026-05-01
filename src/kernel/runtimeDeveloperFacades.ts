@@ -193,6 +193,8 @@ export function createKernelRuntimeSessionFacade(
     options?: {
       conversationId?: KernelConversationId
       workspacePath?: string
+      resumeInterruptedTurn?: boolean
+      resumeSessionAt?: string
       metadata?: Record<string, unknown>
     },
   ): Promise<KernelConversation>
@@ -210,6 +212,8 @@ export function createKernelRuntimeSessionFacade(
           sessionId,
           conversationId: options.conversationId,
           workspacePath: options.workspacePath,
+          resumeInterruptedTurn: options.resumeInterruptedTurn,
+          resumeSessionAt: options.resumeSessionAt,
           metadata: options.metadata,
         }),
       ).conversation

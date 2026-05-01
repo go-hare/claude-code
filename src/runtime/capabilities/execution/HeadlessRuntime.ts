@@ -33,6 +33,7 @@ export type HeadlessRuntimeOptions = {
   sdkUrl: string | undefined
   replayUserMessages: boolean | undefined
   includePartialMessages: boolean | undefined
+  resumeInterruptedTurn?: boolean | undefined
   forkSession: boolean | undefined
   rewindFiles: string | undefined
   enableAuthStatus: boolean | undefined

@@ -39,6 +39,47 @@ export type KernelThinkingConfig = Record<string, unknown>
 
 export type KernelHeadlessInput = string | AsyncIterable<string>
 
+export type KernelLegacySDKMessage = {
+  type: string
+  [key: string]: unknown
+}
+
+export type KernelLegacyStdoutMessage = {
+  type: string
+  [key: string]: unknown
+}
+
+export type KernelLegacyStreamJsonProjectionOptions = {
+  sessionId?: string
+  includeRuntimeEvent?: boolean
+  includeSDKMessage?: boolean
+}
+
+export type KernelSDKResultTurnOutcome = {
+  eventType: 'turn.completed' | 'turn.failed'
+  state: 'completed' | 'failed'
+  stopReason: string | null
+}
+
+export type KernelHeadlessRuntimeMessageEmissionOptions = {
+  message: KernelLegacyStdoutMessage
+  output: {
+    enqueue(message: KernelLegacyStdoutMessage): void
+  }
+  drainSdkEvents: () => KernelLegacyStdoutMessage[]
+  hasBackgroundTasks: () => boolean
+  heldBackResult: KernelLegacyStdoutMessage | null
+  heldBackAssistantMessages?: KernelLegacyStdoutMessage[]
+  terminalResultEmitted?: boolean
+}
+
+export type KernelHeadlessRuntimeMessageEmissionResult = {
+  heldBackResult: KernelLegacyStdoutMessage | null
+  heldBackAssistantMessages: KernelLegacyStdoutMessage[]
+  lastResultIsError?: boolean
+  terminalResultEmitted?: boolean
+}
+
 export type KernelRuntimeEnvelopeKind = 'ack' | 'event' | 'error' | 'pong'
 
 export type KernelRuntimeErrorCode =
@@ -109,6 +150,15 @@ export type KernelRuntimeEventType =
   | 'conversation.recovered'
   | 'conversation.disposed'
   | 'conversation.snapshot_failed'
+  | 'conversation.transcript_message'
+  | 'conversation.todo_snapshot'
+  | 'conversation.nested_memory_snapshot'
+  | 'conversation.task_snapshot'
+  | 'conversation.attribution_snapshot'
+  | 'conversation.file_history_snapshot'
+  | 'conversation.content_replacement'
+  | 'conversation.context_collapse_commit'
+  | 'conversation.context_collapse_snapshot'
   | 'turn.started'
   | 'turn.abort_requested'
   | 'turn.output_delta'
@@ -180,11 +230,246 @@ export type KernelTurnCompletedEvent =
 export type KernelTurnFailedEvent =
   KnownKernelRuntimeEventEnvelope<'turn.failed'>
 
+export type KernelPermissionRequestedEvent =
+  KnownKernelRuntimeEventEnvelope<'permission.requested'> & {
+    payload: KernelEvent & {
+      type: 'permission.requested'
+      payload: KernelPermissionRequest
+    }
+  }
+
+export type KernelPermissionResolvedPayload = KernelPermissionRequest & {
+  decision: KernelPermissionDecisionValue
+  decidedBy: KernelPermissionDecisionSource
+  reason?: string
+  expiresAt?: string
+  decisionMetadata?: Record<string, unknown>
+}
+
+export type KernelPermissionResolvedEvent =
+  KnownKernelRuntimeEventEnvelope<'permission.resolved'> & {
+    payload: KernelEvent & {
+      type: 'permission.resolved'
+      payload: KernelPermissionResolvedPayload
+    }
+  }
+
 export type KernelKnownEvent = KnownKernelRuntimeEventEnvelope
+
+export type KernelRuntimePermissionEvent =
+  | KernelPermissionRequestedEvent
+  | KernelPermissionResolvedEvent
+
+export type KernelCommandsExecutedEvent =
+  KnownKernelRuntimeEventEnvelope<'commands.executed'> & {
+    payload: KernelEvent & {
+      type: 'commands.executed'
+      payload: KernelRuntimeExecuteCommandResult
+    }
+  }
+
+export type KernelRuntimeCommandEvent = KernelCommandsExecutedEvent
+
+export type KernelToolsCalledEvent =
+  KnownKernelRuntimeEventEnvelope<'tools.called'> & {
+    payload: KernelEvent & {
+      type: 'tools.called'
+      payload: KernelRuntimeCallToolResult
+    }
+  }
+
+export type KernelRuntimeToolEvent = KernelToolsCalledEvent
+
+export type KernelHooksReloadedEvent =
+  KnownKernelRuntimeEventEnvelope<'hooks.reloaded'> & {
+    payload: KernelEvent & {
+      type: 'hooks.reloaded'
+      payload: KernelRuntimeReloadHooksResult
+    }
+  }
+
+export type KernelHooksRanEvent = KnownKernelRuntimeEventEnvelope<'hooks.ran'> &
+  {
+    payload: KernelEvent & {
+      type: 'hooks.ran'
+      payload: KernelHookRunResult
+    }
+  }
+
+export type KernelHooksRegisteredEvent =
+  KnownKernelRuntimeEventEnvelope<'hooks.registered'> & {
+    payload: KernelEvent & {
+      type: 'hooks.registered'
+      payload: KernelHookMutationResult
+    }
+  }
+
+export type KernelRuntimeHookEvent =
+  | KernelHooksReloadedEvent
+  | KernelHooksRanEvent
+  | KernelHooksRegisteredEvent
+
+export type KernelSkillsReloadedEvent =
+  KnownKernelRuntimeEventEnvelope<'skills.reloaded'> & {
+    payload: KernelEvent & {
+      type: 'skills.reloaded'
+      payload: KernelRuntimeReloadSkillsResult
+    }
+  }
+
+export type KernelSkillsContextResolvedEvent =
+  KnownKernelRuntimeEventEnvelope<'skills.context_resolved'> & {
+    payload: KernelEvent & {
+      type: 'skills.context_resolved'
+      payload: KernelRuntimeResolveSkillContextResult
+    }
+  }
+
+export type KernelRuntimeSkillEvent =
+  | KernelSkillsReloadedEvent
+  | KernelSkillsContextResolvedEvent
+
+export type KernelMcpReloadedEvent =
+  KnownKernelRuntimeEventEnvelope<'mcp.reloaded'> & {
+    payload: KernelEvent & {
+      type: 'mcp.reloaded'
+      payload: KernelMcpSnapshot
+    }
+  }
+
+export type KernelMcpConnectedEvent =
+  KnownKernelRuntimeEventEnvelope<'mcp.connected'> & {
+    payload: KernelEvent & {
+      type: 'mcp.connected'
+      payload: KernelMcpLifecycleResult
+    }
+  }
+
+export type KernelMcpAuthenticatedEvent =
+  KnownKernelRuntimeEventEnvelope<'mcp.authenticated'> & {
+    payload: KernelEvent & {
+      type: 'mcp.authenticated'
+      payload: KernelMcpLifecycleResult
+    }
+  }
+
+export type KernelMcpEnabledChangedEvent =
+  KnownKernelRuntimeEventEnvelope<'mcp.enabled_changed'> & {
+    payload: KernelEvent & {
+      type: 'mcp.enabled_changed'
+      payload: KernelMcpLifecycleResult
+    }
+  }
+
+export type KernelRuntimeMcpEvent =
+  | KernelMcpReloadedEvent
+  | KernelMcpConnectedEvent
+  | KernelMcpAuthenticatedEvent
+  | KernelMcpEnabledChangedEvent
+
+export type KernelPluginsReloadedEvent =
+  KnownKernelRuntimeEventEnvelope<'plugins.reloaded'> & {
+    payload: KernelEvent & {
+      type: 'plugins.reloaded'
+      payload: KernelPluginSnapshot
+    }
+  }
+
+export type KernelPluginsEnabledChangedEvent =
+  KnownKernelRuntimeEventEnvelope<'plugins.enabled_changed'> & {
+    payload: KernelEvent & {
+      type: 'plugins.enabled_changed'
+      payload: KernelPluginMutationResult
+    }
+  }
+
+export type KernelPluginsInstalledEvent =
+  KnownKernelRuntimeEventEnvelope<'plugins.installed'> & {
+    payload: KernelEvent & {
+      type: 'plugins.installed'
+      payload: KernelPluginMutationResult
+    }
+  }
+
+export type KernelPluginsUninstalledEvent =
+  KnownKernelRuntimeEventEnvelope<'plugins.uninstalled'> & {
+    payload: KernelEvent & {
+      type: 'plugins.uninstalled'
+      payload: KernelPluginMutationResult
+    }
+  }
+
+export type KernelPluginsUpdatedEvent =
+  KnownKernelRuntimeEventEnvelope<'plugins.updated'> & {
+    payload: KernelEvent & {
+      type: 'plugins.updated'
+      payload: KernelPluginMutationResult
+    }
+  }
+
+export type KernelRuntimePluginEvent =
+  | KernelPluginsReloadedEvent
+  | KernelPluginsEnabledChangedEvent
+  | KernelPluginsInstalledEvent
+  | KernelPluginsUninstalledEvent
+  | KernelPluginsUpdatedEvent
+
+export type KernelAgentsSpawnedEvent =
+  KnownKernelRuntimeEventEnvelope<'agents.spawned'> & {
+    payload: KernelEvent & {
+      type: 'agents.spawned'
+      payload: KernelAgentSpawnResult
+    }
+  }
+
+export type KernelAgentsRunCancelledEvent =
+  KnownKernelRuntimeEventEnvelope<'agents.run.cancelled'> & {
+    payload: KernelEvent & {
+      type: 'agents.run.cancelled'
+      payload: KernelAgentCancelResult
+    }
+  }
+
+export type KernelRuntimeAgentEvent =
+  | KernelAgentsSpawnedEvent
+  | KernelAgentsRunCancelledEvent
+
+export type KernelTasksCreatedEvent =
+  KnownKernelRuntimeEventEnvelope<'tasks.created'> & {
+    payload: KernelEvent & {
+      type: 'tasks.created'
+      payload: KernelTaskMutationResult
+    }
+  }
+
+export type KernelTasksUpdatedEvent =
+  KnownKernelRuntimeEventEnvelope<'tasks.updated'> & {
+    payload: KernelEvent & {
+      type: 'tasks.updated'
+      payload: KernelTaskMutationResult
+    }
+  }
+
+export type KernelTasksAssignedEvent =
+  KnownKernelRuntimeEventEnvelope<'tasks.assigned'> & {
+    payload: KernelEvent & {
+      type: 'tasks.assigned'
+      payload: KernelTaskMutationResult
+    }
+  }
+
+export type KernelRuntimeTaskEvent =
+  | KernelTasksCreatedEvent
+  | KernelTasksUpdatedEvent
+  | KernelTasksAssignedEvent
 
 export type KernelRuntimeEventHandler = (
   envelope: KernelRuntimeEventEnvelope,
 ) => void
+
+export declare function collectKernelRuntimeEventEnvelopes(
+  envelopes: readonly KernelRuntimeEnvelopeBase[],
+): KernelRuntimeEventEnvelope[]
 
 export declare function isKnownKernelRuntimeEventType(
   type: string,
@@ -216,6 +501,214 @@ export declare function isKernelRuntimeEventOfType<
 export declare function isKernelTurnTerminalEvent(
   envelope: KernelRuntimeEnvelopeBase,
 ): envelope is KnownKernelRuntimeEventEnvelope<'turn.completed' | 'turn.failed'>
+
+export declare function isKernelPermissionRequestedEvent(
+  envelope: KernelRuntimeEnvelopeBase,
+): envelope is KernelPermissionRequestedEvent
+
+export declare function isKernelPermissionResolvedEvent(
+  envelope: KernelRuntimeEnvelopeBase,
+): envelope is KernelPermissionResolvedEvent
+
+export declare function isKernelCommandsExecutedEvent(
+  envelope: KernelRuntimeEnvelopeBase,
+): envelope is KernelCommandsExecutedEvent
+
+export declare function isKernelToolsCalledEvent(
+  envelope: KernelRuntimeEnvelopeBase,
+): envelope is KernelToolsCalledEvent
+
+export declare function isKernelHooksReloadedEvent(
+  envelope: KernelRuntimeEnvelopeBase,
+): envelope is KernelHooksReloadedEvent
+
+export declare function isKernelHooksRanEvent(
+  envelope: KernelRuntimeEnvelopeBase,
+): envelope is KernelHooksRanEvent
+
+export declare function isKernelHooksRegisteredEvent(
+  envelope: KernelRuntimeEnvelopeBase,
+): envelope is KernelHooksRegisteredEvent
+
+export declare function isKernelSkillsReloadedEvent(
+  envelope: KernelRuntimeEnvelopeBase,
+): envelope is KernelSkillsReloadedEvent
+
+export declare function isKernelSkillsContextResolvedEvent(
+  envelope: KernelRuntimeEnvelopeBase,
+): envelope is KernelSkillsContextResolvedEvent
+
+export declare function isKernelMcpReloadedEvent(
+  envelope: KernelRuntimeEnvelopeBase,
+): envelope is KernelMcpReloadedEvent
+
+export declare function isKernelMcpConnectedEvent(
+  envelope: KernelRuntimeEnvelopeBase,
+): envelope is KernelMcpConnectedEvent
+
+export declare function isKernelMcpAuthenticatedEvent(
+  envelope: KernelRuntimeEnvelopeBase,
+): envelope is KernelMcpAuthenticatedEvent
+
+export declare function isKernelMcpEnabledChangedEvent(
+  envelope: KernelRuntimeEnvelopeBase,
+): envelope is KernelMcpEnabledChangedEvent
+
+export declare function isKernelPluginsReloadedEvent(
+  envelope: KernelRuntimeEnvelopeBase,
+): envelope is KernelPluginsReloadedEvent
+
+export declare function isKernelPluginsEnabledChangedEvent(
+  envelope: KernelRuntimeEnvelopeBase,
+): envelope is KernelPluginsEnabledChangedEvent
+
+export declare function isKernelPluginsInstalledEvent(
+  envelope: KernelRuntimeEnvelopeBase,
+): envelope is KernelPluginsInstalledEvent
+
+export declare function isKernelPluginsUninstalledEvent(
+  envelope: KernelRuntimeEnvelopeBase,
+): envelope is KernelPluginsUninstalledEvent
+
+export declare function isKernelPluginsUpdatedEvent(
+  envelope: KernelRuntimeEnvelopeBase,
+): envelope is KernelPluginsUpdatedEvent
+
+export declare function isKernelAgentsSpawnedEvent(
+  envelope: KernelRuntimeEnvelopeBase,
+): envelope is KernelAgentsSpawnedEvent
+
+export declare function isKernelAgentsRunCancelledEvent(
+  envelope: KernelRuntimeEnvelopeBase,
+): envelope is KernelAgentsRunCancelledEvent
+
+export declare function isKernelTasksCreatedEvent(
+  envelope: KernelRuntimeEnvelopeBase,
+): envelope is KernelTasksCreatedEvent
+
+export declare function isKernelTasksUpdatedEvent(
+  envelope: KernelRuntimeEnvelopeBase,
+): envelope is KernelTasksUpdatedEvent
+
+export declare function isKernelTasksAssignedEvent(
+  envelope: KernelRuntimeEnvelopeBase,
+): envelope is KernelTasksAssignedEvent
+
+export declare function getKernelPermissionRequest(
+  envelope: KernelRuntimeEnvelopeBase,
+): KernelPermissionRequest | undefined
+
+export declare function getKernelPermissionDecision(
+  envelope: KernelRuntimeEnvelopeBase,
+): KernelPermissionDecision | undefined
+
+export declare function getKernelCommandExecutionResult(
+  envelope: KernelRuntimeEnvelopeBase,
+): KernelRuntimeExecuteCommandResult | undefined
+
+export declare function getKernelToolCallResult(
+  envelope: KernelRuntimeEnvelopeBase,
+): KernelRuntimeCallToolResult | undefined
+
+export declare function getKernelHookRegistrySnapshot(
+  envelope: KernelRuntimeEnvelopeBase,
+): KernelRuntimeReloadHooksResult | undefined
+
+export declare function getKernelHookRunResult(
+  envelope: KernelRuntimeEnvelopeBase,
+): KernelHookRunResult | undefined
+
+export declare function getKernelHookMutationResult(
+  envelope: KernelRuntimeEnvelopeBase,
+): KernelHookMutationResult | undefined
+
+export declare function getKernelSkillSnapshot(
+  envelope: KernelRuntimeEnvelopeBase,
+): KernelRuntimeReloadSkillsResult | undefined
+
+export declare function getKernelSkillPromptContextResult(
+  envelope: KernelRuntimeEnvelopeBase,
+): KernelRuntimeResolveSkillContextResult | undefined
+
+export declare function getKernelMcpSnapshot(
+  envelope: KernelRuntimeEnvelopeBase,
+): KernelMcpSnapshot | undefined
+
+export declare function getKernelMcpLifecycleResult(
+  envelope: KernelRuntimeEnvelopeBase,
+): KernelMcpLifecycleResult | undefined
+
+export declare function getKernelPluginSnapshot(
+  envelope: KernelRuntimeEnvelopeBase,
+): KernelPluginSnapshot | undefined
+
+export declare function getKernelPluginMutationResult(
+  envelope: KernelRuntimeEnvelopeBase,
+): KernelPluginMutationResult | undefined
+
+export declare function getKernelAgentSpawnResult(
+  envelope: KernelRuntimeEnvelopeBase,
+): KernelAgentSpawnResult | undefined
+
+export declare function getKernelAgentRunCancelResult(
+  envelope: KernelRuntimeEnvelopeBase,
+): KernelAgentCancelResult | undefined
+
+export declare function getKernelTaskMutationResult(
+  envelope: KernelRuntimeEnvelopeBase,
+): KernelTaskMutationResult | undefined
+
+export declare function getKernelTurnOutputText(
+  envelope: KernelRuntimeEnvelopeBase,
+): string | undefined
+
+export declare function getKernelTurnTerminalSnapshot(
+  envelope: KernelRuntimeEnvelopeBase,
+): KernelTurnSnapshot | undefined
+
+export declare function createHeadlessSDKMessageRuntimeEvent(options: {
+  conversationId: string
+  turnId?: string
+  message: KernelLegacySDKMessage
+  metadata?: Record<string, unknown>
+}): KernelEvent
+
+export declare function getSDKMessageFromRuntimeEnvelope(
+  envelope: KernelRuntimeEnvelopeBase,
+): KernelLegacySDKMessage | undefined
+
+export declare function getSDKResultTurnOutcome(
+  message: KernelLegacySDKMessage,
+): KernelSDKResultTurnOutcome
+
+export declare function projectRuntimeEnvelopeToLegacySDKMessage(
+  envelope: KernelRuntimeEnvelopeBase,
+): KernelLegacySDKMessage | undefined
+
+export declare function projectRuntimeEnvelopeToLegacyStreamJsonMessages(
+  envelope: KernelRuntimeEnvelopeBase,
+  options?: KernelLegacyStreamJsonProjectionOptions,
+): KernelLegacyStdoutMessage[]
+
+export declare function projectSDKMessageToLegacyStreamJsonMessages(
+  message: KernelLegacySDKMessage,
+): KernelLegacyStdoutMessage[]
+
+export declare class KernelRuntimeSDKMessageDedupe {
+  constructor(maxSize?: number)
+  shouldProcess(message: KernelLegacySDKMessage): boolean
+  clear(): void
+}
+
+export declare class KernelRuntimeOutputDeltaDedupe {
+  constructor(maxSize?: number)
+  shouldProcess(envelope: KernelRuntimeEnvelopeBase): boolean
+  clear(): void
+}
+
+export declare function emitKernelHeadlessRuntimeMessage(
+  options: KernelHeadlessRuntimeMessageEmissionOptions,
+): KernelHeadlessRuntimeMessageEmissionResult
 
 export type KernelRuntimeEventMessage = {
   type: 'kernel_runtime_event'
@@ -2559,7 +3052,12 @@ export type KernelRuntimeWireProtocolOptions = {
     ): readonly KernelSessionDescriptor[] | Promise<readonly KernelSessionDescriptor[]>
     resumeSession(
       sessionId: string,
-      context?: { cwd?: string; metadata?: Record<string, unknown> },
+      context?: {
+        cwd?: string
+        resumeInterruptedTurn?: boolean
+        resumeSessionAt?: string
+        metadata?: Record<string, unknown>
+      },
     ): KernelTranscript | Promise<KernelTranscript>
     getSessionTranscript(
       sessionId: string,
@@ -2575,6 +3073,11 @@ export type KernelRuntimeWireProtocolOptions = {
 export type KernelRuntimeOptions = KernelRuntimeWireProtocolOptions & {
   id?: string
   host?: Partial<KernelRuntimeHostIdentity>
+  provider?: RuntimeProviderSelection
+  defaultProvider?: RuntimeProviderSelection
+  auth?: Record<string, unknown>
+  model?: string
+  capabilities?: Record<string, unknown>
   transport?: KernelRuntimeWireTransport
   transportConfig?: KernelRuntimeTransportConfig
   wireClient?: KernelRuntimeWireClient
@@ -2620,6 +3123,16 @@ export type KernelRuntimeEventReplayOptions = {
   filters?: Record<string, unknown>
 }
 
+export type KernelRuntimeHostEventPublishOptions = {
+  requestId?: string
+  metadata?: Record<string, unknown>
+}
+
+export type KernelRuntimeHostEventPublishResult = {
+  published: boolean
+  eventId?: string
+}
+
 export type KernelTurnEventReplayOptions = Omit<
   KernelRuntimeEventReplayOptions,
   'conversationId' | 'turnId'
@@ -2648,6 +3161,10 @@ export type KernelRuntimeCommands = {
     nameOrRequest: string | KernelCommandExecuteRequest,
     options?: Omit<KernelCommandExecuteRequest, 'name'>,
   ): Promise<KernelCommandExecutionResult>
+  onEvent(handler: (event: KernelRuntimeCommandEvent) => void): () => void
+  replay(
+    options?: KernelRuntimeEventReplayOptions,
+  ): Promise<readonly KernelRuntimeCommandEvent[]>
 }
 
 export type KernelRuntimeTools = {
@@ -2658,6 +3175,10 @@ export type KernelRuntimeTools = {
     input?: unknown,
     options?: Omit<KernelToolCallRequest, 'toolName' | 'input'>,
   ): Promise<KernelToolCallResult>
+  onEvent(handler: (event: KernelRuntimeToolEvent) => void): () => void
+  replay(
+    options?: KernelRuntimeEventReplayOptions,
+  ): Promise<readonly KernelRuntimeToolEvent[]>
 }
 
 export type KernelRuntimeMcp = {
@@ -2692,6 +3213,10 @@ export type KernelRuntimeMcp = {
     serverName: string,
     options?: Omit<KernelMcpSetEnabledRequest, 'serverName' | 'enabled'>,
   ): Promise<KernelMcpLifecycleResult>
+  onEvent(handler: (event: KernelRuntimeMcpEvent) => void): () => void
+  replay(
+    options?: KernelRuntimeEventReplayOptions,
+  ): Promise<readonly KernelRuntimeMcpEvent[]>
 }
 
 export type KernelHookFilter = {
@@ -2714,6 +3239,10 @@ export type KernelRuntimeHooks = {
     hookOrRequest: KernelHookDescriptor | KernelHookRegisterRequest,
     options?: Omit<KernelHookRegisterRequest, 'hook'>,
   ): Promise<KernelHookMutationResult>
+  onEvent(handler: (event: KernelRuntimeHookEvent) => void): () => void
+  replay(
+    options?: KernelRuntimeEventReplayOptions,
+  ): Promise<readonly KernelRuntimeHookEvent[]>
 }
 
 export type KernelSkillFilter = {
@@ -2733,6 +3262,10 @@ export type KernelRuntimeSkills = {
     nameOrRequest: string | KernelSkillPromptContextRequest,
     options?: Omit<KernelSkillPromptContextRequest, 'name'>,
   ): Promise<KernelSkillPromptContextResult>
+  onEvent(handler: (event: KernelRuntimeSkillEvent) => void): () => void
+  replay(
+    options?: KernelRuntimeEventReplayOptions,
+  ): Promise<readonly KernelRuntimeSkillEvent[]>
 }
 
 export type KernelPluginFilter = {
@@ -2773,6 +3306,10 @@ export type KernelRuntimePlugins = {
     nameOrRequest: string | KernelPluginUpdateRequest,
     options?: Omit<KernelPluginUpdateRequest, 'name'>,
   ): Promise<KernelPluginMutationResult>
+  onEvent(handler: (event: KernelRuntimePluginEvent) => void): () => void
+  replay(
+    options?: KernelRuntimeEventReplayOptions,
+  ): Promise<readonly KernelRuntimePluginEvent[]>
 }
 
 export type KernelAgentFilter = {
@@ -2810,6 +3347,10 @@ export type KernelRuntimeAgents = {
     runId: string,
     options?: KernelAgentCancelOptions,
   ): Promise<KernelAgentCancelResult>
+  onEvent(handler: (event: KernelRuntimeAgentEvent) => void): () => void
+  replay(
+    options?: KernelRuntimeEventReplayOptions,
+  ): Promise<readonly KernelRuntimeAgentEvent[]>
 }
 
 export type KernelTaskListOptions = {
@@ -2839,6 +3380,10 @@ export type KernelRuntimeTasks = {
   create(request: KernelTaskCreateRequest): Promise<KernelTaskMutationResult>
   update(request: KernelTaskUpdateRequest): Promise<KernelTaskMutationResult>
   assign(request: KernelTaskAssignRequest): Promise<KernelTaskMutationResult>
+  onEvent(handler: (event: KernelRuntimeTaskEvent) => void): () => void
+  replay(
+    options?: KernelRuntimeEventReplayOptions,
+  ): Promise<readonly KernelRuntimeTaskEvent[]>
 }
 
 export type KernelTeamDetail = KernelTeamDescriptor & {
@@ -2864,9 +3409,37 @@ export type KernelCoordinatorAssignmentFilter = {
   linkedAgentId?: string
 }
 
+export type KernelCoordinatorInvokeRequest = {
+  worker: Omit<
+    KernelAgentSpawnRequest,
+    'taskId' | 'taskListId' | 'ownedFiles'
+  >
+  taskId?: string
+  taskListId?: string
+  task?: Pick<
+    KernelTaskCreateRequest,
+    'subject' | 'description' | 'activeForm' | 'blocks' | 'blockedBy' | 'metadata'
+  >
+  owner?: string
+  status?: KernelCoordinatorTaskStatus
+  ownedFiles?: readonly string[]
+  linkTaskExecution?: boolean
+}
+
+export type KernelCoordinatorInvokeResult = {
+  task: KernelTaskDescriptor | null
+  worker: KernelAgentSpawnResult
+  taskResult?: KernelTaskMutationResult
+  assignmentResult?: KernelTaskMutationResult
+  linkageResult?: KernelTaskMutationResult
+}
+
 export type KernelRuntimeCoordinator = {
   assignTask(request: KernelTaskAssignRequest): Promise<KernelTaskMutationResult>
   spawnWorker(request: KernelAgentSpawnRequest): Promise<KernelAgentSpawnResult>
+  invoke(
+    request: KernelCoordinatorInvokeRequest,
+  ): Promise<KernelCoordinatorInvokeResult>
   listAssignments(
     filter?: KernelCoordinatorAssignmentFilter,
   ): Promise<readonly KernelTaskDescriptor[]>
@@ -2883,6 +3456,10 @@ export type KernelRuntimeCoordinator = {
 
 export type KernelRuntimePermissions = {
   decide(decision: KernelPermissionDecision): Promise<KernelPermissionDecision>
+  onEvent(handler: (event: KernelRuntimePermissionEvent) => void): () => void
+  replay(
+    options?: KernelRuntimeEventReplayOptions,
+  ): Promise<readonly KernelRuntimePermissionEvent[]>
 }
 
 export type KernelRuntimeContextManager = {
@@ -2897,6 +3474,8 @@ export type KernelRuntimeContextManager = {
 export type KernelRuntimeSessionResumeOptions = {
   conversationId?: string
   workspacePath?: string
+  resumeInterruptedTurn?: boolean
+  resumeSessionAt?: string
   metadata?: Record<string, unknown>
 }
 
@@ -2988,6 +3567,10 @@ export type KernelRuntime = {
   decidePermission(
     decision: KernelPermissionDecision,
   ): Promise<KernelPermissionDecision>
+  publishHostEvent(
+    event: KernelEvent,
+    options?: KernelRuntimeHostEventPublishOptions,
+  ): Promise<KernelRuntimeHostEventPublishResult>
   onEvent(handler: KernelRuntimeEventSink): () => void
   replayEvents(
     options?: KernelRuntimeEventReplayOptions,
@@ -3067,6 +3650,7 @@ export type KernelHeadlessRunOptions = {
   sdkUrl: string | undefined
   replayUserMessages: boolean | undefined
   includePartialMessages: boolean | undefined
+  resumeInterruptedTurn?: boolean | undefined
   forkSession: boolean | undefined
   rewindFiles: string | undefined
   enableAuthStatus: boolean | undefined
@@ -3077,6 +3661,31 @@ export type KernelHeadlessRunOptions = {
   setSDKStatus?: (status: unknown) => void
   runtimeEventSink?: KernelRuntimeEventSink
 }
+
+export type KernelHeadlessLaunchEnvironmentInput = {
+  cwd?: string
+  entrypoint?: string
+  commands?: KernelCommand[]
+  disableSlashCommands?: boolean
+  tools?: KernelTool[]
+  sdkMcpConfigs?: Record<string, KernelMcpServerConfig>
+  agents?: KernelAgentDefinition[]
+  agentOverrides?: KernelAgentDefinition[]
+  applyCoordinatorToolFilter?: boolean
+  extraTools?: KernelTool[]
+  mcpClients?: KernelMcpServerConnection[]
+  mcpCommands?: KernelCommand[]
+  mcpTools?: KernelTool[]
+  toolPermissionContext: KernelToolPermissionContext
+  effortArgument?: unknown
+  modelForFastMode?: string | null
+  advisorModel?: string
+  kairosEnabled?: boolean
+}
+
+export type KernelHeadlessLaunchRunOptions = Partial<
+  Omit<KernelHeadlessRunOptions, 'bootstrapStateProvider'>
+>
 
 type KernelHeadlessDeps = {
   runHeadlessRuntime: (...args: unknown[]) => Promise<void>
@@ -3231,6 +3840,11 @@ export type KernelHeadlessMcpConnectOptions = {
   claudeAiTimeoutMs?: number
 }
 
+export type KernelHeadlessStartupStateWriter = {
+  setSessionPersistenceDisabled(disabled: boolean): void
+  setSdkBetas(betas: string[]): void
+}
+
 export type PrepareKernelHeadlessStartupOptions = {
   sessionPersistenceDisabled: boolean
   betas: string[]
@@ -3239,8 +3853,49 @@ export type PrepareKernelHeadlessStartupOptions = {
 }
 
 export type PrepareKernelHeadlessStartupDeps = {
+  stateWriter?: KernelHeadlessStartupStateWriter
   startDeferredPrefetches(): void
   logSessionTelemetry(): void
+  startBackgroundHousekeeping?(): void
+  startSdkMemoryMonitor?(): void
+}
+
+export type KernelHeadlessLaunchStartupOptions =
+  Partial<PrepareKernelHeadlessStartupOptions>
+
+export type KernelHeadlessLaunchStartupDeps =
+  Partial<PrepareKernelHeadlessStartupDeps>
+
+export type KernelHeadlessLaunchOptions = {
+  inputPrompt: KernelHeadlessInput
+  environment: KernelHeadlessLaunchEnvironmentInput
+  regularMcpConfigs?: Record<string, KernelMcpServerConfig>
+  claudeaiConfigPromise?: Promise<Record<string, KernelMcpServerConfig>>
+  startup?: KernelHeadlessLaunchStartupOptions
+  startupDeps?: KernelHeadlessLaunchStartupDeps
+  runOptions?: KernelHeadlessLaunchRunOptions
+  profileCheckpoint?: (checkpoint: string) => void
+}
+
+export type KernelHeadlessLaunchDeps = {
+  materializeRuntimeHeadlessEnvironment(
+    input: KernelHeadlessLaunchEnvironmentInput,
+  ): Promise<DefaultKernelHeadlessEnvironmentOptions>
+  createDefaultKernelHeadlessEnvironment(
+    options: DefaultKernelHeadlessEnvironmentOptions,
+  ): KernelHeadlessEnvironment
+  connectDefaultKernelHeadlessMcp(
+    options: KernelHeadlessMcpConnectOptions,
+  ): Promise<{ claudeaiTimedOut: boolean }>
+  prepareKernelHeadlessStartup(
+    options: PrepareKernelHeadlessStartupOptions,
+    deps: PrepareKernelHeadlessStartupDeps,
+  ): Promise<void>
+  runKernelHeadless(
+    inputPrompt: KernelHeadlessInput,
+    environment: KernelHeadlessEnvironment,
+    options: KernelHeadlessRunOptions,
+  ): Promise<void>
 }
 
 type KernelDirectConnectSessionOptions = {
@@ -3381,6 +4036,11 @@ export declare function runKernelHeadless(
   environment: KernelHeadlessEnvironment,
   options: KernelHeadlessRunOptions,
   deps?: KernelHeadlessDeps,
+): Promise<void>
+
+export declare function runKernelHeadlessLaunch(
+  options: KernelHeadlessLaunchOptions,
+  deps?: KernelHeadlessLaunchDeps,
 ): Promise<void>
 
 export declare function connectDefaultKernelHeadlessMcp(
@@ -3740,6 +4400,14 @@ export type KernelTranscript = {
   tag?: string
   mode?: 'coordinator' | 'normal'
   turnInterruptionState: 'none' | 'interrupted_prompt'
+  taskSnapshot?: unknown
+  todoSnapshot?: unknown
+  nestedMemorySnapshot?: unknown
+  attributionSnapshots?: readonly unknown[]
+  fileHistorySnapshots?: readonly unknown[]
+  contentReplacements?: readonly unknown[]
+  contextCollapseCommits?: readonly unknown[]
+  contextCollapseSnapshot?: unknown
 }
 
 export type KernelSessionResume = KernelTranscript

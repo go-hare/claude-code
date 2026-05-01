@@ -30,9 +30,11 @@ const EXPECTED_KERNEL_EXPORTS = [
   'connectDefaultKernelHeadlessMcp',
   'connectDirectHostSession',
   'connectResponseSchema',
+  'collectKernelRuntimeEventEnvelopes',
   'consumeKernelRuntimeEventMessage',
   'createDefaultKernelHeadlessEnvironment',
   'createDefaultKernelRuntimeWireRouter',
+  'createHeadlessSDKMessageRuntimeEvent',
   'createDirectConnectSession',
   'createKernelCompanionRuntime',
   'createKernelContextManager',
@@ -50,6 +52,22 @@ const EXPECTED_KERNEL_EXPORTS = [
   'createKernelRuntimeWireClient',
   'createKernelRuntime',
   'createKernelSessionManager',
+  'emitKernelHeadlessRuntimeMessage',
+  'getKernelCommandExecutionResult',
+  'getKernelAgentRunCancelResult',
+  'getKernelAgentSpawnResult',
+  'getKernelHookMutationResult',
+  'getKernelHookRegistrySnapshot',
+  'getKernelHookRunResult',
+  'getKernelMcpLifecycleResult',
+  'getKernelMcpSnapshot',
+  'getKernelPermissionDecision',
+  'getKernelPermissionRequest',
+  'getKernelPluginMutationResult',
+  'getKernelPluginSnapshot',
+  'getKernelSkillPromptContextResult',
+  'getKernelSkillSnapshot',
+  'getKernelTaskMutationResult',
   'filterKernelCapabilities',
   'getKernelCapabilityFamily',
   'createKernelSession',
@@ -60,8 +78,36 @@ const EXPECTED_KERNEL_EXPORTS = [
   'getKernelRuntimeEventTaxonomyEntry',
   'getKernelRuntimeEventType',
   'getKernelRuntimeEnvelopeFromMessage',
+  'getKernelToolCallResult',
+  'getKernelTurnOutputText',
+  'getKernelTurnTerminalSnapshot',
+  'getSDKMessageFromRuntimeEnvelope',
+  'getSDKResultTurnOutcome',
+  'isKernelCommandsExecutedEvent',
+  'isKernelAgentsRunCancelledEvent',
+  'isKernelAgentsSpawnedEvent',
   'isKernelCapabilityReady',
   'isKernelCapabilityUnavailable',
+  'isKernelHooksRanEvent',
+  'isKernelHooksRegisteredEvent',
+  'isKernelHooksReloadedEvent',
+  'isKernelMcpAuthenticatedEvent',
+  'isKernelMcpConnectedEvent',
+  'isKernelMcpEnabledChangedEvent',
+  'isKernelMcpReloadedEvent',
+  'isKernelPermissionRequestedEvent',
+  'isKernelPermissionResolvedEvent',
+  'isKernelPluginsEnabledChangedEvent',
+  'isKernelPluginsInstalledEvent',
+  'isKernelPluginsReloadedEvent',
+  'isKernelPluginsUninstalledEvent',
+  'isKernelPluginsUpdatedEvent',
+  'isKernelSkillsContextResolvedEvent',
+  'isKernelSkillsReloadedEvent',
+  'isKernelTasksAssignedEvent',
+  'isKernelTasksCreatedEvent',
+  'isKernelTasksUpdatedEvent',
+  'isKernelToolsCalledEvent',
   'isKernelRuntimeEventEnvelope',
   'isKernelRuntimeEventOfType',
   'isKernelRuntimeEnvelope',
@@ -69,7 +115,9 @@ const EXPECTED_KERNEL_EXPORTS = [
   'isKnownKernelRuntimeEventType',
   'KernelPermissionBrokerDisposedError',
   'KernelPermissionDecisionError',
+  'KernelRuntimeOutputDeltaDedupe',
   'KernelRuntimeRequestError',
+  'KernelRuntimeSDKMessageDedupe',
   'KernelRuntimeEventReplayError',
   'normalizeKernelHeadlessEvent',
   'prepareKernelHeadlessStartup',
@@ -79,6 +127,7 @@ const EXPECTED_KERNEL_EXPORTS = [
   'runConnectHeadless',
   'runDaemonWorker',
   'runKernelHeadless',
+  'runKernelHeadlessLaunch',
   'runKernelHeadlessClient',
   'runKernelRuntimeWireProtocol',
   'startKernelServer',
@@ -86,6 +135,9 @@ const EXPECTED_KERNEL_EXPORTS = [
   'toKernelCapabilityView',
   'toKernelCapabilityViews',
   'toKernelRuntimeEventMessage',
+  'projectRuntimeEnvelopeToLegacySDKMessage',
+  'projectRuntimeEnvelopeToLegacyStreamJsonMessages',
+  'projectSDKMessageToLegacyStreamJsonMessages',
 ] as const
 
 function parsePackJson(output: string): Array<{ filename: string }> {
@@ -207,6 +259,56 @@ describe('kernel package smoke', () => {
           schemaVersion: 'kernel.runtime.v1',
           kind: 'pong',
           requestId: 'packaged-bin-ping',
+          source: 'kernel_runtime',
+        })
+
+        const workerOutput = execFileSync(
+          'node',
+          [
+            '--input-type=module',
+            '-e',
+            `
+              import { Readable, Writable } from 'node:stream'
+              import { runKernelRuntimeWireProtocol } from '@go-hare/hare-code/kernel'
+
+              const chunks = []
+              const output = new Writable({
+                write(chunk, _encoding, callback) {
+                  chunks.push(Buffer.from(chunk).toString('utf8'))
+                  callback()
+                },
+              })
+              await runKernelRuntimeWireProtocol({
+                input: Readable.from([
+                  JSON.stringify({
+                    schemaVersion: 'kernel.runtime.command.v1',
+                    type: 'ping',
+                    requestId: 'package-worker-ping',
+                  }) + '\\n',
+                ]),
+                output,
+                eventJournalPath: false,
+                conversationJournalPath: false,
+                headlessExecutor: false,
+                agentExecutor: false,
+              })
+              process.stdout.write(chunks.join(''))
+            `,
+          ],
+          {
+            cwd: consumerDir,
+            encoding: 'utf8',
+          },
+        )
+        const [workerPong] = workerOutput
+          .trim()
+          .split('\n')
+          .map(line => JSON.parse(line) as Record<string, unknown>)
+
+        expect(workerPong).toMatchObject({
+          schemaVersion: 'kernel.runtime.v1',
+          kind: 'pong',
+          requestId: 'package-worker-ping',
           source: 'kernel_runtime',
         })
       } finally {

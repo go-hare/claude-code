@@ -798,4 +798,130 @@ describe('kernel runtime session resume hydration', () => {
       await rm(workspace, { recursive: true, force: true })
     }
   })
+  test('forwards resumeInterruptedTurn through the public runtime session facade', async () => {
+    const seen: Array<boolean | undefined> = []
+    const runtime = await createKernelRuntime({
+      id: 'runtime-resume-policy-test',
+      workspacePath: '/tmp/kernel-runtime-resume-policy-test',
+      eventJournalPath: false,
+      conversationJournalPath: false,
+      sessionManager: {
+        listSessions: async () => [
+          {
+            sessionId: 'session-1',
+            cwd: '/tmp/kernel-runtime-resume-policy-test',
+            summary: 'resume fixture',
+            lastModified: 1,
+          },
+        ],
+        resumeSession: async (_sessionId, context) => {
+          seen.push(context?.resumeInterruptedTurn)
+          return {
+            sessionId: 'session-1',
+            fullPath: '/tmp/kernel-runtime-resume-policy-test/session-1.jsonl',
+            messages: [],
+            turnInterruptionState: 'interrupted_prompt' as const,
+          }
+        },
+        getSessionTranscript: async () => ({
+          sessionId: 'session-1',
+          fullPath: '/tmp/kernel-runtime-resume-policy-test/session-1.jsonl',
+          messages: [],
+          turnInterruptionState: 'interrupted_prompt' as const,
+        }),
+      },
+    })
+
+    try {
+      await runtime.start()
+      const conversation = await runtime.sessions.resume('session-1', {
+        resumeInterruptedTurn: true,
+      })
+      expect(conversation.sessionId).toBe('session-1')
+      expect(seen).toEqual([true])
+    } finally {
+      await runtime.dispose()
+    }
+  })
+
+  test('forwards resumeSessionAt through the public runtime session facade and slices replayed transcript', async () => {
+    const transcriptMessages = [
+      {
+        type: 'user',
+        uuid: 'resume-user-1',
+        message: {
+          content: 'Hello from transcript',
+        },
+      },
+      {
+        type: 'assistant',
+        uuid: 'resume-assistant-1',
+        message: {
+          content: 'Hi from transcript',
+        },
+      },
+    ] as const
+    const seen: Array<string | undefined> = []
+    const runtime = await createKernelRuntime({
+      id: 'runtime-resume-session-at-test',
+      workspacePath: '/tmp/kernel-runtime-resume-session-at-test',
+      eventJournalPath: false,
+      conversationJournalPath: false,
+      sessionManager: {
+        listSessions: async () => [
+          {
+            sessionId: 'session-1',
+            cwd: '/tmp/kernel-runtime-resume-session-at-test',
+            summary: 'resume fixture',
+            lastModified: 1,
+          },
+        ],
+        resumeSession: async (_sessionId, context) => {
+          seen.push(context?.resumeSessionAt)
+          return {
+            sessionId: 'session-1',
+            fullPath:
+              '/tmp/kernel-runtime-resume-session-at-test/session-1.jsonl',
+            messages: transcriptMessages,
+            turnInterruptionState: 'none' as const,
+          }
+        },
+        getSessionTranscript: async () => ({
+          sessionId: 'session-1',
+          fullPath:
+            '/tmp/kernel-runtime-resume-session-at-test/session-1.jsonl',
+          messages: transcriptMessages,
+          turnInterruptionState: 'none' as const,
+        }),
+      },
+    })
+
+    try {
+      await runtime.start()
+      const conversation = await runtime.sessions.resume('session-1', {
+        resumeSessionAt: 'resume-user-1',
+      })
+      const replayed = await conversation.replayEvents()
+      const transcriptReplay = replayed.filter(envelope => {
+        return (
+          (envelope.payload as { type?: string } | undefined)?.type ===
+          'conversation.transcript_message'
+        )
+      })
+
+      expect(seen).toEqual(['resume-user-1'])
+      expect(transcriptReplay).toHaveLength(1)
+      expect(transcriptReplay[0]).toMatchObject({
+        payload: {
+          type: 'conversation.transcript_message',
+          payload: {
+            index: 0,
+            message: transcriptMessages[0],
+          },
+        },
+      })
+    } finally {
+      await runtime.dispose()
+    }
+  })
 })

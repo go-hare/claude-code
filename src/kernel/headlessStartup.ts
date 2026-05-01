@@ -4,6 +4,9 @@ import {
 } from '../runtime/core/state/bootstrapProvider.js'
 import { filterAllowedSdkBetas } from '../utils/betas.js'
 
+export type KernelHeadlessStartupStateWriter =
+  RuntimeHeadlessStartupStateWriter
+
 export type PrepareKernelHeadlessStartupOptions = {
   sessionPersistenceDisabled: boolean
   betas: string[]
@@ -12,7 +15,7 @@ export type PrepareKernelHeadlessStartupOptions = {
 }
 
 export type PrepareKernelHeadlessStartupDeps = {
-  stateWriter?: RuntimeHeadlessStartupStateWriter
+  stateWriter?: KernelHeadlessStartupStateWriter
   startDeferredPrefetches(): void
   logSessionTelemetry(): void
   startBackgroundHousekeeping?(): void

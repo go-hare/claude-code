@@ -20,6 +20,8 @@ import type { KernelRuntimeCommand } from '../runtime/contracts/wire.js'
 import type {
   KernelConversation,
   KernelConversationOptions,
+  KernelRuntimeHostEventPublishOptions,
+  KernelRuntimeHostEventPublishResult,
   KernelRuntime,
   KernelRuntimeCapabilities,
   KernelRuntimeCommands,
@@ -29,6 +31,11 @@ import type {
   KernelRuntimePermissions,
   KernelRuntimeTools,
 } from './runtime.js'
+import {
+  isKernelPermissionRequestedEvent,
+  isKernelPermissionResolvedEvent,
+  type KernelRuntimePermissionEvent,
+} from './runtimeEvents.js'
 import {
   createKernelRuntimeAsyncContextFacade,
   createKernelRuntimeCompanionFacade,
@@ -94,6 +101,10 @@ class KernelRuntimeFacade implements KernelRuntime {
   private readonly client: KernelRuntimeWireClient
   private currentState: KernelRuntimeState = 'created'
   private cachedCapabilities: readonly KernelCapabilityDescriptor[] = []
+  private readonly initRuntimeOptions: Pick<
+    KernelRuntimeOptions,
+    'provider' | 'defaultProvider' | 'auth' | 'model' | 'capabilities'
+  >
 
   constructor(options: KernelRuntimeOptions) {
     this.id =
@@ -126,7 +137,35 @@ class KernelRuntimeFacade implements KernelRuntime {
     this.memory = createKernelRuntimeMemoryFacade(this.client)
     this.context = createKernelRuntimeAsyncContextFacade(this.client)
     this.sessions = createKernelRuntimeSessionFacade(this.client)
-    this.permissions = { decide: decision => this.decidePermission(decision) }
+    this.initRuntimeOptions = {
+      provider: options.provider,
+      defaultProvider: options.defaultProvider,
+      auth: options.auth,
+      model: options.model,
+      capabilities: options.capabilities,
+    }
+    this.permissions = {
+      decide: decision => this.decidePermission(decision),
+      onEvent: handler =>
+        this.client.onEvent(envelope => {
+          if (
+            isKernelPermissionRequestedEvent(envelope) ||
+            isKernelPermissionResolvedEvent(envelope)
+          ) {
+            handler(envelope)
+          }
+        }),
+      replay: async (options = {}) => {
+        const replayed = await collectReplayEvents(this.client, options)
+        return replayed.filter(
+          (
+            envelope,
+          ): envelope is KernelRuntimePermissionEvent =>
+            isKernelPermissionRequestedEvent(envelope) ||
+            isKernelPermissionResolvedEvent(envelope),
+        )
+      },
+    }
   }
 
   get state(): KernelRuntimeState {
@@ -197,6 +236,25 @@ class KernelRuntimeFacade implements KernelRuntime {
     )
   }
 
+  async publishHostEvent(
+    event: Parameters<KernelRuntime['publishHostEvent']>[0],
+    options: KernelRuntimeHostEventPublishOptions = {},
+  ): Promise<KernelRuntimeHostEventPublishResult> {
+    await this.ensureStarted()
+    return expectPayload<KernelRuntimeHostEventPublishResult>(
+      await this.client.publishHostEvent(
+        {
+          ...event,
+          metadata: {
+            ...options.metadata,
+            ...event.metadata,
+          },
+        },
+        { requestId: options.requestId },
+      ),
+    )
+  }
+
   onEvent(handler: KernelRuntimeEventSink): () => void {
     return this.client.onEvent(handler)
   }
@@ -251,6 +309,11 @@ class KernelRuntimeFacade implements KernelRuntime {
     >({
       type: 'init_runtime',
       workspacePath: this.workspacePath,
+      provider: this.initRuntimeOptions.provider,
+      defaultProvider: this.initRuntimeOptions.defaultProvider,
+      auth: this.initRuntimeOptions.auth,
+      model: this.initRuntimeOptions.model,
+      capabilities: this.initRuntimeOptions.capabilities,
     })
   }
 }
@@ -303,6 +366,11 @@ function createInProcessTransport(
     wireClient: _wireClient,
     wireClientOptions: _wireClientOptions,
     autoStart: _autoStart,
+    provider: _provider,
+    defaultProvider: _defaultProvider,
+    auth: _auth,
+    model: _model,
+    capabilities: _capabilities,
     ...protocolOptions
   } = options
   return createKernelRuntimeInProcessWireTransport({

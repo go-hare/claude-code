@@ -1,3 +1,5 @@
+import { randomUUID } from 'crypto'
+
 import type {
   RuntimeHookDescriptor,
   RuntimeHookMutationResult,
@@ -33,6 +35,7 @@ import type {
   Command,
   LocalJSXCommandContext,
 } from '../types/command.js'
+import type { MCPServerConnection } from '../services/mcp/types.js'
 import type {
   ToolPermissionContext,
   ToolUseContext,
@@ -43,21 +46,32 @@ import type { PermissionMode } from '../types/permissions.js'
 import type { LoadedPlugin, PluginError } from '../types/plugin.js'
 import type { AppState } from '../state/AppState.js'
 import type { HookInput } from 'src/entrypoints/agentSdkTypes.js'
+import type { RuntimeRegisteredHookMatchers } from '../utils/hooks.js'
+import {
+  isAsyncHookJSONOutput,
+  isSyncHookJSONOutput,
+  type HookCallback,
+} from '../types/hooks.js'
 import {
   getRegisteredHooks,
-  registerHookCallbacks,
 } from '../bootstrap/state.js'
-import type { HookCallback } from '../types/hooks.js'
 import { normalizeLegacyToolName } from '../utils/permissions/permissionRuleParser.js'
+import { errorMessage } from '../utils/errors.js'
+
+type KernelRuntimeHookCatalogDeps = {
+  loadPluginHookMatchers?(): Promise<RuntimeRegisteredHookMatchers>
+}
 
 export function createDefaultKernelRuntimeHookCatalog(
   _workspacePath: string | undefined,
+  deps: KernelRuntimeHookCatalogDeps = {},
 ): KernelRuntimeWireHookCatalog {
   let cachedStaticHooks: readonly RuntimeHookDescriptor[] | undefined
   let appStateCache: AppState | undefined
   const registeredHooks: Array<{
     request: RuntimeHookRegisterRequest
     executable: boolean
+    callback?: HookCallback['callback']
   }> = []
 
   async function ensureAppState(): Promise<AppState> {
@@ -151,11 +165,17 @@ export function createDefaultKernelRuntimeHookCatalog(
     async runHook(
       request: RuntimeHookRunRequest,
     ): Promise<RuntimeHookRunResult> {
-      const [{ createBaseHookInput, executeHooksOutsideREPL }, { isHookEvent }] =
-        await Promise.all([
+      const [
+        { createBaseHookInput, executeHooksOutsideREPL },
+        { isHookEvent },
+      ] = await Promise.all([
           import('../utils/hooks.js'),
           import('../types/hooks.js'),
         ])
+      const loadPluginHookMatchers =
+        deps.loadPluginHookMatchers ??
+        (await import('../utils/plugins/loadPluginHooks.js'))
+          .loadPluginHookMatchers
       if (!isHookEvent(request.event)) {
         return {
           event: request.event,
@@ -175,33 +195,52 @@ export function createDefaultKernelRuntimeHookCatalog(
         createBaseHookInput(undefined),
       )
       const appState = await ensureAppState()
+      const pluginHookLoadErrors: RuntimeHookRunError[] = []
+      const extraRegisteredHooks = await loadPluginHookMatchers().catch(error => {
+        pluginHookLoadErrors.push({
+          message: `Failed to load plugin hooks: ${errorMessage(error)}`,
+          code: 'plugin_load_failed',
+        })
+        return undefined
+      })
       const results = await executeHooksOutsideREPL({
         getAppState: () => appState,
         hookInput,
         timeoutMs: 10_000,
+        extraRegisteredHooks,
       })
+      const localCallbackResults = await runExecutableRegisteredHooks(
+        request,
+        hookInput,
+        registeredHooks,
+      )
       const unboundRegisteredHooks = getUnboundRegisteredHookMatches(
         request,
         hookInput,
         registeredHooks,
       )
+      const allResults = [...results, ...localCallbackResults]
       const errors = [
-        ...toRuntimeHookRunErrors(results),
+        ...toRuntimeHookRunErrors(allResults),
         ...toUnboundRegisteredHookErrors(unboundRegisteredHooks),
+        ...pluginHookLoadErrors,
       ]
 
       return {
         event: request.event,
-        handled: results.length > 0 || unboundRegisteredHooks.length > 0,
+        handled:
+          allResults.length > 0 || unboundRegisteredHooks.length > 0,
         outputs:
-          results.length > 0
-            ? results.map(result => stripUndefinedFields({
+          allResults.length > 0
+            ? allResults.map(result => stripUndefinedFields({
                 command: result.command,
                 succeeded: result.succeeded,
                 output: result.output,
                 blocked: result.blocked,
-                watchPaths: result.watchPaths,
-                systemMessage: result.systemMessage,
+                watchPaths:
+                  'watchPaths' in result ? result.watchPaths : undefined,
+                systemMessage:
+                  'systemMessage' in result ? result.systemMessage : undefined,
               }))
             : undefined,
         errors: errors.length > 0 ? errors : undefined,
@@ -212,26 +251,10 @@ export function createDefaultKernelRuntimeHookCatalog(
       request: RuntimeHookRegisterRequest,
     ): Promise<RuntimeHookMutationResult> {
       const callback = getExecutableCallbackFromMetadata(request)
-      if (callback && request.hook.type === 'callback') {
-        registerHookCallbacks({
-          [request.hook.event]: [
-            {
-              matcher: request.hook.matcher,
-              hooks: [
-                {
-                  type: 'callback',
-                  callback,
-                  timeout: request.hook.timeoutSeconds,
-                },
-              ],
-            },
-          ],
-        })
-      }
-
       registeredHooks.push({
         request,
         executable: callback !== undefined && request.hook.type === 'callback',
+        callback,
       })
       return {
         hook: {
@@ -561,6 +584,7 @@ function getUnboundRegisteredHookMatches(
   entries: ReadonlyArray<{
     request: RuntimeHookRegisterRequest
     executable: boolean
+    callback?: HookCallback['callback']
   }>,
 ): RuntimeHookDescriptor[] {
   const matchQuery = getRuntimeHookMatchQuery(request, hookInput)
@@ -580,6 +604,89 @@ function getUnboundRegisteredHookMatches(
         registered.handlerRef ??
         registered.hook.event,
     }))
+}
+
+async function runExecutableRegisteredHooks(
+  request: RuntimeHookRunRequest,
+  hookInput: HookInput,
+  entries: ReadonlyArray<{
+    request: RuntimeHookRegisterRequest
+    executable: boolean
+    callback?: HookCallback['callback']
+  }>,
+): Promise<
+  Array<{
+    command: string
+    succeeded: boolean
+    output: string
+    blocked: boolean
+  }>
+> {
+  const matchQuery = getRuntimeHookMatchQuery(request, hookInput)
+  const matchingCallbacks = entries.filter(
+    entry =>
+      entry.executable &&
+      entry.request.hook.type === 'callback' &&
+      entry.callback !== undefined &&
+      entry.request.hook.event === request.event &&
+      matchesRuntimeHookMatcher(matchQuery, entry.request.hook.matcher),
+  )
+
+  return Promise.all(
+    matchingCallbacks.map(async entry => {
+      const timeoutMs = (entry.request.hook.timeoutSeconds ?? 10) * 1000
+      const controller = AbortSignal.timeout(timeoutMs)
+      try {
+        const output = await entry.callback!(
+          hookInput,
+          randomUUID(),
+          controller,
+        )
+        if (isAsyncHookJSONOutput(output)) {
+          return {
+            command: 'callback',
+            succeeded: true,
+            output: '',
+            blocked: false,
+            watchPaths: undefined,
+            systemMessage: undefined,
+          }
+        }
+        const outputRecord = toRecord(output)
+        const blocked =
+          isSyncHookJSONOutput(output) && outputRecord?.decision === 'block'
+        return {
+          command: 'callback',
+          succeeded: true,
+          output:
+            typeof outputRecord?.systemMessage === 'string'
+              ? outputRecord.systemMessage
+              : '',
+          blocked,
+          watchPaths: undefined,
+          systemMessage:
+            typeof outputRecord?.systemMessage === 'string'
+              ? outputRecord.systemMessage
+              : undefined,
+        }
+      } catch (error) {
+        return {
+          command: 'callback',
+          succeeded: false,
+          output: error instanceof Error ? error.message : String(error),
+          blocked: false,
+          watchPaths: undefined,
+          systemMessage: undefined,
+        }
+      }
+    }),
+  )
+}
+
+function toRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object'
+    ? (value as Record<string, unknown>)
+    : undefined
 }
 
 function toUnboundRegisteredHookErrors(
@@ -863,6 +970,7 @@ export type KernelRuntimeNonInteractiveToolUseContextOptions = {
   permissionMode?: string
   tools?: Tools
   messages?: readonly Message[]
+  mcpClients?: readonly MCPServerConnection[]
 }
 
 export async function createKernelRuntimeNonInteractiveToolUseContext(
@@ -899,7 +1007,7 @@ export async function createKernelRuntimeNonInteractiveToolUseContext(
       tools,
       verbose: false,
       thinkingConfig: { type: 'disabled' },
-      mcpClients: [],
+      mcpClients: [...(options.mcpClients ?? [])],
       mcpResources: {},
       isNonInteractiveSession: true,
       ideInstallationStatus: null,

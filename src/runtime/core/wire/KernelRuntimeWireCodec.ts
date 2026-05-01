@@ -1437,6 +1437,8 @@ function parseResumeSessionCommand(
       sessionId: requireString(record, 'sessionId'),
       conversationId: optionalString(record, 'conversationId'),
       workspacePath: optionalString(record, 'workspacePath'),
+      resumeInterruptedTurn: optionalBoolean(record, 'resumeInterruptedTurn'),
+      resumeSessionAt: optionalString(record, 'resumeSessionAt'),
     },
     metadata,
   )

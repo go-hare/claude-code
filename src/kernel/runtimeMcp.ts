@@ -11,8 +11,16 @@ import type {
   RuntimeMcpToolBinding,
   RuntimeMcpTransport,
 } from '../runtime/contracts/mcp.js'
+import type { KernelRuntimeEventReplayOptions } from './runtime.js'
+import type { KernelRuntimeMcpEvent } from './runtimeEvents.js'
 import type { KernelRuntimeWireClient } from './wireProtocol.js'
-import { expectPayload } from './runtimeEnvelope.js'
+import { collectReplayEvents, expectPayload } from './runtimeEnvelope.js'
+import {
+  isKernelMcpAuthenticatedEvent,
+  isKernelMcpConnectedEvent,
+  isKernelMcpEnabledChangedEvent,
+  isKernelMcpReloadedEvent,
+} from './runtimeEvents.js'
 
 export type KernelMcpTransport = RuntimeMcpTransport
 export type KernelMcpConnectionState = RuntimeMcpConnectionState
@@ -58,6 +66,10 @@ export type KernelRuntimeMcp = {
     serverName: string,
     options?: Omit<KernelMcpSetEnabledRequest, 'serverName' | 'enabled'>,
   ): Promise<KernelMcpLifecycleResult>
+  onEvent(handler: (event: KernelRuntimeMcpEvent) => void): () => void
+  replay(
+    options?: KernelRuntimeEventReplayOptions,
+  ): Promise<readonly KernelRuntimeMcpEvent[]>
 }
 
 export function createKernelRuntimeMcpFacade(
@@ -156,7 +168,28 @@ export function createKernelRuntimeMcpFacade(
       expectPayload<KernelMcpLifecycleResult>(
         await client.setMcpEnabled({ ...options, serverName, enabled: false }),
       ),
+    onEvent: handler =>
+      client.onEvent(envelope => {
+        if (isKernelMcpEvent(envelope)) {
+          handler(envelope)
+        }
+      }),
+    replay: async (options = {}) => {
+      const replayed = await collectReplayEvents(client, options)
+      return replayed.filter(isKernelMcpEvent)
+    },
   }
+}
+
+function isKernelMcpEvent(
+  envelope: import('../runtime/contracts/events.js').KernelRuntimeEnvelopeBase,
+): envelope is KernelRuntimeMcpEvent {
+  return (
+    isKernelMcpReloadedEvent(envelope) ||
+    isKernelMcpConnectedEvent(envelope) ||
+    isKernelMcpAuthenticatedEvent(envelope) ||
+    isKernelMcpEnabledChangedEvent(envelope)
+  )
 }
 
 function toMcpSnapshot(

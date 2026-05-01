@@ -15,6 +15,7 @@ import type {
   KernelConversationSnapshot,
 } from '../runtime/contracts/conversation.js'
 import type {
+  KernelEvent,
   KernelRuntimeEnvelopeBase,
   KernelRuntimeEventSink,
 } from '../runtime/contracts/events.js'
@@ -43,15 +44,92 @@ import type {
   KernelRuntimeStdioWireTransportOptions,
   KernelRuntimeWireTransport,
 } from './wireProtocol.js'
+import {
+  collectKernelRuntimeEventEnvelopes,
+  getKernelCommandExecutionResult,
+  getKernelAgentRunCancelResult,
+  getKernelAgentSpawnResult,
+  getKernelHookMutationResult,
+  getKernelHookRegistrySnapshot,
+  getKernelHookRunResult,
+  getKernelMcpLifecycleResult,
+  getKernelMcpSnapshot,
+  getKernelPluginMutationResult,
+  getKernelPluginSnapshot,
+  getKernelSkillPromptContextResult,
+  getKernelSkillSnapshot,
+  getKernelTaskMutationResult,
+  getKernelPermissionDecision,
+  getKernelPermissionRequest,
+  getKernelToolCallResult,
+  getKernelTurnOutputText,
+  getKernelTurnTerminalSnapshot,
+  isKernelCommandsExecutedEvent,
+  isKernelAgentsRunCancelledEvent,
+  isKernelAgentsSpawnedEvent,
+  isKernelHooksRanEvent,
+  isKernelHooksRegisteredEvent,
+  isKernelHooksReloadedEvent,
+  isKernelMcpAuthenticatedEvent,
+  isKernelMcpConnectedEvent,
+  isKernelMcpEnabledChangedEvent,
+  isKernelMcpReloadedEvent,
+  isKernelPermissionRequestedEvent,
+  isKernelPermissionResolvedEvent,
+  isKernelPluginsEnabledChangedEvent,
+  isKernelPluginsInstalledEvent,
+  isKernelPluginsReloadedEvent,
+  isKernelPluginsUninstalledEvent,
+  isKernelPluginsUpdatedEvent,
+  isKernelSkillsContextResolvedEvent,
+  isKernelSkillsReloadedEvent,
+  isKernelTasksAssignedEvent,
+  isKernelTasksCreatedEvent,
+  isKernelTasksUpdatedEvent,
+  isKernelToolsCalledEvent,
+} from './runtimeEvents.js'
 import type {
+  KernelCommandsExecutedEvent,
+  KernelAgentsRunCancelledEvent,
+  KernelAgentsSpawnedEvent,
+  KernelHooksRanEvent,
+  KernelHooksRegisteredEvent,
+  KernelHooksReloadedEvent,
+  KernelMcpAuthenticatedEvent,
+  KernelMcpConnectedEvent,
+  KernelMcpEnabledChangedEvent,
+  KernelMcpReloadedEvent,
+  KernelPermissionRequestedEvent,
+  KernelPermissionResolvedEvent,
+  KernelPermissionResolvedPayload,
   KernelEventType,
   KernelKnownEvent,
+  KernelRuntimeAgentEvent,
+  KernelRuntimeCommandEvent,
   KernelRuntimeEventCategory,
   KernelRuntimeEventEnvelope,
   KernelRuntimeEventHandler,
+  KernelRuntimeHookEvent,
+  KernelRuntimeMcpEvent,
+  KernelRuntimePermissionEvent,
+  KernelRuntimePluginEvent,
+  KernelRuntimeSkillEvent,
   KernelRuntimeEventScope,
+  KernelRuntimeTaskEvent,
+  KernelRuntimeToolEvent,
+  KernelPluginsEnabledChangedEvent,
+  KernelPluginsInstalledEvent,
+  KernelPluginsReloadedEvent,
+  KernelPluginsUninstalledEvent,
+  KernelPluginsUpdatedEvent,
   KernelRuntimeEventTaxonomyEntry,
   KernelRuntimeEventType,
+  KernelSkillsContextResolvedEvent,
+  KernelSkillsReloadedEvent,
+  KernelTasksAssignedEvent,
+  KernelTasksCreatedEvent,
+  KernelTasksUpdatedEvent,
+  KernelToolsCalledEvent,
   KernelTurnCompletedEvent,
   KernelTurnEventType,
   KernelTurnFailedEvent,
@@ -160,6 +238,8 @@ import type {
 } from './runtimeTasks.js'
 import type {
   KernelCoordinatorAssignmentFilter,
+  KernelCoordinatorInvokeRequest,
+  KernelCoordinatorInvokeResult,
   KernelRuntimeCoordinator,
 } from './runtimeCoordinator.js'
 import type {
@@ -208,11 +288,53 @@ export type {
 export {
   KERNEL_RUNTIME_EVENT_TAXONOMY,
   KERNEL_RUNTIME_EVENT_TYPES,
+  collectKernelRuntimeEventEnvelopes,
+  getKernelCommandExecutionResult,
+  getKernelAgentRunCancelResult,
+  getKernelAgentSpawnResult,
+  getKernelHookMutationResult,
+  getKernelHookRegistrySnapshot,
+  getKernelHookRunResult,
+  getKernelMcpLifecycleResult,
+  getKernelMcpSnapshot,
+  getKernelPluginMutationResult,
+  getKernelPluginSnapshot,
+  getKernelSkillPromptContextResult,
+  getKernelSkillSnapshot,
+  getKernelTaskMutationResult,
+  getKernelPermissionDecision,
+  getKernelPermissionRequest,
+  getKernelToolCallResult,
   getKernelRuntimeEventCategory,
   getKernelRuntimeEventTaxonomyEntry,
   getKernelRuntimeEventType,
+  getKernelTurnOutputText,
+  getKernelTurnTerminalSnapshot,
+  isKernelCommandsExecutedEvent,
+  isKernelAgentsRunCancelledEvent,
+  isKernelAgentsSpawnedEvent,
+  isKernelHooksRanEvent,
+  isKernelHooksRegisteredEvent,
+  isKernelHooksReloadedEvent,
+  isKernelMcpAuthenticatedEvent,
+  isKernelMcpConnectedEvent,
+  isKernelMcpEnabledChangedEvent,
+  isKernelMcpReloadedEvent,
+  isKernelPermissionRequestedEvent,
+  isKernelPermissionResolvedEvent,
+  isKernelPluginsEnabledChangedEvent,
+  isKernelPluginsInstalledEvent,
+  isKernelPluginsReloadedEvent,
+  isKernelPluginsUninstalledEvent,
+  isKernelPluginsUpdatedEvent,
   isKernelRuntimeEventEnvelope,
   isKernelRuntimeEventOfType,
+  isKernelSkillsContextResolvedEvent,
+  isKernelSkillsReloadedEvent,
+  isKernelTasksAssignedEvent,
+  isKernelTasksCreatedEvent,
+  isKernelTasksUpdatedEvent,
+  isKernelToolsCalledEvent,
   isKernelTurnTerminalEvent,
   isKnownKernelRuntimeEventType,
 } from './runtimeEvents.js'
@@ -318,6 +440,8 @@ export type {
 } from './runtimeTasks.js'
 export type {
   KernelCoordinatorAssignmentFilter,
+  KernelCoordinatorInvokeRequest,
+  KernelCoordinatorInvokeResult,
   KernelRuntimeCoordinator,
 } from './runtimeCoordinator.js'
 export type {
@@ -340,14 +464,47 @@ export type {
   RuntimeProviderSelection,
 } from '../runtime/contracts/provider.js'
 export type {
+  KernelCommandsExecutedEvent,
+  KernelAgentsRunCancelledEvent,
+  KernelAgentsSpawnedEvent,
+  KernelHooksRanEvent,
+  KernelHooksRegisteredEvent,
+  KernelHooksReloadedEvent,
+  KernelMcpAuthenticatedEvent,
+  KernelMcpConnectedEvent,
+  KernelMcpEnabledChangedEvent,
+  KernelMcpReloadedEvent,
+  KernelPermissionRequestedEvent,
+  KernelPermissionResolvedEvent,
+  KernelPermissionResolvedPayload,
   KernelEventType,
   KernelKnownEvent,
+  KernelRuntimeAgentEvent,
+  KernelRuntimeCommandEvent,
   KernelRuntimeEventCategory,
   KernelRuntimeEventEnvelope,
   KernelRuntimeEventHandler,
+  KernelRuntimeHookEvent,
+  KernelRuntimeMcpEvent,
+  KernelRuntimePermissionEvent,
+  KernelRuntimePluginEvent,
+  KernelRuntimeSkillEvent,
   KernelRuntimeEventScope,
+  KernelRuntimeTaskEvent,
+  KernelRuntimeToolEvent,
+  KernelPluginsEnabledChangedEvent,
+  KernelPluginsInstalledEvent,
+  KernelPluginsReloadedEvent,
+  KernelPluginsUninstalledEvent,
+  KernelPluginsUpdatedEvent,
   KernelRuntimeEventTaxonomyEntry,
   KernelRuntimeEventType,
+  KernelSkillsContextResolvedEvent,
+  KernelSkillsReloadedEvent,
+  KernelTasksAssignedEvent,
+  KernelTasksCreatedEvent,
+  KernelTasksUpdatedEvent,
+  KernelToolsCalledEvent,
   KernelTurnCompletedEvent,
   KernelTurnEventType,
   KernelTurnFailedEvent,
@@ -362,6 +519,11 @@ export type KernelRuntimeTransportConfig =
 export type KernelRuntimeOptions = KernelRuntimeWireProtocolOptions & {
   id?: KernelRuntimeId
   host?: Partial<KernelRuntimeHostIdentity>
+  provider?: RuntimeProviderSelection
+  defaultProvider?: RuntimeProviderSelection
+  auth?: Record<string, unknown>
+  model?: string
+  capabilities?: Record<string, unknown>
   transport?: KernelRuntimeWireTransport
   transportConfig?: KernelRuntimeTransportConfig
   wireClient?: KernelRuntimeWireClient
@@ -407,6 +569,16 @@ export type KernelRuntimeEventReplayOptions = {
   filters?: Record<string, unknown>
 }
 
+export type KernelRuntimeHostEventPublishOptions = {
+  requestId?: string
+  metadata?: Record<string, unknown>
+}
+
+export type KernelRuntimeHostEventPublishResult = {
+  published: boolean
+  eventId?: string
+}
+
 export type KernelTurnEventReplayOptions = Omit<
   KernelRuntimeEventReplayOptions,
   'conversationId' | 'turnId'
@@ -427,6 +599,10 @@ export type KernelRuntimeCapabilities = {
 
 export type KernelRuntimePermissions = {
   decide(decision: KernelPermissionDecision): Promise<KernelPermissionDecision>
+  onEvent(handler: (event: KernelRuntimePermissionEvent) => void): () => void
+  replay(
+    options?: KernelRuntimeEventReplayOptions,
+  ): Promise<readonly KernelRuntimePermissionEvent[]>
 }
 
 export type KernelRuntimeContextManager = {
@@ -441,6 +617,8 @@ export type KernelRuntimeContextManager = {
 export type KernelRuntimeSessionResumeOptions = {
   conversationId?: KernelConversationId
   workspacePath?: string
+  resumeInterruptedTurn?: boolean
+  resumeSessionAt?: string
   metadata?: Record<string, unknown>
 }
 
@@ -537,6 +715,10 @@ export type KernelRuntime = {
   decidePermission(
     decision: KernelPermissionDecision,
   ): Promise<KernelPermissionDecision>
+  publishHostEvent(
+    event: KernelEvent,
+    options?: KernelRuntimeHostEventPublishOptions,
+  ): Promise<KernelRuntimeHostEventPublishResult>
   onEvent(handler: KernelRuntimeEventSink): () => void
   replayEvents(
     options?: KernelRuntimeEventReplayOptions,

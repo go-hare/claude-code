@@ -11,11 +11,19 @@ import type {
   RuntimeAgentSpawnRequest,
   RuntimeAgentSpawnResult,
 } from '../runtime/contracts/agent.js'
+import type { KernelRuntimeEnvelopeBase } from '../runtime/contracts/events.js'
+import type { KernelRuntimeEventReplayOptions } from './runtime.js'
+import type { KernelRuntimeAgentEvent } from './runtimeEvents.js'
 import type { KernelRuntimeWireClient } from './wireProtocol.js'
 import {
+  collectReplayEvents,
   expectPayload,
   waitForRuntimeEventDelivery,
 } from './runtimeEnvelope.js'
+import {
+  isKernelAgentsRunCancelledEvent,
+  isKernelAgentsSpawnedEvent,
+} from './runtimeEvents.js'
 
 export type KernelAgentSource = RuntimeAgentSource
 export type KernelAgentMcpServerRef = RuntimeAgentMcpServerRef
@@ -81,6 +89,10 @@ export type KernelRuntimeAgents = {
     runId: string,
     options?: KernelAgentCancelOptions,
   ): Promise<KernelAgentCancelResult>
+  onEvent(handler: (event: KernelRuntimeAgentEvent) => void): () => void
+  replay(
+    options?: KernelRuntimeEventReplayOptions,
+  ): Promise<readonly KernelRuntimeAgentEvent[]>
 }
 
 export function createKernelRuntimeAgentsFacade(
@@ -162,7 +174,26 @@ export function createKernelRuntimeAgentsFacade(
       await waitForRuntimeEventDelivery()
       return toAgentCancelResult(payload)
     },
+    onEvent: handler =>
+      client.onEvent(envelope => {
+        if (isKernelAgentEvent(envelope)) {
+          handler(envelope)
+        }
+      }),
+    replay: async (options = {}) => {
+      const replayed = await collectReplayEvents(client, options)
+      return replayed.filter(isKernelAgentEvent)
+    },
   }
+}
+
+function isKernelAgentEvent(
+  envelope: KernelRuntimeEnvelopeBase,
+): envelope is KernelRuntimeAgentEvent {
+  return (
+    isKernelAgentsSpawnedEvent(envelope) ||
+    isKernelAgentsRunCancelledEvent(envelope)
+  )
 }
 
 function toAgentSnapshot(

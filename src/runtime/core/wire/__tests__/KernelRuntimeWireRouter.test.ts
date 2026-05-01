@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, mock, test } from 'bun:test'
 import { existsSync } from 'fs'
 
 import { createHeadlessConversation } from '../../../capabilities/execution/internal/headlessConversationAdapter.js'
@@ -561,8 +561,7 @@ describe('KernelRuntimeWireRouter', () => {
         promptCount: 2,
       },
     ] as const
-    const { router } = createRouter({
-      sessionManager: {
+    const sessionManager = {
         async listSessions() {
           return [
             {
@@ -573,7 +572,7 @@ describe('KernelRuntimeWireRouter', () => {
             },
           ]
         },
-        async resumeSession() {
+        resumeSession: mock(async () => {
           return {
             sessionId: 'session-1',
             fullPath: '/tmp/workspace/session-1.jsonl',
@@ -588,7 +587,7 @@ describe('KernelRuntimeWireRouter', () => {
             contextCollapseCommits,
             contextCollapseSnapshot,
           }
-        },
+        }),
         async getSessionTranscript() {
           return {
             sessionId: 'session-1',
@@ -605,7 +604,9 @@ describe('KernelRuntimeWireRouter', () => {
             contextCollapseSnapshot,
           }
         },
-      },
+      }
+    const { router } = createRouter({
+      sessionManager,
     })
 
     const [resumed] = await router.handleCommand({
@@ -614,6 +615,8 @@ describe('KernelRuntimeWireRouter', () => {
       requestId: 'resume-1',
       sessionId: 'session-1',
       conversationId: 'conversation-resume-1',
+      resumeInterruptedTurn: true,
+      resumeSessionAt: 'resume-user-1',
     })
     const replay = await router.handleCommand({
       schemaVersion: KERNEL_RUNTIME_COMMAND_SCHEMA_VERSION,
@@ -688,7 +691,14 @@ describe('KernelRuntimeWireRouter', () => {
         },
       },
     })
-    expect(transcriptReplay).toHaveLength(2)
+    expect(sessionManager.resumeSession).toHaveBeenCalledWith(
+      'session-1',
+      expect.objectContaining({
+        resumeInterruptedTurn: true,
+        resumeSessionAt: 'resume-user-1',
+      }),
+    )
+    expect(transcriptReplay).toHaveLength(1)
     expect(fileHistoryReplay).toHaveLength(1)
     expect(todoReplay).toHaveLength(1)
     expect(nestedMemoryReplay).toHaveLength(1)
@@ -706,18 +716,6 @@ describe('KernelRuntimeWireRouter', () => {
           fullPath: '/tmp/workspace/session-1.jsonl',
           index: 0,
           message: transcriptMessages[0],
-        },
-      },
-    })
-    expect(transcriptReplay[1]).toMatchObject({
-      conversationId: 'conversation-resume-1',
-      payload: {
-        type: 'conversation.transcript_message',
-        payload: {
-          sessionId: 'session-1',
-          fullPath: '/tmp/workspace/session-1.jsonl',
-          index: 1,
-          message: transcriptMessages[1],
         },
       },
     })
@@ -2275,6 +2273,32 @@ describe('KernelRuntimeWireRouter', () => {
     })
   })
 
+  test('parses resume_session continuation options from an NDJSON command line', () => {
+    const command = parseKernelRuntimeCommandLine(
+      JSON.stringify({
+        schemaVersion: KERNEL_RUNTIME_COMMAND_SCHEMA_VERSION,
+        type: 'resume_session',
+        requestId: 'resume-1',
+        sessionId: '/tmp/session.jsonl',
+        conversationId: 'conversation-resume-1',
+        workspacePath: '/tmp/workspace',
+        resumeInterruptedTurn: true,
+        resumeSessionAt: 'resume-user-1',
+      }),
+    )
+
+    expect(command).toEqual({
+      schemaVersion: KERNEL_RUNTIME_COMMAND_SCHEMA_VERSION,
+      type: 'resume_session',
+      requestId: 'resume-1',
+      sessionId: '/tmp/session.jsonl',
+      conversationId: 'conversation-resume-1',
+      workspacePath: '/tmp/workspace',
+      resumeInterruptedTurn: true,
+      resumeSessionAt: 'resume-user-1',
+    })
+  })
+
   test('parses reload and host event payloads from NDJSON command lines', () => {
     const connectHost = parseKernelRuntimeCommandLine(
       JSON.stringify({
@@ -2347,6 +2371,7 @@ describe('KernelRuntimeWireRouter', () => {
         requestId: 'auth-mcp-1',
         serverName: 'github',
         action: 'clear',
+        callbackUrl: 'https://callback.example/done',
       }),
     )
     const setMcpEnabled = parseKernelRuntimeCommandLine(
@@ -2520,6 +2545,7 @@ describe('KernelRuntimeWireRouter', () => {
       requestId: 'auth-mcp-1',
       serverName: 'github',
       action: 'clear',
+      callbackUrl: 'https://callback.example/done',
     })
     expect(setMcpEnabled).toMatchObject({
       type: 'set_mcp_enabled',
@@ -2829,7 +2855,7 @@ describe('KernelRuntimeWireRouter', () => {
         authenticateServer: request => ({
           serverName: request.serverName,
           state: request.action === 'clear' ? 'needs-auth' : 'connected',
-          message: request.action ?? 'authenticate',
+          message: request.callbackUrl ?? request.action ?? 'authenticate',
         }),
         setServerEnabled: request => ({
           serverName: request.serverName,
@@ -3108,6 +3134,7 @@ describe('KernelRuntimeWireRouter', () => {
       requestId: 'mcp-auth-1',
       serverName: 'github',
       action: 'authenticate',
+      callbackUrl: 'https://callback.example/done',
     })
     const [mcpDisable] = await router.handleCommand({
       schemaVersion: KERNEL_RUNTIME_COMMAND_SCHEMA_VERSION,
@@ -3342,7 +3369,7 @@ describe('KernelRuntimeWireRouter', () => {
       payload: {
         serverName: 'github',
         state: 'connected',
-        message: 'authenticate',
+        message: 'https://callback.example/done',
       },
     })
     expect(mcpDisable).toMatchObject({

@@ -22,12 +22,20 @@ export type RuntimeCapabilityEnabled =
   | boolean
   | ((context: RuntimeCapabilityLoadContext) => boolean)
 
+export type RuntimeCapabilityDegradedPolicy =
+  | boolean
+  | ((
+      error: unknown,
+      context: RuntimeCapabilityLoadContext,
+    ) => boolean)
+
 export type RuntimeCapabilityDefinition = {
   name: KernelCapabilityName
   lazy?: boolean
   dependencies?: readonly KernelCapabilityName[]
   reloadable?: boolean
   enabled?: RuntimeCapabilityEnabled
+  degradeOnFailure?: RuntimeCapabilityDegradedPolicy
   metadata?: Record<string, unknown>
   load?: RuntimeCapabilityLoader
 }
@@ -102,6 +110,20 @@ function createDescriptor(
   }
 }
 
+function shouldDegradeOnFailure(
+  definition: RuntimeCapabilityDefinition,
+  error: unknown,
+  context: RuntimeCapabilityLoadContext,
+): boolean {
+  const policy =
+    definition.degradeOnFailure ??
+    (definition.metadata?.optional === true ? true : false)
+  if (typeof policy === 'boolean') {
+    return policy
+  }
+  return policy(error, context)
+}
+
 export class RuntimeCapabilityResolver {
   private readonly entries = new Map<KernelCapabilityName, RuntimeCapabilityEntry>()
 
@@ -139,7 +161,10 @@ export class RuntimeCapabilityResolver {
     const mergedContext = this.mergeContext(context)
     this.assertLoadable(entry, mergedContext)
 
-    if (entry.descriptor.status === 'ready') {
+    if (
+      entry.descriptor.status === 'ready' ||
+      entry.descriptor.status === 'degraded'
+    ) {
       return entry.value
     }
     if (entry.loading) {
@@ -201,10 +226,19 @@ export class RuntimeCapabilityResolver {
       return value
     } catch (error) {
       entry.value = undefined
+      const capabilityError = errorToCapabilityError(error)
+      if (shouldDegradeOnFailure(entry.definition, error, context)) {
+        entry.descriptor = createDescriptor(
+          entry.definition,
+          'degraded',
+          capabilityError,
+        )
+        return undefined
+      }
       entry.descriptor = createDescriptor(
         entry.definition,
         'failed',
-        errorToCapabilityError(error),
+        capabilityError,
       )
       throw error
     } finally {

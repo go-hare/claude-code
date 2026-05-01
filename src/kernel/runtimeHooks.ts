@@ -1,4 +1,7 @@
 import type {
+  KernelRuntimeEnvelopeBase,
+} from '../runtime/contracts/events.js'
+import type {
   RuntimeHookDescriptor,
   RuntimeHookMutationResult,
   RuntimeHookRegisterRequest,
@@ -7,8 +10,15 @@ import type {
   RuntimeHookSource,
   RuntimeHookType,
 } from '../runtime/contracts/hook.js'
+import type { KernelRuntimeEventReplayOptions } from './runtime.js'
+import type { KernelRuntimeHookEvent } from './runtimeEvents.js'
 import type { KernelRuntimeWireClient } from './wireProtocol.js'
-import { expectPayload } from './runtimeEnvelope.js'
+import {
+  isKernelHooksRanEvent,
+  isKernelHooksRegisteredEvent,
+  isKernelHooksReloadedEvent,
+} from './runtimeEvents.js'
+import { collectReplayEvents, expectPayload } from './runtimeEnvelope.js'
 
 export type KernelHookDescriptor = RuntimeHookDescriptor
 export type KernelHookRunRequest = RuntimeHookRunRequest
@@ -38,6 +48,10 @@ export type KernelRuntimeHooks = {
     hookOrRequest: KernelHookDescriptor | KernelHookRegisterRequest,
     options?: Omit<KernelHookRegisterRequest, 'hook'>,
   ): Promise<KernelHookMutationResult>
+  onEvent(handler: (event: KernelRuntimeHookEvent) => void): () => void
+  replay(
+    options?: KernelRuntimeEventReplayOptions,
+  ): Promise<readonly KernelRuntimeHookEvent[]>
 }
 
 export function createKernelRuntimeHooksFacade(
@@ -76,7 +90,27 @@ export function createKernelRuntimeHooksFacade(
         await client.registerHook(request),
       )
     },
+    onEvent: handler =>
+      client.onEvent(envelope => {
+        if (isKernelHookEvent(envelope)) {
+          handler(envelope)
+        }
+      }),
+    replay: async (options = {}) => {
+      const replayed = await collectReplayEvents(client, options)
+      return replayed.filter(isKernelHookEvent)
+    },
   }
+}
+
+function isKernelHookEvent(
+  envelope: KernelRuntimeEnvelopeBase,
+): envelope is KernelRuntimeHookEvent {
+  return (
+    isKernelHooksReloadedEvent(envelope) ||
+    isKernelHooksRanEvent(envelope) ||
+    isKernelHooksRegisteredEvent(envelope)
+  )
 }
 
 function toHookDescriptors(value: unknown): readonly KernelHookDescriptor[] {

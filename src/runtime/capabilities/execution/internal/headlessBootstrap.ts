@@ -32,6 +32,7 @@ import { isEnvTruthy } from '../../../../utils/envUtils.js'
 import { jsonStringify } from '../../../../utils/slowOperations.js'
 import type { UUID } from 'crypto'
 import type { RuntimeSessionIdentityStateProvider } from '../../../core/state/providers.js'
+import { applyResumeSessionAtToTranscript } from '../../../core/session/sessionContinuation.js'
 import type { HeadlessSessionContext } from './headlessSessionControl.js'
 import type { HeadlessLoadedConversationResult } from './headlessSessionBootstrap.js'
 
@@ -249,7 +250,7 @@ export async function loadInitialMessages(
         )
       }
 
-      const result = await loadConversationForResume(
+      let result = await loadConversationForResume(
         parsedSessionId.sessionId,
         parsedSessionId.jsonlFile || undefined,
       )
@@ -277,19 +278,19 @@ export async function loadInitialMessages(
       }
 
       if (options.resumeSessionAt) {
-        const index = result.messages.findIndex(
-          m => m.uuid === options.resumeSessionAt,
+        const sliced = applyResumeSessionAtToTranscript(
+          result,
+          options.resumeSessionAt,
         )
-        if (index < 0) {
+        if (sliced.error) {
           emitLoadError(
-            `No message found with message.uuid of: ${options.resumeSessionAt}`,
+            sliced.error,
             options.outputFormat,
           )
           gracefulShutdownSync(1)
           return { messages: [] }
         }
-
-        result.messages = index >= 0 ? result.messages.slice(0, index + 1) : []
+        result = sliced.transcript
       }
 
       return {

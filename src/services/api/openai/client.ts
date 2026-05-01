@@ -19,7 +19,17 @@ function wrapFetchForUsage(base: typeof fetch): typeof fetch {
   const wrapped = async (
     ...args: Parameters<typeof fetch>
   ): Promise<Response> => {
-    const res = await base(...args)
+    const [input, init] = args
+    const headers = new Headers(
+      init?.headers ??
+        (input instanceof Request ? input.headers : undefined),
+    )
+    headers.set('accept-encoding', 'identity')
+
+    const res = await base(input, {
+      ...init,
+      headers,
+    })
     try {
       updateProviderBuckets('openai', openaiAdapter.parseHeaders(res.headers))
     } catch {

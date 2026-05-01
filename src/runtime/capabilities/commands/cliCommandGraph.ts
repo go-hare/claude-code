@@ -400,7 +400,7 @@ export const cliCommandGraph = [
   command(
     'autonomy.status',
     ['autonomy', 'status'],
-    'Print autonomy run and flow status',
+    'Print autonomy run, flow, team, pipe, and remote-control status',
     {
       ownership: 'runtime-capability',
       reuse: 'reuse-with-isolation',
@@ -430,7 +430,7 @@ export const cliCommandGraph = [
   command(
     'autonomy.flow',
     ['autonomy', 'flow'],
-    'Inspect a single autonomy flow',
+    'Inspect or manage a single autonomy flow',
     {
       ownership: 'runtime-capability',
       reuse: 'reuse-with-isolation',
@@ -450,7 +450,7 @@ export const cliCommandGraph = [
   command(
     'autonomy.flow.resume',
     ['autonomy', 'flow', 'resume'],
-    'Resume a waiting autonomy flow',
+    'Resume a waiting autonomy flow and print the prepared prompt',
     {
       ownership: 'runtime-capability',
       reuse: 'reuse-with-isolation',

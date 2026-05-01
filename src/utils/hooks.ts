@@ -566,6 +566,14 @@ interface TypedSyncHookOutput {
       }
 }
 
+export type RuntimeRegisteredHookMatcher =
+  | HookCallbackMatcher
+  | PluginHookMatcher
+
+export type RuntimeRegisteredHookMatchers = Partial<
+  Record<HookEvent, RuntimeRegisteredHookMatcher[]>
+>
+
 function processHookJSONOutput({
   json: rawJson,
   command,
@@ -1631,6 +1639,7 @@ function getHooksConfig(
   appState: AppState | undefined,
   sessionId: string,
   hookEvent: HookEvent,
+  extraRegisteredHooks?: RuntimeRegisteredHookMatchers,
 ): Array<
   | HookMatcher
   | HookCallbackMatcher
@@ -1653,9 +1662,14 @@ function getHooksConfig(
   // Check if only managed hooks should run (used for both registered and session hooks)
   const managedOnly = shouldAllowManagedHooksOnly()
 
-  // Process registered hooks (SDK callbacks and plugin native hooks)
-  const registeredHooks = getRegisteredHooks()?.[hookEvent]
-  if (registeredHooks) {
+  // Process registered hooks (SDK callbacks and plugin native hooks). Runtime
+  // workers can pass extra matchers for this execution without mutating global
+  // bootstrap state.
+  const registeredHooks = [
+    ...(getRegisteredHooks()?.[hookEvent] ?? []),
+    ...(extraRegisteredHooks?.[hookEvent] ?? []),
+  ]
+  if (registeredHooks.length > 0) {
     for (const matcher of registeredHooks) {
       // Skip plugin hooks when restricted to managed hooks only
       // Plugin hooks have pluginRoot set, SDK callbacks do not
@@ -1744,9 +1758,15 @@ export async function getMatchingHooks(
   hookEvent: HookEvent,
   hookInput: HookInput,
   tools?: Tools,
+  extraRegisteredHooks?: RuntimeRegisteredHookMatchers,
 ): Promise<MatchedHook[]> {
   try {
-    const hookMatchers = getHooksConfig(appState, sessionId, hookEvent)
+    const hookMatchers = getHooksConfig(
+      appState,
+      sessionId,
+      hookEvent,
+      extraRegisteredHooks,
+    )
 
     // If you change the criteria below, then you must change
     // src/utils/hooks/hooksConfigManager.ts as well.
@@ -2098,6 +2118,7 @@ async function* executeHooks({
   forceSyncExecution,
   requestPrompt,
   toolInputSummary,
+  extraRegisteredHooks,
 }: {
   hookInput: HookInput
   toolUseID: string
@@ -2112,6 +2133,7 @@ async function* executeHooks({
     toolInputSummary?: string | null,
   ) => (request: PromptRequest) => Promise<PromptResponse>
   toolInputSummary?: string | null
+  extraRegisteredHooks?: RuntimeRegisteredHookMatchers
 }): AsyncGenerator<AggregatedHookResult> {
   if (shouldDisableAllHooksIncludingManaged()) {
     return
@@ -2145,6 +2167,7 @@ async function* executeHooks({
     hookEvent,
     hookInput,
     toolUseContext?.options?.tools,
+    extraRegisteredHooks,
   )
   if (matchingHooks.length === 0) {
     return
@@ -3145,12 +3168,14 @@ export async function executeHooksOutsideREPL({
   matchQuery,
   signal,
   timeoutMs = TOOL_HOOK_EXECUTION_TIMEOUT_MS,
+  extraRegisteredHooks,
 }: {
   getAppState?: () => AppState
   hookInput: HookInput
   matchQuery?: string
   signal?: AbortSignal
   timeoutMs: number
+  extraRegisteredHooks?: RuntimeRegisteredHookMatchers
 }): Promise<HookOutsideReplResult[]> {
   if (isEnvTruthy(process.env.CLAUDE_CODE_SIMPLE)) {
     return []
@@ -3182,6 +3207,8 @@ export async function executeHooksOutsideREPL({
     sessionId,
     hookEvent,
     hookInput,
+    undefined,
+    extraRegisteredHooks,
   )
   if (matchingHooks.length === 0) {
     return []
@@ -4023,6 +4050,7 @@ export async function* executeSessionStartHooks(
   signal?: AbortSignal,
   timeoutMs: number = TOOL_HOOK_EXECUTION_TIMEOUT_MS,
   forceSyncExecution?: boolean,
+  extraRegisteredHooks?: RuntimeRegisteredHookMatchers,
 ): AsyncGenerator<AggregatedHookResult> {
   const hookInput: SessionStartHookInput = {
     ...createBaseHookInput(undefined, sessionId),
@@ -4039,6 +4067,7 @@ export async function* executeSessionStartHooks(
     signal,
     timeoutMs,
     forceSyncExecution,
+    extraRegisteredHooks,
   })
 }
 
@@ -4055,6 +4084,7 @@ export async function* executeSetupHooks(
   signal?: AbortSignal,
   timeoutMs: number = TOOL_HOOK_EXECUTION_TIMEOUT_MS,
   forceSyncExecution?: boolean,
+  extraRegisteredHooks?: RuntimeRegisteredHookMatchers,
 ): AsyncGenerator<AggregatedHookResult> {
   const hookInput: SetupHookInput = {
     ...createBaseHookInput(undefined),
@@ -4069,6 +4099,7 @@ export async function* executeSetupHooks(
     signal,
     timeoutMs,
     forceSyncExecution,
+    extraRegisteredHooks,
   })
 }
 
