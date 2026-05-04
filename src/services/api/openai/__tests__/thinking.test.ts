@@ -176,19 +176,19 @@ describe('resolveOpenAIMaxTokens', () => {
     }
   })
 
-  test('caps the implicit OpenAI-compatible default at 32k', () => {
-    expect(resolveOpenAIMaxTokens(64_000)).toBe(32_000)
+  test('uses the model upper limit by default', () => {
+    expect(resolveOpenAIMaxTokens(64_000)).toBe(64_000)
   })
 
   test('does not raise a lower model upper limit', () => {
     expect(resolveOpenAIMaxTokens(8_192)).toBe(8_192)
   })
 
-  test('keeps programmatic override above the default cap', () => {
+  test('keeps programmatic override above the default fallback', () => {
     expect(resolveOpenAIMaxTokens(64_000, 48_000)).toBe(48_000)
   })
 
-  test('keeps OPENAI_MAX_TOKENS above the default cap', () => {
+  test('keeps OPENAI_MAX_TOKENS above the default fallback', () => {
     process.env.OPENAI_MAX_TOKENS = '48000'
     expect(resolveOpenAIMaxTokens(64_000)).toBe(48_000)
   })
@@ -201,7 +201,7 @@ describe('resolveOpenAIMaxTokens', () => {
   test('ignores invalid env overrides', () => {
     process.env.OPENAI_MAX_TOKENS = '-1'
     process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = 'abc'
-    expect(resolveOpenAIMaxTokens(64_000)).toBe(32_000)
+    expect(resolveOpenAIMaxTokens(64_000)).toBe(64_000)
   })
 })
 

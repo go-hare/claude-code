@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import type { ChatCompletionChunk } from 'openai/resources/chat/completions/completions.mjs'
+import { z } from 'zod/v4'
 import {
   getModelUsage,
   getTotalAPIDuration,
@@ -7,6 +8,7 @@ import {
   resetCostState,
 } from '../../../../bootstrap/state.js'
 import type { AssistantMessage } from '../../../../types/message.js'
+import { TOOL_SEARCH_TOOL_NAME } from '@go-hare/builtin-tools/tools/ToolSearchTool/prompt.js'
 
 let nextChunks: ChatCompletionChunk[] = []
 let lastCreateArgs: Record<string, unknown> | null = null
@@ -85,6 +87,8 @@ mock.module('../../../langfuse/convert.js', () => ({
 async function runQueryModel(
   model = 'gpt-5.5',
   optionOverrides: Record<string, unknown> = {},
+  messages: any[] = [],
+  tools: any[] = [],
 ): Promise<AssistantMessage[]> {
   const { clearOpenAIClientCache } = await import('../client.js')
   const { queryModelOpenAI } = await import('../index.js')
@@ -92,9 +96,9 @@ async function runQueryModel(
   clearOpenAIClientCache()
 
   for await (const item of queryModelOpenAI(
-    [],
+    messages,
     [] as any,
-    [],
+    tools,
     new AbortController().signal,
     {
       model,
@@ -125,6 +129,8 @@ const originalOpenAIAPIKey = process.env.OPENAI_API_KEY
 const originalAnthropicAPIKey = process.env.ANTHROPIC_API_KEY
 const originalClaudeCodeOAuthToken = process.env.CLAUDE_CODE_OAUTH_TOKEN
 const originalClaudeCodeUseOpenAI = process.env.CLAUDE_CODE_USE_OPENAI
+const originalEnableToolSearch = process.env.ENABLE_TOOL_SEARCH
+const originalUserType = process.env.USER_TYPE
 
 beforeEach(() => {
   resetCostState()
@@ -135,6 +141,8 @@ beforeEach(() => {
   process.env.ANTHROPIC_API_KEY = 'test-key'
   process.env.CLAUDE_CODE_OAUTH_TOKEN = 'test-token'
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.ENABLE_TOOL_SEARCH = 'true'
+  delete process.env.USER_TYPE
 })
 
 afterEach(() => {
@@ -162,6 +170,16 @@ afterEach(() => {
     delete process.env.CLAUDE_CODE_USE_OPENAI
   } else {
     process.env.CLAUDE_CODE_USE_OPENAI = originalClaudeCodeUseOpenAI
+  }
+  if (originalEnableToolSearch === undefined) {
+    delete process.env.ENABLE_TOOL_SEARCH
+  } else {
+    process.env.ENABLE_TOOL_SEARCH = originalEnableToolSearch
+  }
+  if (originalUserType === undefined) {
+    delete process.env.USER_TYPE
+  } else {
+    process.env.USER_TYPE = originalUserType
   }
 })
 
@@ -202,5 +220,35 @@ describe('queryModelOpenAI usage and duration accounting', () => {
     const duration = getTotalAPIDuration()
     expect(duration).toBeGreaterThan(0)
     expect(getTotalAPIDurationWithoutRetries()).toBe(duration)
+  })
+
+  test('prepends available deferred tools for OpenAI-compatible tool search', async () => {
+    const deferredTool = {
+      name: 'SlackPostMessage',
+      isMcp: true,
+      inputSchema: z.object({ channel: z.string() }),
+      prompt: async () => 'Post a message to Slack',
+    }
+    const toolSearchTool = {
+      name: TOOL_SEARCH_TOOL_NAME,
+      inputSchema: z.object({ query: z.string() }),
+      prompt: async () => 'Load deferred tool definitions',
+    }
+
+    await runQueryModel(
+      'gpt-5.5',
+      {},
+      [],
+      [deferredTool, toolSearchTool],
+    )
+
+    const requestMessages = lastCreateArgs?.messages as
+      | Array<Record<string, unknown>>
+      | undefined
+    expect(requestMessages).toBeDefined()
+    expect(requestMessages?.[0]?.role).toBe('user')
+    expect(requestMessages?.[0]?.content).toBe(
+      '<available-deferred-tools>\nSlackPostMessage\n</available-deferred-tools>',
+    )
   })
 })
