@@ -244,6 +244,43 @@ describe('RuntimeEventBus', () => {
     ).toThrow(RuntimeEventSerializationError)
   })
 
+  test('accepts shared plain objects because JSON can serialize duplicate references', () => {
+    const bus = createBus()
+    const sharedMetadata = { promptKind: 'text', charCount: 5 }
+
+    const event = bus.emit({
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      type: 'turn.started',
+      replayable: true,
+      payload: {
+        input: {
+          contextAssembly: {
+            modelVisible: [
+              {
+                type: 'turn.prompt',
+                category: 'model_visible',
+                source: 'user_input',
+                metadata: sharedMetadata,
+              },
+            ],
+            hostVisible: [],
+            operatorDebug: [
+              {
+                type: 'turn_input.summary',
+                category: 'operator_debug',
+                source: 'runtime',
+                metadata: sharedMetadata,
+              },
+            ],
+          },
+        },
+      },
+    })
+
+    expect(JSON.parse(JSON.stringify(event))).toEqual(event)
+  })
+
   test('does not add non-replayable events to the replay buffer', () => {
     const bus = createBus()
 

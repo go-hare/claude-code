@@ -39,7 +39,7 @@ describe('headless runtime event output', () => {
     })
   })
 
-  test('writes runtime envelopes to stream-json output and host sink', () => {
+  test('does not write runtime envelopes to stream-json output but still calls host sink', () => {
     const envelope = createEnvelope()
     const writes: unknown[] = []
     const hostSink = mock((_envelope: KernelRuntimeEnvelopeBase) => {})
@@ -59,9 +59,7 @@ describe('headless runtime event output', () => {
 
     sink?.(envelope)
 
-    expect(writes).toEqual([
-      toHeadlessRuntimeEventMessage(envelope, 'session-1'),
-    ])
+    expect(writes).toEqual([])
     expect(hostSink).toHaveBeenCalledWith(envelope)
   })
 

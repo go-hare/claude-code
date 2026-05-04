@@ -19,6 +19,7 @@ import {
 } from '../../../server/directConnectManager.js'
 import type { RemotePermissionResponse } from '../../../remote/RemoteSessionManager.js'
 import {
+  getKernelRuntimeFailedError,
   handleKernelRuntimeHostEvent,
   KernelRuntimeOutputDeltaDedupe,
   KernelRuntimeSDKMessageDedupe,
@@ -277,17 +278,20 @@ export async function runConnectHeadlessRuntime(
           }
           semanticOutput += delta.text
         },
-        onTurnTerminal: (_terminalEnvelope, event) => {
+        onTurnTerminal: (_terminalEnvelope, event, projection) => {
           if (!finalResult && semanticOutput) {
             finalResult = {
               type: 'result',
-              subtype: event.type === 'turn.failed' ? 'error' : 'success',
-              is_error: event.type === 'turn.failed',
+              subtype: projection.isError ? 'error' : 'success',
+              is_error: projection.isError,
               result: semanticOutput,
-              errors:
-                event.type === 'turn.failed'
-                  ? [errorMessage(event.payload)]
-                  : undefined,
+              errors: projection.isError
+                ? [
+                    errorMessage(
+                      getKernelRuntimeFailedError(event) ?? event.payload,
+                    ),
+                  ]
+                : undefined,
             } as SDKResultMessage
           }
           settle()

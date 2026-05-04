@@ -148,6 +148,7 @@ function isTurnSnapshot(value: unknown): value is KernelTurnSnapshot {
     TURN_STATES.has(value.state) &&
     isOptionalString(value.startedAt) &&
     isOptionalString(value.completedAt) &&
+    (value.input === undefined || isJsonValue(value.input)) &&
     (value.stopReason === undefined ||
       value.stopReason === null ||
       typeof value.stopReason === 'string') &&
@@ -170,6 +171,13 @@ function isRunTurnCommand(value: unknown): value is KernelRuntimeRunTurnCommand 
       (Array.isArray(value.prompt) && isJsonValue(value.prompt))) &&
     (value.attachments === undefined ||
       (Array.isArray(value.attachments) && isJsonValue(value.attachments))) &&
+    isOptionalString(value.executionMode) &&
+    (value.contextAssembly === undefined ||
+      (isPlainRecord(value.contextAssembly) &&
+        isJsonValue(value.contextAssembly))) &&
+    (value.capabilityPlane === undefined ||
+      (isPlainRecord(value.capabilityPlane) &&
+        isJsonValue(value.capabilityPlane))) &&
     (value.metadata === undefined ||
       (isPlainRecord(value.metadata) && isJsonValue(value.metadata)))
   )

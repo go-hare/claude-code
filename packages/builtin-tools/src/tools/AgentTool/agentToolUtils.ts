@@ -2,11 +2,11 @@ import { feature } from 'bun:bundle'
 import { z } from 'zod/v4'
 import { clearInvokedSkillsForAgent } from 'src/bootstrap/state.js'
 import {
-  ALL_AGENT_DISALLOWED_TOOLS,
-  ASYNC_AGENT_ALLOWED_TOOLS,
-  CUSTOM_AGENT_DISALLOWED_TOOLS,
-  IN_PROCESS_TEAMMATE_ALLOWED_TOOLS,
-} from 'src/constants/tools.js'
+  createRuntimeAgentToolCapabilityPlane,
+  filterToolsByRuntimeAgentCapabilityPlane,
+  type RuntimeAgentToolCapabilityPlane,
+} from 'src/runtime/capabilities/agents/AgentCapabilityPlane.js'
+import type { KernelCapabilityPlane } from 'src/runtime/contracts/capability.js'
 import { startAgentSummarization } from 'src/services/AgentSummary/agentSummary.js'
 import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
@@ -59,7 +59,6 @@ import {
 import { emitTaskProgress as emitTaskProgressEvent } from 'src/utils/task/sdkProgress.js'
 import { isInProcessTeammate } from 'src/utils/teammateContext.js'
 import { getTokenCountFromUsage } from 'src/utils/tokens.js'
-import { EXIT_PLAN_MODE_V2_TOOL_NAME } from '../ExitPlanModeTool/constants.js'
 import { AGENT_TOOL_NAME, LEGACY_AGENT_TOOL_NAME } from './constants.js'
 import type { AgentDefinition } from './loadAgentsDir.js'
 export type ResolvedAgentTools = {
@@ -67,6 +66,7 @@ export type ResolvedAgentTools = {
   validTools: string[]
   invalidTools: string[]
   resolvedTools: Tools
+  capabilityPlane: RuntimeAgentToolCapabilityPlane
   allowedAgentTypes?: string[]
 }
 
@@ -75,47 +75,28 @@ export function filterToolsForAgent({
   isBuiltIn,
   isAsync = false,
   permissionMode,
+  parentCapabilityPlane,
 }: {
   tools: Tools
   isBuiltIn: boolean
   isAsync?: boolean
   permissionMode?: PermissionMode
+  parentCapabilityPlane?: KernelCapabilityPlane
 }): Tools {
-  return tools.filter(tool => {
-    // Allow MCP tools for all agents
-    if (tool.name.startsWith('mcp__')) {
-      return true
-    }
-    // Allow ExitPlanMode for agents in plan mode (e.g., in-process teammates)
-    // This bypasses both the ALL_AGENT_DISALLOWED_TOOLS and async tool filters
-    if (
-      toolMatchesName(tool, EXIT_PLAN_MODE_V2_TOOL_NAME) &&
-      permissionMode === 'plan'
-    ) {
-      return true
-    }
-    if (ALL_AGENT_DISALLOWED_TOOLS.has(tool.name)) {
-      return false
-    }
-    if (!isBuiltIn && CUSTOM_AGENT_DISALLOWED_TOOLS.has(tool.name)) {
-      return false
-    }
-    if (isAsync && !ASYNC_AGENT_ALLOWED_TOOLS.has(tool.name)) {
-      if (isAgentSwarmsEnabled() && isInProcessTeammate()) {
-        // Allow AgentTool for in-process teammates to spawn sync subagents.
-        // Validation in AgentTool.call() prevents background agents and teammate spawning.
-        if (toolMatchesName(tool, AGENT_TOOL_NAME)) {
-          return true
-        }
-        // Allow task tools for in-process teammates to coordinate via shared task list
-        if (IN_PROCESS_TEAMMATE_ALLOWED_TOOLS.has(tool.name)) {
-          return true
-        }
-      }
-      return false
-    }
-    return true
-  })
+  return filterToolsByRuntimeAgentCapabilityPlane(
+    tools,
+    createRuntimeAgentToolCapabilityPlane({
+      tools,
+      isBuiltIn,
+      isAsync,
+      permissionMode,
+      parentCapabilityPlane,
+      allowInProcessTeammateTools:
+        isAgentSwarmsEnabled() && isInProcessTeammate(),
+      isTeammate: isAgentSwarmsEnabled() && isInProcessTeammate(),
+      matchesToolName: toolMatchesName,
+    }),
+  )
 }
 
 /**
@@ -130,6 +111,7 @@ export function resolveAgentTools(
   availableTools: Tools,
   isAsync = false,
   isMainThread = false,
+  parentCapabilityPlane?: KernelCapabilityPlane,
 ): ResolvedAgentTools {
   const {
     tools: agentTools,
@@ -146,7 +128,20 @@ export function resolveAgentTools(
         isBuiltIn: source === 'built-in',
         isAsync,
         permissionMode,
+        parentCapabilityPlane,
       })
+  const capabilityPlane = createRuntimeAgentToolCapabilityPlane({
+    tools: availableTools,
+    isBuiltIn: source === 'built-in',
+    isAsync,
+    permissionMode,
+    parentCapabilityPlane,
+    inheritanceMode: isMainThread ? 'exact_parent' : 'isolated',
+    allowInProcessTeammateTools:
+      isAgentSwarmsEnabled() && isInProcessTeammate(),
+    isTeammate: isAgentSwarmsEnabled() && isInProcessTeammate(),
+    matchesToolName: toolMatchesName,
+  })
 
   // Create a set of disallowed tool names for quick lookup
   const disallowedToolSet = new Set(
@@ -171,6 +166,7 @@ export function resolveAgentTools(
       validTools: [],
       invalidTools: [],
       resolvedTools: allowedAvailableTools,
+      capabilityPlane,
     }
   }
 
@@ -222,6 +218,7 @@ export function resolveAgentTools(
     validTools,
     invalidTools,
     resolvedTools: resolved,
+    capabilityPlane,
     allowedAgentTypes,
   }
 }

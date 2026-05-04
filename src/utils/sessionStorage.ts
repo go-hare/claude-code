@@ -274,6 +274,13 @@ export type AgentMetadata = {
   activeTaskExecutionContext?: ActiveTaskExecutionContext
   /** Coordinator-assigned write ownership carried across resume. */
   ownedFiles?: string[]
+  /** Runtime capability summary for resumed/inspected agent executions. */
+  capability?: {
+    executionMode: string
+    inheritanceMode?: string
+    permittedToolCount: number
+    deniedToolCount: number
+  }
 }
 
 /**

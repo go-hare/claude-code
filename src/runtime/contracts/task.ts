@@ -76,3 +76,21 @@ export interface RuntimeTaskMutationResult {
   created?: boolean
   assigned?: boolean
 }
+
+export type RuntimeTaskTerminalStatus = 'completed' | 'failed' | 'stopped'
+
+export type RuntimeTaskUsage = {
+  total_tokens: number
+  tool_uses: number
+  duration_ms: number
+}
+
+export interface RuntimeTaskNotificationPayload {
+  taskId: string
+  toolUseId?: string
+  status: RuntimeTaskTerminalStatus
+  outputFile: string
+  summary: string
+  usage?: RuntimeTaskUsage
+  source: 'queued_task_notification'
+}

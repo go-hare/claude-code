@@ -61,6 +61,83 @@ export type KernelSDKResultTurnOutcome = {
   stopReason: string | null
 }
 
+export type KernelRuntimeHostStopReason =
+  | 'end_turn'
+  | 'max_tokens'
+  | 'max_turn_requests'
+  | 'cancelled'
+
+export type KernelRuntimeTerminalProjection = {
+  eventType: 'turn.completed' | 'turn.failed'
+  isError: boolean
+  runtimeStopReason: string | null | undefined
+  hostStopReason: KernelRuntimeHostStopReason
+}
+
+export type KernelRuntimeTextOutputDelta = {
+  text: string
+}
+
+export type KernelRuntimeCoordinatorLifecycleEventType =
+  | 'handoff.started'
+  | 'handoff.completed'
+  | 'handoff.failed'
+  | 'team.idle_wait_started'
+  | 'team.idle_reached'
+  | 'team.shutdown_requested'
+  | 'team.shutdown_approved'
+  | 'team.shutdown_completed'
+  | 'team.cleanup_started'
+  | 'team.cleanup_completed'
+  | 'team.cleanup_failed'
+
+export type KernelRuntimeTaskNotificationProjection = {
+  kind: 'tasks.notification'
+  taskId: string
+  status: KernelTaskNotificationPayload['status']
+  payload: KernelTaskNotificationPayload
+}
+
+export type KernelRuntimeCoordinatorLifecycleProjection = {
+  kind: 'coordinator.lifecycle'
+  eventType: KernelRuntimeCoordinatorLifecycleEventType
+  phase: KernelCoordinatorLifecyclePayload['phase']
+  state: KernelCoordinatorLifecyclePayload['state']
+  payload: KernelCoordinatorLifecyclePayload
+}
+
+export type KernelRuntimeLifecycleProjection =
+  | KernelRuntimeTaskNotificationProjection
+  | KernelRuntimeCoordinatorLifecycleProjection
+
+export type KernelRuntimeHostEventCallbacks = {
+  onRuntimeEvent?: KernelRuntimeEventHandler
+  onRuntimeHeartbeat?: (
+    envelope: KernelRuntimeEnvelopeBase,
+    event: KernelEvent,
+  ) => void
+  onOutputDelta?: (
+    delta: KernelRuntimeTextOutputDelta,
+    envelope: KernelRuntimeEnvelopeBase,
+    event: KernelEvent,
+  ) => void
+  onSDKMessage?: (
+    message: KernelLegacySDKMessage,
+    envelope: KernelRuntimeEnvelopeBase,
+    event: KernelEvent,
+  ) => void
+  onTurnTerminal?: (
+    envelope: KernelRuntimeEnvelopeBase,
+    event: KernelEvent,
+    projection: KernelRuntimeTerminalProjection,
+  ) => void
+  onLifecycle?: (
+    projection: KernelRuntimeLifecycleProjection,
+    envelope: KernelRuntimeEnvelopeBase,
+    event: KernelEvent,
+  ) => void
+}
+
 export type KernelHeadlessRuntimeMessageEmissionOptions = {
   message: KernelLegacyStdoutMessage
   output: {
@@ -192,6 +269,18 @@ export type KernelRuntimeEventType =
   | 'tasks.created'
   | 'tasks.updated'
   | 'tasks.assigned'
+  | 'tasks.notification'
+  | 'handoff.started'
+  | 'handoff.completed'
+  | 'handoff.failed'
+  | 'team.idle_wait_started'
+  | 'team.idle_reached'
+  | 'team.shutdown_requested'
+  | 'team.shutdown_approved'
+  | 'team.shutdown_completed'
+  | 'team.cleanup_started'
+  | 'team.cleanup_completed'
+  | 'team.cleanup_failed'
   | 'headless.sdk_message'
 
 export type KernelEventType = KernelRuntimeEventType | (string & {})
@@ -458,10 +547,38 @@ export type KernelTasksAssignedEvent =
     }
   }
 
+export type KernelTasksNotificationEvent =
+  KnownKernelRuntimeEventEnvelope<'tasks.notification'> & {
+    payload: KernelEvent & {
+      type: 'tasks.notification'
+      payload: KernelTaskNotificationPayload
+    }
+  }
+
 export type KernelRuntimeTaskEvent =
   | KernelTasksCreatedEvent
   | KernelTasksUpdatedEvent
   | KernelTasksAssignedEvent
+  | KernelTasksNotificationEvent
+
+export type KernelCoordinatorLifecycleEvent =
+  KnownKernelRuntimeEventEnvelope<
+    | 'handoff.started'
+    | 'handoff.completed'
+    | 'handoff.failed'
+    | 'team.idle_wait_started'
+    | 'team.idle_reached'
+    | 'team.shutdown_requested'
+    | 'team.shutdown_approved'
+    | 'team.shutdown_completed'
+    | 'team.cleanup_started'
+    | 'team.cleanup_completed'
+    | 'team.cleanup_failed'
+  > & {
+    payload: KernelEvent & {
+      payload: KernelCoordinatorLifecyclePayload
+    }
+  }
 
 export type KernelRuntimeEventHandler = (
   envelope: KernelRuntimeEventEnvelope,
@@ -594,6 +711,14 @@ export declare function isKernelTasksAssignedEvent(
   envelope: KernelRuntimeEnvelopeBase,
 ): envelope is KernelTasksAssignedEvent
 
+export declare function isKernelTasksNotificationEvent(
+  envelope: KernelRuntimeEnvelopeBase,
+): envelope is KernelTasksNotificationEvent
+
+export declare function isKernelCoordinatorLifecycleEvent(
+  envelope: KernelRuntimeEnvelopeBase,
+): envelope is KernelCoordinatorLifecycleEvent
+
 export declare function getKernelPermissionRequest(
   envelope: KernelRuntimeEnvelopeBase,
 ): KernelPermissionRequest | undefined
@@ -680,6 +805,58 @@ export declare function getSDKMessageFromRuntimeEnvelope(
 export declare function getSDKResultTurnOutcome(
   message: KernelLegacySDKMessage,
 ): KernelSDKResultTurnOutcome
+
+export declare function getCanonicalProjectionFromKernelEvent(
+  event: KernelEvent,
+): string | undefined
+
+export declare function hasCanonicalProjection(
+  event: KernelEvent,
+  projection: string,
+): boolean
+
+export declare function getCompatibilityProjectionFromKernelEvent(
+  event: KernelEvent,
+): string | undefined
+
+export declare function hasCompatibilityProjection(
+  event: KernelEvent,
+  projection: string,
+): boolean
+
+export declare function getTextOutputDeltaFromKernelRuntimeEnvelope(
+  envelope: KernelRuntimeEnvelopeBase,
+): KernelRuntimeTextOutputDelta | undefined
+
+export declare function getKernelRuntimeTerminalProjection(
+  event: KernelEvent,
+): KernelRuntimeTerminalProjection
+
+export declare function getKernelRuntimeTerminalProjectionFromSDKResultMessage(
+  message: KernelLegacySDKMessage,
+  options?: { aborted?: boolean },
+): KernelRuntimeTerminalProjection | undefined
+
+export declare function getKernelRuntimeLifecycleProjection(
+  event: KernelEvent,
+): KernelRuntimeLifecycleProjection | undefined
+
+export declare function getKernelRuntimeTaskNotificationProjection(
+  event: KernelEvent,
+): KernelRuntimeTaskNotificationProjection | undefined
+
+export declare function getKernelRuntimeCoordinatorLifecycleProjection(
+  event: KernelEvent,
+): KernelRuntimeCoordinatorLifecycleProjection | undefined
+
+export declare function handleKernelRuntimeHostEvent(
+  envelope: KernelRuntimeEnvelopeBase,
+  callbacks: KernelRuntimeHostEventCallbacks,
+): void
+
+export declare function isKernelRuntimeHostTurnTerminalEvent(
+  event: KernelEvent,
+): boolean
 
 export declare function projectRuntimeEnvelopeToLegacySDKMessage(
   envelope: KernelRuntimeEnvelopeBase,
@@ -860,6 +1037,89 @@ export type KernelCapabilityDescriptor = {
   dependencies: readonly KernelCapabilityName[]
   reloadable: boolean
   error?: KernelCapabilityError
+  metadata?: Record<string, unknown>
+}
+
+export type KernelCapabilityPlaneDenial = {
+  capability: KernelCapabilityName
+  actor: 'runtime' | 'host' | 'mode' | 'tool' | 'agent'
+  reason: string
+  metadata?: Record<string, unknown>
+}
+
+export type KernelCapabilityPlane = {
+  runtimeSupports: readonly KernelCapabilityName[]
+  hostGrants: readonly KernelCapabilityName[]
+  modePermits: readonly KernelCapabilityName[]
+  toolRequires: readonly KernelCapabilityName[]
+  denies?: readonly KernelCapabilityPlaneDenial[]
+  metadata?: Record<string, unknown>
+}
+
+export type KernelContextCategory =
+  | 'model_visible'
+  | 'host_visible'
+  | 'operator_debug'
+
+export type KernelContextSource =
+  | 'user_input'
+  | 'queued_command'
+  | 'attachment'
+  | 'task'
+  | 'memory'
+  | 'skill'
+  | 'tool'
+  | 'agent'
+  | 'host'
+  | 'runtime'
+  | 'operator'
+
+export type KernelContextAssemblyPhase =
+  | 'turn_input'
+  | 'attachment_batch'
+  | 'memory_prefetch'
+  | 'skill_prefetch'
+
+export type KernelContextAssemblyMetadata = Record<string, unknown> & {
+  phase: KernelContextAssemblyPhase
+}
+
+export type KernelContextEntry = {
+  id?: string
+  type: string
+  category: KernelContextCategory
+  source: KernelContextSource
+  payload?: unknown
+  metadata?: Record<string, unknown>
+}
+
+export type KernelContextAssembly = {
+  modelVisible: readonly KernelContextEntry[]
+  hostVisible: readonly KernelContextEntry[]
+  operatorDebug: readonly KernelContextEntry[]
+}
+
+export type KernelContextAssemblySnapshot = {
+  entries: readonly KernelContextEntry[]
+  categories: KernelContextAssembly
+}
+
+export type KernelExecutionMode =
+  | 'interactive'
+  | 'headless'
+  | 'direct_connect'
+  | 'acp'
+  | 'agent'
+  | 'async_agent'
+  | 'teammate'
+  | 'coordinator'
+  | 'background'
+  | 'unknown'
+
+export type KernelTurnInputContract = {
+  executionMode: KernelExecutionMode
+  contextAssembly: KernelContextAssembly
+  capabilityPlane: KernelCapabilityPlane
   metadata?: Record<string, unknown>
 }
 
@@ -1649,6 +1909,65 @@ export type KernelTaskMutationResult = {
   assigned?: boolean
 }
 
+export type KernelTaskTerminalStatus = 'completed' | 'failed' | 'stopped'
+
+export type KernelTaskUsage = {
+  total_tokens: number
+  tool_uses: number
+  duration_ms: number
+}
+
+export type KernelTaskNotificationPayload = {
+  taskId: string
+  toolUseId?: string
+  status: KernelTaskTerminalStatus
+  outputFile: string
+  summary: string
+  usage?: KernelTaskUsage
+  source: 'queued_task_notification'
+}
+
+export type KernelCoordinatorLifecyclePhase =
+  | 'handoff'
+  | 'team_idle'
+  | 'team_shutdown'
+  | 'team_cleanup'
+
+export type KernelCoordinatorLifecycleState =
+  | 'started'
+  | 'completed'
+  | 'failed'
+  | 'requested'
+  | 'approved'
+  | 'waiting'
+  | 'reached'
+
+export type KernelCoordinatorLifecyclePayload = {
+  phase: KernelCoordinatorLifecyclePhase
+  state: KernelCoordinatorLifecycleState
+  source:
+    | 'sdk_task_started'
+    | 'sdk_task_notification'
+    | 'queued_task_notification'
+    | 'headless_team_shutdown'
+    | 'headless_team_idle'
+    | 'headless_team_cleanup'
+  teamName?: string
+  teammateId?: string
+  teammateName?: string
+  taskId?: string
+  taskType?: string
+  toolUseId?: string
+  status?: string
+  reason?: string
+  description?: string
+  summary?: string
+  pendingTaskCount?: number
+  activeTeammateCount?: number
+  messageCount?: number
+  error?: string
+}
+
 export type KernelTeamMemberDescriptor = {
   agentId: string
   name: string
@@ -1836,6 +2155,9 @@ export type KernelRuntimeRunTurnCommand =
     prompt: string | readonly unknown[]
     attachments?: readonly unknown[]
     providerOverride?: RuntimeProviderSelection
+    executionMode?: KernelExecutionMode
+    contextAssembly?: KernelContextAssembly
+    capabilityPlane?: KernelCapabilityPlane
   }
 
 export type KernelRuntimeAbortTurnCommand =
@@ -1897,6 +2219,7 @@ export type KernelPermissionBrokerSnapshot = {
   pendingRequestIds: string[]
   finalizedRequestIds: string[]
   sessionGrantCount: number
+  capabilityPlaneCount: number
   disposed: boolean
 }
 
@@ -2300,6 +2623,7 @@ export type KernelTurnSnapshot = {
     | 'completed'
     | 'failed'
     | 'disposed'
+  input?: KernelTurnInputContract
   startedAt?: string
   completedAt?: string
   stopReason?: string | null
@@ -3099,6 +3423,9 @@ export type KernelRunTurnOptions = {
   turnId?: string
   attachments?: readonly unknown[]
   providerOverride?: RuntimeProviderSelection
+  executionMode?: KernelExecutionMode
+  contextAssembly?: KernelContextAssembly
+  capabilityPlane?: KernelCapabilityPlane
   metadata?: Record<string, unknown>
 }
 
@@ -3737,6 +4064,9 @@ export type KernelHeadlessRunTurnRequest = {
   turnId?: string
   attachments?: readonly unknown[]
   providerOverride?: RuntimeProviderSelection
+  executionMode?: KernelExecutionMode
+  contextAssembly?: KernelContextAssembly
+  capabilityPlane?: KernelCapabilityPlane
   metadata?: Record<string, unknown>
 }
 

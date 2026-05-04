@@ -48,6 +48,7 @@ import type {
 import { createAttachmentMessage } from 'src/utils/attachments.js'
 import { AbortError } from 'src/utils/errors.js'
 import { getDisplayPath } from 'src/utils/file.js'
+import { isAgentSwarmsEnabled } from 'src/utils/agentSwarmsEnabled.js'
 import {
   cloneFileStateCache,
   createFileStateCacheWithSizeLimit,
@@ -70,6 +71,11 @@ import {
 } from 'src/services/langfuse/index.js'
 import type { ModelAlias } from 'src/utils/model/aliases.js'
 import {
+  createRuntimeAgentToolCapabilityPlane,
+  resolveRuntimeAgentExecutionMode,
+  stripRuntimeAgentToolCapabilityPlane,
+} from 'src/runtime/capabilities/agents/AgentCapabilityPlane.js'
+import {
   clearAgentTranscriptSubdir,
   recordSidechainTranscript,
   setAgentTranscriptSubdir,
@@ -79,6 +85,7 @@ import {
   isRestrictedToPluginOnly,
   isSourceAdminTrusted,
 } from 'src/utils/settings/pluginOnlyPolicy.js'
+import { isInProcessTeammate } from 'src/utils/teammateContext.js'
 import {
   asSystemPrompt,
   type SystemPrompt,
@@ -96,18 +103,7 @@ import { type AgentDefinition, isBuiltInAgent } from './loadAgentsDir.js'
 export function getSpawnedAgentToolPermissionContext(
   context: ToolPermissionContext,
 ): ToolPermissionContext {
-  const cliArgDenyRules = context.spawnedAgentCliArgDenyRules
-  if (cliArgDenyRules === undefined) {
-    return context
-  }
-
-  return {
-    ...context,
-    alwaysDenyRules: {
-      ...context.alwaysDenyRules,
-      cliArg: [...cliArgDenyRules],
-    },
-  }
+  return context
 }
 
 /**
@@ -530,9 +526,16 @@ export async function* runAgent({
     }
   }
 
-  const resolvedTools = useExactTools
-    ? availableTools
-    : resolveAgentTools(agentDefinition, availableTools, isAsync).resolvedTools
+  const agentToolResolution = useExactTools
+    ? undefined
+    : resolveAgentTools(
+        agentDefinition,
+        availableTools,
+        isAsync,
+        false,
+        toolUseContext.capabilityPlane,
+      )
+  const resolvedTools = agentToolResolution?.resolvedTools ?? availableTools
 
   const additionalWorkingDirectories = Array.from(
     appState.toolPermissionContext.additionalWorkingDirectories.keys(),
@@ -695,6 +698,26 @@ export async function* runAgent({
     agentMcpTools.length > 0
       ? dedupeToolsByName([...resolvedTools, ...agentMcpTools])
       : resolvedTools
+  const isTeammateExecution =
+    isAgentSwarmsEnabled() && isInProcessTeammate()
+  const agentExecutionMode = resolveRuntimeAgentExecutionMode({
+    isAsync,
+    isTeammate: isTeammateExecution,
+  })
+  const agentInheritanceMode = useExactTools ? 'exact_parent' : 'isolated'
+  const agentCapabilityPlane = createRuntimeAgentToolCapabilityPlane({
+    tools: allTools,
+    isBuiltIn: isBuiltInAgent(agentDefinition),
+    isAsync,
+    isTeammate: isTeammateExecution,
+    executionMode: agentExecutionMode,
+    inheritanceMode: agentInheritanceMode,
+    parentCapabilityPlane: toolUseContext.capabilityPlane,
+    permissionMode: agentGetAppState().toolPermissionContext.mode,
+    allowInProcessTeammateTools: isTeammateExecution,
+  })
+  const kernelAgentCapabilityPlane =
+    stripRuntimeAgentToolCapabilityPlane(agentCapabilityPlane)
 
   // Build agent-specific options
   const agentOptions: ToolUseContext['options'] = {
@@ -745,6 +768,7 @@ export async function* runAgent({
     criticalSystemReminder_EXPERIMENTAL:
       agentDefinition.criticalSystemReminder_EXPERIMENTAL,
     contentReplacementState,
+    capabilityPlane: kernelAgentCapabilityPlane,
   })
 
   // Preserve tool use results for subagents with viewable transcripts (in-process teammates)
@@ -771,6 +795,12 @@ export async function* runAgent({
   )
   void writeAgentMetadata(agentId, {
     agentType: agentDefinition.agentType,
+    capability: {
+      executionMode: agentExecutionMode,
+      inheritanceMode: agentInheritanceMode,
+      permittedToolCount: agentCapabilityPlane.modePermits.length,
+      deniedToolCount: agentCapabilityPlane.denies?.length ?? 0,
+    },
     ...(worktreePath && { worktreePath }),
     ...(description && { description }),
     ...(activeTaskExecutionContext && { activeTaskExecutionContext }),

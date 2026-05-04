@@ -103,12 +103,14 @@ function assertSerializable(
     value.forEach((item, index) => {
       assertSerializable(item, `${path}[${index}]`, seen)
     })
+    seen.delete(value)
     return
   }
 
   for (const [key, item] of Object.entries(value)) {
     assertSerializable(item, `${path}.${key}`, seen)
   }
+  seen.delete(value)
 }
 
 export class RuntimeEventBus {

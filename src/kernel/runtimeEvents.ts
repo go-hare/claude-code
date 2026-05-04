@@ -29,7 +29,11 @@ import type {
   RuntimeSkillCatalogSnapshot,
   RuntimeSkillPromptContextResult,
 } from '../runtime/contracts/skill.js'
-import type { RuntimeTaskMutationResult } from '../runtime/contracts/task.js'
+import type {
+  RuntimeTaskMutationResult,
+  RuntimeTaskNotificationPayload,
+} from '../runtime/contracts/task.js'
+import type { RuntimeCoordinatorLifecyclePayload } from '../runtime/contracts/team.js'
 import type { RuntimeToolCallResult } from '../runtime/contracts/tool.js'
 import type { KernelTurnSnapshot } from '../runtime/contracts/turn.js'
 
@@ -175,6 +179,46 @@ export const KERNEL_RUNTIME_EVENT_TAXONOMY = [
   { type: 'tasks.created', category: 'extension', scope: 'runtime' },
   { type: 'tasks.updated', category: 'extension', scope: 'runtime' },
   { type: 'tasks.assigned', category: 'extension', scope: 'runtime' },
+  { type: 'tasks.notification', category: 'extension', scope: 'turn' },
+  { type: 'handoff.started', category: 'extension', scope: 'turn' },
+  { type: 'handoff.completed', category: 'extension', scope: 'turn' },
+  { type: 'handoff.failed', category: 'extension', scope: 'turn' },
+  {
+    type: 'team.idle_wait_started',
+    category: 'extension',
+    scope: 'conversation',
+  },
+  { type: 'team.idle_reached', category: 'extension', scope: 'conversation' },
+  {
+    type: 'team.shutdown_requested',
+    category: 'extension',
+    scope: 'conversation',
+  },
+  {
+    type: 'team.shutdown_approved',
+    category: 'extension',
+    scope: 'conversation',
+  },
+  {
+    type: 'team.shutdown_completed',
+    category: 'extension',
+    scope: 'conversation',
+  },
+  {
+    type: 'team.cleanup_started',
+    category: 'extension',
+    scope: 'conversation',
+  },
+  {
+    type: 'team.cleanup_completed',
+    category: 'extension',
+    scope: 'conversation',
+  },
+  {
+    type: 'team.cleanup_failed',
+    category: 'extension',
+    scope: 'conversation',
+  },
   { type: 'companion.event', category: 'extension', scope: 'runtime' },
   { type: 'kairos.event', category: 'extension', scope: 'runtime' },
   {
@@ -469,10 +513,39 @@ export type KernelTasksAssignedEvent = KnownKernelRuntimeEventEnvelope<
   }
 }
 
+export type KernelTasksNotificationEvent = KnownKernelRuntimeEventEnvelope<
+  'tasks.notification'
+> & {
+  payload: KernelEvent & {
+    type: 'tasks.notification'
+    payload: RuntimeTaskNotificationPayload
+  }
+}
+
 export type KernelRuntimeTaskEvent =
   | KernelTasksCreatedEvent
   | KernelTasksUpdatedEvent
   | KernelTasksAssignedEvent
+  | KernelTasksNotificationEvent
+
+export type KernelCoordinatorLifecycleEvent =
+  KnownKernelRuntimeEventEnvelope<
+    | 'handoff.started'
+    | 'handoff.completed'
+    | 'handoff.failed'
+    | 'team.idle_wait_started'
+    | 'team.idle_reached'
+    | 'team.shutdown_requested'
+    | 'team.shutdown_approved'
+    | 'team.shutdown_completed'
+    | 'team.cleanup_started'
+    | 'team.cleanup_completed'
+    | 'team.cleanup_failed'
+  > & {
+    payload: KernelEvent & {
+      payload: RuntimeCoordinatorLifecyclePayload
+    }
+  }
 
 export type KernelRuntimeEventHandler = (
   envelope: KernelRuntimeEventEnvelope,
@@ -754,6 +827,25 @@ export function isKernelTasksAssignedEvent(
   return (
     isKernelRuntimeEventOfType(envelope, 'tasks.assigned') &&
     isKernelTaskMutationResult(envelope.payload.payload)
+  )
+}
+
+export function isKernelTasksNotificationEvent(
+  envelope: KernelRuntimeEnvelopeBase,
+): envelope is KernelTasksNotificationEvent {
+  return (
+    isKernelRuntimeEventOfType(envelope, 'tasks.notification') &&
+    isKernelTaskNotificationPayload(envelope.payload.payload)
+  )
+}
+
+export function isKernelCoordinatorLifecycleEvent(
+  envelope: KernelRuntimeEnvelopeBase,
+): envelope is KernelCoordinatorLifecycleEvent {
+  return (
+    isKernelRuntimeEventEnvelope(envelope) &&
+    isKernelCoordinatorLifecycleType(envelope.payload.type) &&
+    isKernelCoordinatorLifecyclePayload(envelope.payload.payload)
   )
 }
 
@@ -1113,6 +1205,52 @@ function isKernelTaskMutationResult(
     isRecord(value) &&
     typeof value.taskListId === 'string' &&
     Array.isArray(value.updatedFields)
+  )
+}
+
+function isKernelTaskNotificationPayload(
+  value: unknown,
+): value is RuntimeTaskNotificationPayload {
+  if (!isRecord(value)) {
+    return false
+  }
+  const status = value.status
+  return (
+    typeof value.taskId === 'string' &&
+    (value.toolUseId === undefined || typeof value.toolUseId === 'string') &&
+    (status === 'completed' || status === 'failed' || status === 'stopped') &&
+    typeof value.outputFile === 'string' &&
+    typeof value.summary === 'string' &&
+    value.source === 'queued_task_notification'
+  )
+}
+
+function isKernelCoordinatorLifecycleType(
+  type: string,
+): type is KernelCoordinatorLifecycleEvent['payload']['type'] {
+  return (
+    type === 'handoff.started' ||
+    type === 'handoff.completed' ||
+    type === 'handoff.failed' ||
+    type === 'team.idle_wait_started' ||
+    type === 'team.idle_reached' ||
+    type === 'team.shutdown_requested' ||
+    type === 'team.shutdown_approved' ||
+    type === 'team.shutdown_completed' ||
+    type === 'team.cleanup_started' ||
+    type === 'team.cleanup_completed' ||
+    type === 'team.cleanup_failed'
+  )
+}
+
+function isKernelCoordinatorLifecyclePayload(
+  value: unknown,
+): value is RuntimeCoordinatorLifecyclePayload {
+  return (
+    isRecord(value) &&
+    typeof value.phase === 'string' &&
+    typeof value.state === 'string' &&
+    typeof value.source === 'string'
   )
 }
 

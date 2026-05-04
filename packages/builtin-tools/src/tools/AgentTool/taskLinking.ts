@@ -11,7 +11,6 @@ export type AgentTaskLookup = (
 
 export type ResolveAgentTaskExecutionContextInput = {
   taskId?: string
-  inheritedContext?: ActiveTaskExecutionContext
   explicitOwnedFiles?: string[]
   getTaskListId: () => string
   getTask: AgentTaskLookup
@@ -40,7 +39,6 @@ export function normalizeAgentOwnedFiles(
 
 export async function resolveAgentTaskExecutionContext({
   taskId,
-  inheritedContext,
   explicitOwnedFiles,
   getTaskListId,
   getTask,
@@ -49,7 +47,7 @@ export async function resolveAgentTaskExecutionContext({
 }: ResolveAgentTaskExecutionContextInput): Promise<ResolveAgentTaskExecutionContextResult> {
   const requestedTaskId = taskId?.trim()
   if (!requestedTaskId) {
-    return { taskExecutionContext: inheritedContext }
+    return {}
   }
 
   const taskListId = getTaskListId()

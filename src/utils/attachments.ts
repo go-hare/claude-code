@@ -255,6 +255,8 @@ import { isInProcessTeammate } from './teammateContext.js'
 import { removeTeammateFromTeamFile } from './swarm/teamHelpers.js'
 import { unassignTeammateTasks } from './tasks.js'
 import { getCompanionIntroAttachment } from '../buddy/prompt.js'
+import { createAttachmentContextAssembly } from './attachmentContextCategories.js'
+import type { KernelContextAssembly } from '../runtime/contracts/context.js'
 
 export const TODO_REMINDER_CONFIG = {
   TURNS_SINCE_WRITE: 10,
@@ -753,6 +755,7 @@ export type TeamContextAttachment = {
 export type AttachmentBatchResult = {
   attachments: Attachment[]
   attachedQueuedCommands: QueuedCommand[]
+  contextCategories: KernelContextAssembly
 }
 
 const TASK_MANAGEMENT_TOOL_NAMES = new Set([
@@ -825,6 +828,10 @@ export async function getAttachmentBatch(
         !options?.skipSkillDiscovery
           ? [
               maybe('skill_discovery', async () => {
+                if (suppressNextDiscovery) {
+                  suppressNextDiscovery = false
+                  return []
+                }
                 const result = await skillSearchModules.prefetch.getTurnZeroSkillDiscovery(
                   input,
                   messages ?? [],
@@ -1018,15 +1025,15 @@ export async function getAttachmentBatch(
 
   clearTimeout(timeoutId)
   // Defensive: a getter leaking [undefined] crashes .map(a => a.type) below.
-  return {
-    attachments: ([
+  return createAttachmentBatchResult(
+    ([
       ...userAttachmentResults.flat(),
       ...queuedCommandBatch.attachments,
       ...threadAttachmentResults.flat(),
       ...mainThreadAttachmentResults.flat(),
     ] as Attachment[]).filter(a => a !== undefined && a !== null),
-    attachedQueuedCommands: queuedCommandBatch.attachedQueuedCommands,
-  }
+    queuedCommandBatch.attachedQueuedCommands,
+  )
 }
 
 export async function getAttachments(
@@ -1120,7 +1127,7 @@ export async function getQueuedCommandAttachmentBatch(
   queuedCommands: QueuedCommand[],
 ): Promise<AttachmentBatchResult> {
   if (!queuedCommands) {
-    return { attachments: [], attachedQueuedCommands: [] }
+    return createAttachmentBatchResult([], [])
   }
   // Include both 'prompt' and 'task-notification' commands as attachments.
   // During proactive agentic loops, task-notification commands would otherwise
@@ -1149,7 +1156,7 @@ export async function getQueuedCommandAttachmentBatch(
     logAntError('Attachment error in queued_commands', result.reason)
   }
 
-  return { attachments, attachedQueuedCommands }
+  return createAttachmentBatchResult(attachments, attachedQueuedCommands)
 }
 
 export async function getQueuedCommandAttachments(
@@ -1174,6 +1181,20 @@ export function getAgentPendingMessageAttachments(
     origin: { kind: 'coordinator' as const } as unknown as MessageOrigin,
     isMeta: true,
   }))
+}
+
+function createAttachmentBatchResult(
+  attachments: Attachment[],
+  attachedQueuedCommands: QueuedCommand[],
+): AttachmentBatchResult {
+  return {
+    attachments,
+    attachedQueuedCommands,
+    contextCategories: createAttachmentContextAssembly(
+      attachments,
+      attachedQueuedCommands,
+    ),
+  }
 }
 
 async function buildImageContentBlocks(
@@ -2697,6 +2718,7 @@ const sentSkillNames = new Map<string, Set<string>>()
 export function resetSentSkillNames(): void {
   sentSkillNames.clear()
   suppressNext = false
+  suppressNextDiscovery = false
 }
 
 /**
@@ -2719,6 +2741,11 @@ export function suppressNextSkillListing(): void {
   suppressNext = true
 }
 let suppressNext = false
+
+export function suppressNextSkillDiscovery(): void {
+  suppressNextDiscovery = true
+}
+let suppressNextDiscovery = false
 
 // When skill-search is enabled and the filtered (bundled + MCP) listing exceeds
 // this count, fall back to bundled-only. Protects MCP-heavy users (100+ servers)

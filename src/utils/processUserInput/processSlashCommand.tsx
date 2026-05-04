@@ -24,6 +24,7 @@ import type {
   ProgressMessage,
   UserMessage,
 } from 'src/types/message.js'
+import type { QueuedCommand } from 'src/types/textInputTypes.js'
 import { COMMAND_MESSAGE_TAG, COMMAND_NAME_TAG } from '../../constants/xml.js'
 import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'
 import {
@@ -62,7 +63,7 @@ import { isFullscreenEnvEnabled } from '../fullscreen.js'
 import { toArray } from '../generators.js'
 import { registerSkillHooks } from '../hooks/registerSkillHooks.js'
 import { logError } from '../log.js'
-import { enqueuePendingNotification } from '../messageQueueManager.js'
+import { enqueue, enqueuePendingNotification } from '../messageQueueManager.js'
 import {
   createCommandInputMessage,
   createSyntheticUserCaveatMessage,
@@ -92,6 +93,10 @@ import { recordSkillUsage } from '../suggestions/skillUsageTracking.js'
 import { logOTelEvent, redactIfDisabled } from '../telemetry/events.js'
 import { buildPluginCommandTelemetryFields } from '../telemetry/pluginTelemetry.js'
 import { getAssistantMessageContentLength } from '../tokens.js'
+import {
+  finalizeAutonomyRunCompleted,
+  finalizeAutonomyRunFailed,
+} from '../autonomyRuns.js'
 import { createAgentId } from '../uuid.js'
 import { getWorkload } from '../workloadContext.js'
 import type {
@@ -125,6 +130,11 @@ async function executeForkedSlashCommand(
   setToolJSX: SetToolJSXFn,
   canUseTool: CanUseToolFn,
 ): Promise<SlashCommandResult> {
+  const autonomy = (
+    context as ProcessUserInputContext & {
+      queuedAutonomy?: QueuedCommand['autonomy']
+    }
+  ).queuedAutonomy
   const agentId = createAgentId()
 
   const pluginMarketplace = command.pluginInfo
@@ -204,6 +214,32 @@ async function executeForkedSlashCommand(
         skipSlashCommands: true,
         workload: spawnTimeWorkload,
       })
+    const finalizeDeferredAutonomyRunCompleted = async (): Promise<void> => {
+      if (!autonomy?.runId) {
+        return
+      }
+      const nextCommands = await finalizeAutonomyRunCompleted({
+        runId: autonomy.runId,
+        rootDir: autonomy.rootDir,
+        priority: 'later',
+        workload: spawnTimeWorkload,
+      })
+      for (const nextCommand of nextCommands) {
+        enqueue(nextCommand)
+      }
+    }
+    const finalizeDeferredAutonomyRunFailed = async (
+      error: unknown,
+    ): Promise<void> => {
+      if (!autonomy?.runId) {
+        return
+      }
+      await finalizeAutonomyRunFailed({
+        runId: autonomy.runId,
+        rootDir: autonomy.rootDir,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
 
     void (async () => {
       // Wait for MCP servers to settle. Scheduled tasks fire at startup and
@@ -243,19 +279,31 @@ async function executeForkedSlashCommand(
       logForDebugging(
         `Background forked command /${commandName} completed (agent ${agentId})`,
       )
+      // Enqueue the worker result before advancing follow-up autonomy steps.
       enqueueResult(
         `<scheduled-task-result command="/${commandName}">\n${resultText}\n</scheduled-task-result>`,
       )
-    })().catch(err => {
+      try {
+        await finalizeDeferredAutonomyRunCompleted()
+      } catch (finalizeError) {
+        logError(finalizeError)
+      }
+    })().catch(async err => {
       logError(err)
       enqueueResult(
         `<scheduled-task-result command="/${commandName}" status="failed">\n${err instanceof Error ? err.message : String(err)}\n</scheduled-task-result>`,
       )
+      await finalizeDeferredAutonomyRunFailed(err)
     })
 
     // Nothing to render, nothing to query — the background runner re-enters
     // the queue on its own schedule.
-    return { messages: [], shouldQuery: false, command }
+    return {
+      messages: [],
+      shouldQuery: false,
+      command,
+      deferAutonomyCompletion: Boolean(autonomy?.runId),
+    }
   }
 
   // Collect messages from the forked agent
@@ -404,7 +452,13 @@ export async function processSlashCommand(
   uuid?: string,
   isAlreadyProcessing?: boolean,
   canUseTool?: CanUseToolFn,
+  queuedAutonomy?: QueuedCommand['autonomy'],
 ): Promise<ProcessUserInputBaseResult> {
+  ;(
+    context as ProcessUserInputContext & {
+      queuedAutonomy?: QueuedCommand['autonomy']
+    }
+  ).queuedAutonomy = queuedAutonomy
   const parsed = parseSlashCommand(inputString)
   if (!parsed) {
     logEvent('tengu_input_slash_missing', {})

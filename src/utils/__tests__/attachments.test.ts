@@ -4,6 +4,7 @@ import {
   getQueuedCommandAttachmentBatch,
   getVerifyPlanReminderAttachment,
 } from '../attachments.js'
+import { createAttachmentContextAssembly } from '../attachmentContextCategories.js'
 import { createTask } from '../tasks.js'
 
 const originalVerifyPlan = process.env.CLAUDE_CODE_VERIFY_PLAN
@@ -47,6 +48,222 @@ describe('getQueuedCommandAttachmentBatch', () => {
     expect(result.attachedQueuedCommands.map(cmd => cmd.uuid)).toEqual([
       '11111111-1111-1111-1111-111111111111',
     ])
+    expect(result.contextCategories.modelVisible).toEqual([
+      expect.objectContaining({
+        type: 'queued_command',
+        category: 'model_visible',
+        source: 'queued_command',
+      }),
+    ])
+    expect(result.contextCategories.hostVisible).toEqual([
+      expect.objectContaining({
+        id: '11111111-1111-1111-1111-111111111111',
+        type: 'queued_command.consumed',
+        category: 'host_visible',
+        source: 'queued_command',
+      }),
+      expect.objectContaining({
+        type: 'queued_command.batch',
+        category: 'host_visible',
+        source: 'queued_command',
+      }),
+    ])
+    expect(result.contextCategories.operatorDebug[0]).toMatchObject({
+      type: 'context_assembly.summary',
+      category: 'operator_debug',
+      metadata: {
+        attachmentCount: 1,
+        attachedQueuedCommandCount: 1,
+      },
+    })
+  })
+})
+
+describe('createAttachmentContextAssembly', () => {
+  test('separates model-visible context from host-visible metadata', () => {
+    const assembly = createAttachmentContextAssembly(
+      [
+        {
+          type: 'relevant_memories',
+          memories: [
+            {
+              path: '/tmp/notes.md',
+              content: 'private model text',
+              mtimeMs: 1,
+            },
+          ],
+        },
+        {
+          type: 'skill_discovery',
+          skills: [{ name: 'debugger', description: 'Inspect failures' }],
+          signal: { kind: 'turn_zero' } as any,
+          source: 'native',
+        },
+        {
+          type: 'task_status',
+          taskId: 'task-1',
+          taskType: 'local_agent',
+          status: 'running',
+          description: 'Review the patch',
+          deltaSummary: null,
+        },
+      ] as any,
+      [],
+    )
+
+    expect(assembly.modelVisible.map(entry => entry.source)).toEqual([
+      'memory',
+      'skill',
+      'task',
+    ])
+    expect(assembly.hostVisible).toEqual([
+      expect.objectContaining({
+        type: 'memory.relevant_memories',
+        source: 'memory',
+        metadata: expect.objectContaining({
+          memoryCount: 1,
+          paths: ['/tmp/notes.md'],
+        }),
+      }),
+      expect.objectContaining({
+        type: 'skill.skill_discovery',
+        source: 'skill',
+        metadata: expect.objectContaining({
+          skillCount: 1,
+          skillNames: ['debugger'],
+        }),
+      }),
+      expect.objectContaining({
+        type: 'task.task_status',
+        source: 'task',
+        metadata: expect.objectContaining({
+          taskId: 'task-1',
+          status: 'running',
+        }),
+      }),
+    ])
+    expect(assembly.operatorDebug[0]).toMatchObject({
+      type: 'context_assembly.summary',
+      metadata: {
+        countsBySource: {
+          memory: 1,
+          skill: 1,
+          task: 1,
+        },
+      },
+    })
+  })
+
+  test('does not mark host/debug-only attachments as model-visible', () => {
+    const assembly = createAttachmentContextAssembly(
+      [
+        {
+          type: 'dynamic_skill',
+          skillDir: '/tmp/skills',
+          skillNames: ['debugger'],
+          displayPath: 'skills/debugger',
+        },
+        {
+          type: 'command_permissions',
+          allowedTools: ['Bash'],
+          model: 'test-model',
+        },
+        {
+          type: 'structured_output',
+          data: { status: 'ok' },
+        },
+        {
+          type: 'hook_success',
+          hookName: 'PostToolUse',
+          hookEvent: 'PostToolUse',
+          toolUseID: 'toolu_1',
+          content: 'visible only in hook UI',
+        },
+        {
+          type: 'hook_additional_context',
+          hookName: 'UserPromptSubmit',
+          hookEvent: 'UserPromptSubmit',
+          toolUseID: 'toolu_2',
+          content: [],
+        },
+        {
+          type: 'bagel_console',
+          errorCount: 1,
+          warningCount: 0,
+          sample: 'debug-only console sample',
+        },
+      ] as any,
+      [],
+    )
+
+    expect(assembly.modelVisible.map(entry => entry.type)).toEqual([])
+    expect(assembly.hostVisible).toEqual([
+      expect.objectContaining({
+        type: 'skill.dynamic_skill',
+        category: 'host_visible',
+        source: 'skill',
+      }),
+      expect.objectContaining({
+        type: 'tool.command_permissions',
+        category: 'host_visible',
+        source: 'tool',
+        metadata: expect.objectContaining({
+          allowedTools: ['Bash'],
+          model: 'test-model',
+        }),
+      }),
+    ])
+    expect(assembly.operatorDebug).toEqual([
+      expect.objectContaining({
+        type: 'context_assembly.summary',
+        category: 'operator_debug',
+      }),
+      expect.objectContaining({
+        type: 'bagel_console',
+        category: 'operator_debug',
+        source: 'operator',
+        metadata: { attachmentType: 'bagel_console' },
+      }),
+    ])
+    expect(assembly.operatorDebug.every(entry => entry.payload === undefined)).toBe(true)
+  })
+
+  test('keeps model-visible operator nudges separate from operator metadata', () => {
+    const assembly = createAttachmentContextAssembly(
+      [
+        {
+          type: 'token_usage',
+          used: 10,
+          total: 100,
+          remaining: 90,
+        },
+        {
+          type: 'diagnostics',
+          files: [{ uri: 'file:///tmp/app.ts', diagnostics: [] }],
+          isNew: true,
+        },
+      ] as any,
+      [],
+    )
+
+    expect(assembly.modelVisible).toEqual([
+      expect.objectContaining({
+        type: 'token_usage',
+        category: 'model_visible',
+        source: 'operator',
+      }),
+      expect.objectContaining({
+        type: 'diagnostics',
+        category: 'model_visible',
+        source: 'operator',
+      }),
+    ])
+    expect(assembly.operatorDebug.map(entry => entry.type)).toEqual([
+      'context_assembly.summary',
+      'token_usage',
+      'diagnostics',
+    ])
+    expect(assembly.operatorDebug.every(entry => entry.payload === undefined)).toBe(true)
   })
 })
 

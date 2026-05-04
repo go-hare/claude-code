@@ -1,4 +1,5 @@
 import type {
+  KernelTurnInputContract,
   KernelTurnSnapshot,
   KernelTurnState,
   KernelTurnId,
@@ -20,6 +21,7 @@ function nowIso(): string {
 export type RuntimeTurnControllerOptions = {
   conversationId: KernelConversationId
   turnId: KernelTurnId
+  input?: KernelTurnInputContract
   initialSnapshot?: KernelTurnSnapshot
   now?: RuntimeTurnClock
 }
@@ -38,9 +40,11 @@ export class RuntimeTurnController {
   private completedAt: string | undefined
   private stopReason: string | null | undefined
   private error: unknown
+  private input: KernelTurnInputContract | undefined
 
   constructor(private readonly options: RuntimeTurnControllerOptions) {
     this.now = options.now ?? nowIso
+    this.input = options.input
     if (options.initialSnapshot) {
       this.hydrate(options.initialSnapshot)
     }
@@ -144,6 +148,7 @@ export class RuntimeTurnController {
       conversationId: this.conversationId,
       turnId: this.id,
       state: this.currentState,
+      input: this.input,
       startedAt: this.startedAt,
       completedAt: this.completedAt,
       stopReason: this.stopReason,
@@ -166,5 +171,6 @@ export class RuntimeTurnController {
     this.completedAt = snapshot.completedAt
     this.stopReason = snapshot.stopReason
     this.error = snapshot.error
+    this.input = snapshot.input
   }
 }

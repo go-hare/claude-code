@@ -2,6 +2,12 @@ import { randomUUID } from 'crypto'
 
 import type { KernelEvent, KernelRuntimeEnvelopeBase } from '../runtime/contracts/events.js'
 import {
+  getKernelRuntimeFailedError,
+  getKernelRuntimeStopReason,
+  getSDKMessageFromKernelRuntimeEnvelope,
+  getTextOutputDeltaFromKernelRuntimeEnvelope,
+} from '../runtime/core/events/KernelRuntimeHostProjection.js'
+import {
   createKernelRuntime,
   type KernelAbortTurnOptions,
   type KernelConversation,
@@ -41,6 +47,9 @@ export type KernelHeadlessRunTurnRequest = {
   turnId?: string
   attachments?: readonly unknown[]
   providerOverride?: RuntimeProviderSelection
+  executionMode?: KernelRunTurnOptions['executionMode']
+  contextAssembly?: KernelRunTurnOptions['contextAssembly']
+  capabilityPlane?: KernelRunTurnOptions['capabilityPlane']
   metadata?: Record<string, unknown>
 }
 
@@ -144,29 +153,32 @@ export function normalizeKernelHeadlessEvent(
 
   switch (input.payload.type) {
     case 'turn.output_delta':
-      return {
-        type: 'turn.output',
-        envelope: input,
-        text: getOutputText(input),
-        payload: input.payload.payload,
+      {
+        const outputDelta = getTextOutputDeltaFromKernelRuntimeEnvelope(input)
+        return {
+          type: 'turn.output',
+          envelope: input,
+          text: outputDelta?.text,
+          payload: input.payload.payload,
+        }
       }
     case 'turn.completed':
       return {
         type: 'turn.completed',
         envelope: input,
-        stopReason: getStopReason(input),
+        stopReason: getKernelRuntimeStopReason(input.payload),
       }
     case 'turn.failed':
       return {
         type: 'turn.failed',
         envelope: input,
-        error: getFailedError(input),
+        error: getKernelRuntimeFailedError(input.payload),
       }
     case 'headless.sdk_message':
       return {
         type: 'sdk.message',
         envelope: input,
-        message: input.payload.payload,
+        message: getSDKMessageFromKernelRuntimeEnvelope(input),
       }
     default:
       return {
@@ -511,6 +523,9 @@ class RuntimeKernelHeadlessController implements KernelHeadlessController {
       turnId: request.turnId,
       attachments: request.attachments,
       providerOverride: request.providerOverride,
+      executionMode: request.executionMode ?? 'headless',
+      contextAssembly: request.contextAssembly,
+      capabilityPlane: request.capabilityPlane,
       metadata: request.metadata,
     }
   }
@@ -533,38 +548,4 @@ function withDefaultHeadlessExecutor(
     ...options,
     headlessExecutor: {},
   }
-}
-
-function getOutputText(
-  envelope: KernelRuntimeEventEnvelope,
-): string | undefined {
-  const payload = envelope.payload.payload
-  if (!payload || typeof payload !== 'object') {
-    return undefined
-  }
-  const text = (payload as { text?: unknown }).text
-  return typeof text === 'string' ? text : undefined
-}
-
-function getStopReason(
-  envelope: KernelRuntimeEventEnvelope,
-): string | null | undefined {
-  const payload = envelope.payload.payload
-  if (!payload || typeof payload !== 'object') {
-    return undefined
-  }
-  const stopReason = (payload as { stopReason?: unknown }).stopReason
-  return typeof stopReason === 'string' || stopReason === null
-    ? stopReason
-    : undefined
-}
-
-function getFailedError(
-  envelope: KernelRuntimeEventEnvelope,
-): unknown {
-  const payload = envelope.payload.payload
-  if (!payload || typeof payload !== 'object') {
-    return undefined
-  }
-  return (payload as { error?: unknown }).error
 }

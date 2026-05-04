@@ -37,13 +37,13 @@ export function registerMcpAddCommand(mcp: Command): void {
       'Add an MCP server to Claude Code.\n\n' +
         'Examples:\n' +
         '  # Add HTTP server:\n' +
-        '  hare mcp add --transport http sentry https://mcp.sentry.dev/mcp\n\n' +
+        '  claude mcp add --transport http sentry https://mcp.sentry.dev/mcp\n\n' +
         '  # Add HTTP server with headers:\n' +
-        '  hare mcp add --transport http corridor https://app.corridor.dev/api/mcp --header "Authorization: Bearer ..."\n\n' +
+        '  claude mcp add --transport http corridor https://app.corridor.dev/api/mcp --header "Authorization: Bearer ..."\n\n' +
         '  # Add stdio server with environment variables:\n' +
-        '  hare mcp add -e API_KEY=xxx my-server -- npx my-mcp-server\n\n' +
+        '  claude mcp add -e API_KEY=xxx my-server -- npx my-mcp-server\n\n' +
         '  # Add stdio server with subprocess flags:\n' +
-        '  hare mcp add my-server -- my-command --some-flag arg1',
+        '  claude mcp add my-server -- my-command --some-flag arg1',
     )
     .option(
       '-s, --scope <scope>',
@@ -87,12 +87,12 @@ export function registerMcpAddCommand(mcp: Command): void {
       if (!name) {
         cliError(
           'Error: Server name is required.\n' +
-            'Usage: hare mcp add <name> <command> [args...]',
+            'Usage: claude mcp add <name> <command> [args...]',
         )
       } else if (!actualCommand) {
         cliError(
           'Error: Command is required when server name is provided.\n' +
-            'Usage: hare mcp add <name> <command> [args...]',
+            'Usage: claude mcp add <name> <command> [args...]',
         )
       }
 
@@ -254,10 +254,10 @@ export function registerMcpAddCommand(mcp: Command): void {
               `\nWarning: The command "${actualCommand}" looks like a URL, but is being interpreted as a stdio server as --transport was not specified.\n`,
             )
             process.stderr.write(
-              `If this is an HTTP server, use: hare mcp add --transport http ${name} ${actualCommand}\n`,
+              `If this is an HTTP server, use: claude mcp add --transport http ${name} ${actualCommand}\n`,
             )
             process.stderr.write(
-              `If this is an SSE server, use: hare mcp add --transport sse ${name} ${actualCommand}\n`,
+              `If this is an SSE server, use: claude mcp add --transport sse ${name} ${actualCommand}\n`,
             )
           }
 

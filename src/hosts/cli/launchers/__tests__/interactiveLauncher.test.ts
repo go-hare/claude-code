@@ -2,11 +2,6 @@ import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import type { InteractiveLaunchOptions } from '../interactiveLauncher.js'
 
 const callOrder: string[] = []
-const bannerMessage = {
-  uuid: 'msg-banner',
-  type: 'system',
-  content: 'banner',
-}
 
 const mockLogEvent = mock((_name: string, _payload: unknown) => {
   callOrder.push('event')
@@ -14,24 +9,10 @@ const mockLogEvent = mock((_name: string, _payload: unknown) => {
 const mockLaunchRepl = mock(async () => {
   callOrder.push('launch')
 })
-const mockCreateSystemMessage = mock((_message: string, _variant: string) => {
-  callOrder.push('system-message')
-  return bannerMessage
-})
-const mockCreateUserMessage = mock((_options: { content: string }) => {
-  callOrder.push('user-message')
-  return {
-    uuid: 'msg-user',
-    type: 'user',
-    content: _options.content,
-  }
-})
 const mockBuildDeepLinkBanner = mock((_options: unknown) => {
   callOrder.push('banner')
   return 'deep-link-banner'
 })
-
-const actualMessages = await import('../../../../utils/messages.js')
 
 mock.module('../launchAnalyticsDeps.js', () => ({
   logEvent: mockLogEvent,
@@ -39,12 +20,6 @@ mock.module('../launchAnalyticsDeps.js', () => ({
 
 mock.module('../../../../replLauncher.js', () => ({
   launchRepl: mockLaunchRepl,
-}))
-
-mock.module('../../../../utils/messages.js', () => ({
-  ...actualMessages,
-  createSystemMessage: mockCreateSystemMessage,
-  createUserMessage: mockCreateUserMessage,
 }))
 
 mock.module('../../../../utils/deepLink/banner.js', () => ({
@@ -108,8 +83,6 @@ describe('runInteractiveLaunch', () => {
     callOrder.length = 0
     mockLogEvent.mockClear()
     mockLaunchRepl.mockClear()
-    mockCreateSystemMessage.mockClear()
-    mockCreateUserMessage.mockClear()
     mockBuildDeepLinkBanner.mockClear()
   })
 
@@ -151,16 +124,18 @@ describe('runInteractiveLaunch', () => {
       'save-mode',
       'event',
       'banner',
-      'system-message',
       'launch',
     ])
-    expect(mockLaunchRepl).toHaveBeenCalledWith(
-      options.root,
-      options.appProps,
-      expect.objectContaining({
-        initialMessages: [bannerMessage, ...options.hookMessages],
-      }),
-      options.renderAndRun,
+    const launchArgs = mockLaunchRepl.mock.calls[0] as unknown as
+      | [unknown, unknown, { initialMessages?: unknown[] }, unknown]
+      | undefined
+    expect(launchArgs?.[2].initialMessages?.[0]).toMatchObject({
+      type: 'system',
+      content: 'deep-link-banner',
+      level: 'warning',
+    })
+    expect(launchArgs?.[2].initialMessages?.slice(1)).toEqual(
+      options.hookMessages,
     )
   })
 })

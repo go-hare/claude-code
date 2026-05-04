@@ -2,11 +2,6 @@ import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import type { DirectConnectLaunchOptions } from '../directConnectLauncher.js'
 
 const callOrder: string[] = []
-const connectInfoMessage = {
-  uuid: 'msg-connect',
-  type: 'system',
-  content: 'connected',
-}
 
 const mockConnectDirectHostSession = mock(async (_connect: unknown, _writer: unknown) => {
   callOrder.push('connect')
@@ -30,18 +25,6 @@ const mockLaunchRepl = mock(
     callOrder.push('launch')
   },
 )
-const mockCreateSystemMessage = mock((_message: string, _variant: string) => {
-  callOrder.push('system-message')
-  return connectInfoMessage
-})
-const mockCreateUserMessage = mock((_options: { content: string }) => {
-  callOrder.push('user-message')
-  return {
-    uuid: 'msg-user',
-    type: 'user',
-    content: _options.content,
-  }
-})
 const mockStatsStore = {
   increment() {},
   set() {},
@@ -52,8 +35,6 @@ const mockStatsStore = {
   },
 } as never
 
-const actualMessages = await import('../../../../utils/messages.js')
-
 mock.module('../directConnectKernelDeps.js', () => ({
   connectDirectHostSession: mockConnectDirectHostSession,
   getDirectConnectErrorMessage: mockGetDirectConnectErrorMessage,
@@ -61,12 +42,6 @@ mock.module('../directConnectKernelDeps.js', () => ({
 
 mock.module('../../../../replLauncher.js', () => ({
   launchRepl: mockLaunchRepl,
-}))
-
-mock.module('../../../../utils/messages.js', () => ({
-  ...actualMessages,
-  createSystemMessage: mockCreateSystemMessage,
-  createUserMessage: mockCreateUserMessage,
 }))
 
 const { runDirectConnectLaunch } = await import('../directConnectLauncher.js')
@@ -115,8 +90,6 @@ describe('runDirectConnectLaunch', () => {
     mockConnectDirectHostSession.mockClear()
     mockGetDirectConnectErrorMessage.mockClear()
     mockLaunchRepl.mockClear()
-    mockCreateSystemMessage.mockClear()
-    mockCreateUserMessage.mockClear()
   })
 
   test('connects, builds the info message, and launches the REPL', async () => {
@@ -124,29 +97,32 @@ describe('runDirectConnectLaunch', () => {
 
     await runDirectConnectLaunch(options)
 
-    expect(callOrder).toEqual(['connect', 'system-message', 'launch'])
+    expect(callOrder).toEqual(['connect', 'launch'])
     expect(mockConnectDirectHostSession).toHaveBeenCalledWith(
       options.connect,
       options.stateWriter,
     )
-    expect(mockCreateSystemMessage).toHaveBeenCalledWith(
-      'Connected to server at http://127.0.0.1:9000\nSession: session_123',
-      'info',
-    )
     expect(mockLaunchRepl).toHaveBeenCalledWith(
       options.root,
       options.appProps,
-      {
+      expect.objectContaining({
         ...options.replProps,
         initialTools: [],
-        initialMessages: [connectInfoMessage],
+        initialMessages: [
+          expect.objectContaining({
+            type: 'system',
+            content:
+              'Connected to server at http://127.0.0.1:9000\nSession: session_123',
+            level: 'info',
+          }),
+        ],
         mcpClients: [],
         directConnectConfig: {
           sessionId: 'session_123',
           serverUrl: 'http://127.0.0.1:9000',
           wsUrl: 'ws://127.0.0.1:9000/sessions/session_123/ws',
         },
-      },
+      }),
       options.renderAndRun,
     )
     expect(options.onConnectionError).toHaveBeenCalledTimes(0)
@@ -167,7 +143,6 @@ describe('runDirectConnectLaunch', () => {
     expect(options.onConnectionError).toHaveBeenCalledWith(
       'formatted:Error: boom',
     )
-    expect(mockCreateSystemMessage).toHaveBeenCalledTimes(0)
     expect(mockLaunchRepl).toHaveBeenCalledTimes(0)
   })
 })

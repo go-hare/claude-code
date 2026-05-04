@@ -34,6 +34,7 @@ import {
   type ToolProgress,
   type ToolProgressData,
   type ToolUseContext,
+  toolMatchesName,
 } from '../../Tool.js'
 import type { BashToolInput } from '@go-hare/builtin-tools/tools/BashTool/BashTool.js'
 import { startSpeculativeClassifierCheck } from '@go-hare/builtin-tools/tools/BashTool/bashPermissions.js'
@@ -130,6 +131,11 @@ import {
   runPostToolUseHooks,
   runPreToolUseHooks,
 } from './toolHooks.js'
+import {
+  getKernelCapabilityDenial,
+  toolCapabilityName,
+} from '../../runtime/capabilities/CapabilityPlane.js'
+import { checkRuntimeToolCapabilityPreflight } from '../../runtime/capabilities/tools/ToolCapabilityPlane.js'
 
 /** Minimum total hook duration (ms) to show inline timing summary */
 export const HOOK_TIMING_DISPLAY_THRESHOLD_MS = 500
@@ -335,6 +341,28 @@ function getMcpServerBaseUrlFromToolName(
   return getLoggingSafeMcpBaseUrl(serverConnection.config)
 }
 
+function getRuntimeToolCapabilityPreflightPool(
+  availableTools: readonly Tool[],
+  tool: Tool,
+  requestedToolName: string,
+): readonly Tool[] {
+  const isInAvailablePool = availableTools.some(
+    candidate =>
+      candidate === tool ||
+      toolMatchesName(candidate, requestedToolName) ||
+      toolMatchesName(candidate, tool.name),
+  )
+  return isInAvailablePool ? availableTools : [tool]
+}
+
+function formatCapabilityDenialMessage(
+  toolName: string,
+  actor: string,
+  reason: string,
+): string {
+  return `CapabilityDenied: Tool ${toolName} is not permitted by the runtime capability plane (${actor}: ${reason}).`
+}
+
 export async function* runToolUse(
   toolUse: ToolUseBlock,
   assistantMessage: AssistantMessage,
@@ -447,6 +475,77 @@ export async function* runToolUse(
         message: createUserMessage({
           content: [content],
           toolUseResult: CANCEL_MESSAGE,
+          sourceToolAssistantUUID: assistantMessage.uuid,
+        }),
+      }
+      return
+    }
+
+    const toolPolicyCapabilityDenial = checkRuntimeToolCapabilityPreflight(
+      getRuntimeToolCapabilityPreflightPool(
+        toolUseContext.options.tools,
+        tool,
+        toolName,
+      ),
+      toolUseContext.getAppState().toolPermissionContext,
+      tool,
+    ).denial
+    const runtimeCapabilityDenial = toolUseContext.capabilityPlane
+      ? getKernelCapabilityDenial(
+          toolUseContext.capabilityPlane,
+          toolCapabilityName(tool.name),
+        )
+      : undefined
+    const capabilityDenial =
+      toolPolicyCapabilityDenial ?? runtimeCapabilityDenial
+    if (capabilityDenial) {
+      const denialMessage = formatCapabilityDenialMessage(
+        tool.name,
+        capabilityDenial.actor,
+        capabilityDenial.reason,
+      )
+      logForDebugging(denialMessage)
+      logEvent('tengu_tool_use_capability_denied', {
+        messageID:
+          messageId as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+        toolName: sanitizeToolNameForAnalytics(tool.name),
+        denialActor:
+          capabilityDenial.actor as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+        denialReason:
+          capabilityDenial.reason as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+        isMcp: tool.isMcp ?? false,
+        queryChainId: toolUseContext.queryTracking
+          ?.chainId as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+        queryDepth: toolUseContext.queryTracking?.depth,
+        ...(mcpServerType && {
+          mcpServerType:
+            mcpServerType as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+        }),
+        ...(mcpServerBaseUrl && {
+          mcpServerBaseUrl:
+            mcpServerBaseUrl as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+        }),
+        ...(requestId && {
+          requestId:
+            requestId as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+        }),
+        ...mcpToolDetailsForAnalytics(
+          tool.name,
+          mcpServerType,
+          mcpServerBaseUrl,
+        ),
+      })
+      yield {
+        message: createUserMessage({
+          content: [
+            {
+              type: 'tool_result',
+              content: `<tool_use_error>${denialMessage}</tool_use_error>`,
+              is_error: true,
+              tool_use_id: toolUse.id,
+            },
+          ],
+          toolUseResult: `Error: ${denialMessage}`,
           sourceToolAssistantUUID: assistantMessage.uuid,
         }),
       }

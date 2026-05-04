@@ -7,6 +7,8 @@ import type { CanUseToolFn } from './hooks/useCanUseTool.js'
 import { FallbackTriggeredError } from './services/api/withRetry.js'
 import {
   calculateTokenWarningState,
+  estimateMaxTurnGrowth,
+  getEffectiveContextWindowSize,
   isAutoCompactEnabled,
   type AutoCompactTrackingState,
 } from './services/compact/autoCompact.js'
@@ -57,11 +59,13 @@ import {
 import { generateToolUseSummary } from './services/toolUseSummary/toolUseSummaryGenerator.js'
 import { prependUserContext, appendSystemContext } from './utils/api.js'
 import {
+  type Attachment,
   createAttachmentMessage,
   filterDuplicateMemoryAttachments,
   getAttachmentBatch,
   startRelevantMemoryPrefetch,
 } from './utils/attachments.js'
+import { createAttachmentContextAssembly } from './utils/attachmentContextCategories.js'
 /* eslint-disable @typescript-eslint/no-require-imports */
 const skillPrefetch = feature('EXPERIMENTAL_SKILL_SEARCH')
   ? (require('./services/skillSearch/prefetch.js') as typeof import('./services/skillSearch/prefetch.js'))
@@ -71,10 +75,16 @@ const jobClassifier = feature('TEMPLATES')
   : null
 /* eslint-enable @typescript-eslint/no-require-imports */
 import {
+  enqueue,
   remove as removeFromQueue,
   getCommandsByMaxPriority,
   isSlashCommand,
 } from './utils/messageQueueManager.js'
+import {
+  type AutonomyTurnOutcome,
+  claimConsumableQueuedAutonomyCommands,
+  finalizeAutonomyCommandsForTurn,
+} from './utils/autonomyQueueLifecycle.js'
 import { notifyCommandLifecycle } from './utils/commandLifecycle.js'
 import { headlessProfilerCheckpoint } from './utils/headlessProfiler.js'
 import {
@@ -92,6 +102,11 @@ import { SLEEP_TOOL_NAME } from '@go-hare/builtin-tools/tools/SleepTool/prompt.j
 import { executePostSamplingHooks } from './utils/hooks/postSamplingHooks.js'
 import { executeStopFailureHooks } from './utils/hooks.js'
 import type { QuerySource } from './constants/querySource.js'
+import type {
+  KernelContextAssembly,
+  KernelContextAssemblyMetadata,
+  KernelContextAssemblyPhase,
+} from './runtime/contracts/context.js'
 import { createDumpPromptsFetch } from './services/api/dumpPrompts.js'
 import { StreamingToolExecutor } from './services/tools/StreamingToolExecutor.js'
 import { queryCheckpoint } from './utils/queryProfiler.js'
@@ -110,6 +125,7 @@ import {
 import { feature } from 'bun:bundle'
 import { createBudgetTracker, checkTokenBudget } from './query/tokenBudget.js'
 import { count } from './utils/array.js'
+import type { QueuedCommand } from './types/textInputTypes.js'
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const snipModule = feature('HISTORY_SNIP')
@@ -181,6 +197,32 @@ function isWithheldMaxOutputTokens(
   return msg?.type === 'assistant' && msg.apiError === 'max_output_tokens'
 }
 
+function getAutonomyTurnOutcome(params: {
+  terminal?: Terminal
+  thrownError?: unknown
+}): AutonomyTurnOutcome {
+  if (params.thrownError !== undefined) {
+    return { type: 'failed', error: params.thrownError }
+  }
+
+  const reason = params.terminal?.reason
+  switch (reason) {
+    case 'completed':
+      return { type: 'completed' }
+    case undefined:
+    case 'aborted_streaming':
+    case 'aborted_tools':
+      return { type: 'cancelled' }
+    case 'model_error':
+      return { type: 'failed', error: params.terminal?.error }
+    default:
+      return {
+        type: 'failed',
+        message: `query ended without successful completion: ${reason}`,
+      }
+  }
+}
+
 export type QueryParams = {
   messages: Message[]
   systemPrompt: SystemPrompt
@@ -198,10 +240,37 @@ export type QueryParams = {
   // budget for the whole agentic turn; `remaining` is computed per iteration
   // from cumulative API usage. See configureTaskBudgetParams in claude.ts.
   taskBudget?: { total: number }
+  onContextAssemblyPrepared?: (
+    contextAssembly: KernelContextAssembly,
+    metadata: KernelContextAssemblyMetadata,
+  ) => void
   deps?: QueryDeps
 }
 
 // -- query loop state
+
+function emitContextAssemblyPrepared(
+  callback: QueryParams['onContextAssemblyPrepared'],
+  contextAssembly: KernelContextAssembly,
+  metadata: KernelContextAssemblyMetadata,
+): void {
+  callback?.(contextAssembly, metadata)
+}
+
+function emitAttachmentContextAssembly(
+  callback: QueryParams['onContextAssemblyPrepared'],
+  attachments: readonly Attachment[],
+  phase: KernelContextAssemblyPhase,
+): void {
+  if (attachments.length === 0) {
+    return
+  }
+  emitContextAssemblyPrepared(
+    callback,
+    createAttachmentContextAssembly(attachments, []),
+    { phase },
+  )
+}
 
 // Mutable state carried between loop iterations
 type State = {
@@ -229,18 +298,52 @@ export async function* query(
   | ToolUseSummaryMessage,
   Terminal
 > {
+  const consumedAutonomyCommands: QueuedCommand[] = []
   const turnEngine = createTurnEngine({
     getSessionId: () =>
       runtimeSessionIdentityState.getSessionIdentity().sessionId,
-    runLoop: queryLoop,
+    runLoop: (turnParams, consumedCommandUuids) =>
+      queryLoop(
+        turnParams,
+        consumedCommandUuids,
+        consumedAutonomyCommands,
+      ),
     onCommandCompleted: uuid => notifyCommandLifecycle(uuid, 'completed'),
   })
-  return yield* turnEngine.execute(params)
+
+  let terminal: Terminal | undefined
+  let didThrow = false
+  let thrownError: unknown
+  try {
+    terminal = yield* turnEngine.execute(params)
+  } catch (error) {
+    didThrow = true
+    thrownError = error
+    throw error
+  } finally {
+    await finalizeAutonomyCommandsForTurn({
+      commands: consumedAutonomyCommands,
+      outcome: getAutonomyTurnOutcome({
+        terminal,
+        ...(didThrow ? { thrownError } : {}),
+      }),
+      priority: 'later',
+    })
+      .then(nextCommands => {
+        for (const command of nextCommands) {
+          enqueue(command)
+        }
+      })
+      .catch(logError)
+  }
+
+  return terminal!
 }
 
 async function* queryLoop(
   params: QueryParams,
   consumedCommandUuids: string[],
+  consumedAutonomyCommands: QueuedCommand[],
 ): AsyncGenerator<
   | StreamEvent
   | RequestStartEvent
@@ -647,6 +750,49 @@ async function* queryLoop(
           error: 'invalid_request',
         })
         return { reason: 'blocking_limit' }
+      }
+    }
+
+    // Predictive autocompact: estimate if this turn's growth will push
+    // us past the context window. Uses effectiveContextWindow directly
+    // (without the autocompact buffer) to avoid double-reserving with
+    // getAutoCompactThreshold which already subtracts buffer.
+    if (!compactionResult && isAutoCompactEnabled()) {
+      const model = toolUseContext.options.mainLoopModel
+      const currentTokens =
+        tokenCountWithEstimation(messagesForQuery) - snipTokensFreed
+      const estimatedGrowth = estimateMaxTurnGrowth(model)
+      const predictiveThreshold =
+        getEffectiveContextWindowSize(model) - estimatedGrowth
+      if (currentTokens > predictiveThreshold) {
+        const predictiveResult = await deps.autocompact(
+          messagesForQuery,
+          toolUseContext,
+          {
+            systemPrompt,
+            userContext,
+            systemContext,
+            toolUseContext,
+            forkContextMessages: messagesForQuery,
+          },
+          querySource,
+          tracking,
+          snipTokensFreed,
+        )
+        if (predictiveResult.compactionResult) {
+          messagesForQuery = buildPostCompactMessages(
+            predictiveResult.compactionResult,
+          )
+          snipTokensFreed = 0
+          tracking = tracking
+            ? {
+                ...tracking,
+                compacted: true,
+                consecutiveFailures:
+                  predictiveResult.consecutiveFailures ?? 0,
+              }
+            : tracking
+        }
       }
     }
 
@@ -1268,7 +1414,10 @@ async function* queryLoop(
       // error → hook blocking → retry → error → …
       if (lastMessage?.isApiErrorMessage) {
         void executeStopFailureHooks(lastMessage, toolUseContext)
-        return { reason: 'api_error' }
+        return {
+          reason: 'model_error',
+          error: lastMessage.error ?? lastMessage.apiError ?? 'api_error',
+        }
       }
 
       const stopHookResult = yield* handleStopHooks(
@@ -1587,13 +1736,40 @@ async function* queryLoop(
       return cmd.mode === 'task-notification' && cmd.agentId === currentAgentId
     })
 
-    const { attachments, attachedQueuedCommands } = await getAttachmentBatch(
-      null,
-      updatedToolUseContext,
-      null,
+    const queuedAutonomyClaim = await claimConsumableQueuedAutonomyCommands(
       queuedCommandsSnapshot,
-      [...messagesForQuery, ...assistantMessages, ...toolResults],
-      querySource,
+    )
+    if (queuedAutonomyClaim.staleCommands.length > 0) {
+      removeFromQueue(queuedAutonomyClaim.staleCommands)
+    }
+
+    const claimedConsumedCommands = queuedAutonomyClaim.claimedCommands.filter(
+      cmd => cmd.mode === 'prompt' || cmd.mode === 'task-notification',
+    )
+    if (claimedConsumedCommands.length > 0) {
+      consumedAutonomyCommands.push(...claimedConsumedCommands)
+      for (const cmd of claimedConsumedCommands) {
+        if (cmd.uuid) {
+          consumedCommandUuids.push(cmd.uuid)
+          notifyCommandLifecycle(cmd.uuid, 'started')
+        }
+      }
+      removeFromQueue(claimedConsumedCommands)
+    }
+
+    const { attachments, attachedQueuedCommands, contextCategories } =
+      await getAttachmentBatch(
+        null,
+        updatedToolUseContext,
+        null,
+        queuedAutonomyClaim.attachmentCommands,
+        [...messagesForQuery, ...assistantMessages, ...toolResults],
+        querySource,
+      )
+    emitContextAssemblyPrepared(
+      params.onContextAssemblyPrepared,
+      contextCategories,
+      { phase: 'attachment_batch' },
     )
 
     for (const attachment of attachments) {
@@ -1618,6 +1794,11 @@ async function* queryLoop(
         await pendingMemoryPrefetch.promise,
         postToolContext.readFileState,
       )
+      emitAttachmentContextAssembly(
+        params.onContextAssemblyPrepared,
+        memoryAttachments,
+        'memory_prefetch',
+      )
       for (const memAttachment of memoryAttachments) {
         const msg = createAttachmentMessage(memAttachment)
         yield msg
@@ -1633,6 +1814,11 @@ async function* queryLoop(
     if (skillPrefetch && pendingSkillPrefetch) {
       const skillAttachments =
         await skillPrefetch.collectSkillDiscoveryPrefetch(pendingSkillPrefetch)
+      emitAttachmentContextAssembly(
+        params.onContextAssemblyPrepared,
+        skillAttachments,
+        'skill_prefetch',
+      )
       for (const att of skillAttachments) {
         const msg = createAttachmentMessage(att)
         yield msg
@@ -1643,7 +1829,12 @@ async function* queryLoop(
     // Remove only commands that were actually emitted as queued_command
     // attachments. Attachment generation can partially fail (e.g. one bad
     // pasted image), and the failed items must stay queued for retry/debugging.
-    const consumedCommands = attachedQueuedCommands
+    const claimedCommandSet = new Set(claimedConsumedCommands)
+    const consumedCommands = attachedQueuedCommands.filter(
+      cmd =>
+        (cmd.mode === 'prompt' || cmd.mode === 'task-notification') &&
+        !claimedCommandSet.has(cmd),
+    )
     if (consumedCommands.length > 0) {
       for (const cmd of consumedCommands) {
         if (cmd.uuid) {

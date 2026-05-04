@@ -139,7 +139,7 @@ export const cliCommandGraph = [
   command(
     'ssh',
     ['ssh'],
-    'Run Claude Code on a remote host over SSH. Deploys the binary and tunnels API auth back through your local machine - no remote setup needed.',
+    'Run Claude Code on a remote host over SSH. Deploys the binary and tunnels API auth back through your local machine — no remote setup needed.',
     {
       ownership: 'runtime-capability',
       reuse: 'reuse-with-isolation',
@@ -149,7 +149,7 @@ export const cliCommandGraph = [
   command(
     'open',
     ['open'],
-    'Connect to a Claude Code server (internal - use cc:// URLs)',
+    'Connect to a Claude Code server (internal — use cc:// URLs)',
     {
       ownership: 'runtime-capability',
       reuse: 'reuse-with-isolation',
@@ -522,7 +522,7 @@ export const cliCommandGraph = [
   command(
     'update',
     ['update'],
-    'Update hare to the latest version',
+    'Update claude-code-best (ccb) to the latest version',
     {
       ownership: 'product-operation',
       reuse: 'reuse-as-is',

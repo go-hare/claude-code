@@ -74,3 +74,44 @@ export interface RuntimeTeamDestroyResult {
   message: string
   blockedMembers?: readonly string[]
 }
+
+export type RuntimeCoordinatorLifecyclePhase =
+  | 'handoff'
+  | 'team_idle'
+  | 'team_shutdown'
+  | 'team_cleanup'
+
+export type RuntimeCoordinatorLifecycleState =
+  | 'started'
+  | 'completed'
+  | 'failed'
+  | 'requested'
+  | 'approved'
+  | 'waiting'
+  | 'reached'
+
+export interface RuntimeCoordinatorLifecyclePayload {
+  phase: RuntimeCoordinatorLifecyclePhase
+  state: RuntimeCoordinatorLifecycleState
+  source:
+    | 'sdk_task_started'
+    | 'sdk_task_notification'
+    | 'queued_task_notification'
+    | 'headless_team_shutdown'
+    | 'headless_team_idle'
+    | 'headless_team_cleanup'
+  teamName?: string
+  teammateId?: string
+  teammateName?: string
+  taskId?: string
+  taskType?: string
+  toolUseId?: string
+  status?: string
+  reason?: string
+  description?: string
+  summary?: string
+  pendingTaskCount?: number
+  activeTeammateCount?: number
+  messageCount?: number
+  error?: string
+}

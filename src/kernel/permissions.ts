@@ -28,6 +28,7 @@ export type KernelPermissionBrokerSnapshot = {
   pendingRequestIds: KernelPermissionRequestId[]
   finalizedRequestIds: KernelPermissionRequestId[]
   sessionGrantCount: number
+  capabilityPlaneCount: number
   disposed: boolean
 }
 

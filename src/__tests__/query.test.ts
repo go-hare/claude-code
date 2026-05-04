@@ -166,7 +166,7 @@ describe('query post-tool context', () => {
     expect(callCount).toBe(1)
   })
 
-  test('returns api_error terminal reason for final API errors', async () => {
+  test('returns model_error terminal reason for final API errors', async () => {
     const stream = query({
       messages: [createUserMessage({ content: 'run query' })],
       systemPrompt: asSystemPrompt(['system']),
@@ -190,7 +190,8 @@ describe('query post-tool context', () => {
     })
 
     await expect(collectQueryTerminal(stream as any)).resolves.toMatchObject({
-      reason: 'api_error',
+      reason: 'model_error',
+      error: 'api_error',
     })
   })
 })

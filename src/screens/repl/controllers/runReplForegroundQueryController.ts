@@ -12,6 +12,7 @@ import type {
   Message as MessageType,
   UserMessage,
 } from '../../../types/message.js'
+import type { QueuedCommand } from '../../../types/textInputTypes.js'
 import type { EffortValue } from '../../../utils/effort.js'
 import { isLoggableMessage } from '../../../utils/sessionStorage.js'
 import { finalizeReplCompletedTurnHostShell } from '../../replTurnShell.js'
@@ -35,6 +36,7 @@ export type RunReplForegroundQueryControllerOptions = {
     mainLoopModelParam: string
     input?: string
     effort?: EffortValue
+    queuedCommand?: QueuedCommand
   }
   runtime: {
     runTurn(
@@ -105,17 +107,19 @@ export type RunReplForegroundQueryControllerOptions = {
     removeLastFromHistory(): void
     restoreMessage(message: UserMessage): void
     enqueuePrompt(value: string): void
+    enqueueQueuedCommand?(command: QueuedCommand): void
   }
 }
 
 export async function runReplForegroundQueryController(
   options: RunReplForegroundQueryControllerOptions,
-): Promise<void> {
+): Promise<boolean> {
   const { turn, runtime, host } = options
-
-  const thisGeneration = runtime.queryGuard.tryStart()
-  if (thisGeneration === null) {
-    logEvent('tengu_concurrent_onquery_detected', {})
+  const requeueTurnCommand = (): void => {
+    if (turn.queuedCommand && host.enqueueQueuedCommand) {
+      host.enqueueQueuedCommand(turn.queuedCommand)
+      return
+    }
 
     turn.newMessages
       .filter((message): message is UserMessage =>
@@ -125,15 +129,20 @@ export async function runReplForegroundQueryController(
         getContentText(message.message.content as string | Parameters<typeof getContentText>[0]),
       )
       .filter((message): message is string => message !== null)
-      .forEach((message, index) => {
+      .forEach(message => {
         host.enqueuePrompt(message)
-        if (index === 0) {
-          logEvent('tengu_concurrent_onquery_enqueued', {})
-        }
       })
-    return
   }
 
+  const thisGeneration = runtime.queryGuard.tryStart()
+  if (thisGeneration === null) {
+    logEvent('tengu_concurrent_onquery_detected', {})
+    requeueTurnCommand()
+    logEvent('tengu_concurrent_onquery_enqueued', {})
+    return false
+  }
+
+  let executed = false
   try {
     host.pipeReturnHadErrorRef.current = false
     host.resetTimingRefs()
@@ -167,7 +176,8 @@ export async function runReplForegroundQueryController(
         latestMessages,
       )
       if (!shouldProceed) {
-        return
+        requeueTurnCommand()
+        return false
       }
     }
 
@@ -181,6 +191,7 @@ export async function runReplForegroundQueryController(
         turn.mainLoopModelParam,
         turn.effort,
       )
+      executed = true
     } catch (error) {
       if (feature('UDS_INBOX')) {
         host.pipeReturnHadErrorRef.current = true
@@ -270,4 +281,6 @@ export async function runReplForegroundQueryController(
       restoreMessage: host.restoreMessage,
     })
   }
+
+  return executed
 }

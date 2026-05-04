@@ -60,10 +60,10 @@ import { isEnvTruthy } from '../utils/envUtils.js';
 import { formatTokens, truncateToWidth } from '../utils/format.js';
 import { consumeEarlyInput } from '../utils/earlyInput.js';
 import {
-  finalizeAutonomyRunCompleted,
-  finalizeAutonomyRunFailed,
-  markAutonomyRunRunning,
-} from '../utils/autonomyRuns.js';
+  partitionConsumableQueuedAutonomyCommands,
+  claimConsumableQueuedAutonomyCommands,
+  finalizeAutonomyCommandsForTurn,
+} from '../utils/autonomyQueueLifecycle.js';
 
 import { setMemberActive } from '../utils/swarm/teamHelpers.js';
 import {
@@ -1024,7 +1024,7 @@ export function REPL({
     enabled: !isRemoteSession,
   });
 
-  const { tools, allowedAgentTypes } = useMemo(
+  const { tools, allowedAgentTypes, capabilityPlane } = useMemo(
     () =>
       resolveReplToolState({
         initialTools,
@@ -2848,21 +2848,22 @@ export function REPL({
       // async as servers connect — the store may have newer MCP state than
       // the closure captured at render time. Also doubles as refreshTools()
       // for mid-query tool list updates.
-      const computeTools = () => {
+      const computeToolState = () => {
         const state = store.getState();
         return resolveReplToolState({
           initialTools,
           mcpTools: state.mcp.tools,
           toolPermissionContext: state.toolPermissionContext,
           mainThreadAgentDefinition,
-        }).tools;
+        });
       };
+      const currentToolState = computeToolState();
 
       return {
         abortController,
         options: {
           commands,
-          tools: computeTools(),
+          tools: currentToolState.tools,
           debug,
           verbose: s.verbose,
           mainLoopModel,
@@ -2878,7 +2879,7 @@ export function REPL({
           agentDefinitions: allowedAgentTypes ? { ...s.agentDefinitions, allowedAgentTypes } : s.agentDefinitions,
           customSystemPrompt,
           appendSystemPrompt,
-          refreshTools: computeTools,
+          refreshTools: () => computeToolState().tools,
         },
         getAppState: () => store.getState(),
         setAppState,
@@ -2912,6 +2913,7 @@ export function REPL({
         addNotification,
         appendSystemMessage: msg => setMessages(prev => [...prev, msg]),
         runtimePermission: replPermissionRuntime,
+        capabilityPlane: currentToolState.capabilityPlane,
         sendOSNotification: opts => {
           void sendNotification(opts, terminal);
         },
@@ -2975,6 +2977,7 @@ export function REPL({
       commands,
       initialTools,
       tools,
+      capabilityPlane,
       mainThreadAgentDefinition,
       debug,
       initialMcpClients,
@@ -3321,7 +3324,8 @@ export function REPL({
       onBeforeQueryCallback?: (input: string, newMessages: MessageType[]) => Promise<boolean>,
       input?: string,
       effort?: EffortValue,
-    ): Promise<void> => {
+      queuedCommand?: QueuedCommand,
+    ): Promise<boolean> => {
       if (isAgentSwarmsEnabled()) {
         const teamName = getTeamName();
         const agentName = getAgentName();
@@ -3330,7 +3334,7 @@ export function REPL({
         }
       }
 
-      await runReplForegroundQueryController({
+      return await runReplForegroundQueryController({
         turn: {
           newMessages,
           abortController,
@@ -3339,6 +3343,7 @@ export function REPL({
           mainLoopModelParam,
           input,
           effort,
+          queuedCommand,
         },
         runtime: {
           runTurn: onQueryImpl,
@@ -3411,6 +3416,9 @@ export function REPL({
           },
           enqueuePrompt: value => {
             enqueue({ value, mode: 'prompt' });
+          },
+          enqueueQueuedCommand: command => {
+            enqueue(command);
           },
         },
       });
@@ -4519,44 +4527,79 @@ export function REPL({
             } satisfies QueuedCommand)
           : input;
 
-      const newAbortController = createAbortController();
-      setAbortController(newAbortController);
+      void (async () => {
+        const partition = await partitionConsumableQueuedAutonomyCommands([queuedCommand]);
+        const command = partition.attachmentCommands[0];
+        if (!command) return;
 
-      // Create a user message with the formatted content (includes XML wrapper)
-      const userMessage = createUserMessage({
-        content: queuedCommand.value as string,
-        isMeta: queuedCommand.isMeta ? true : undefined,
-        origin: queuedCommand.origin,
-      });
+        const newAbortController = createAbortController();
+        setAbortController(newAbortController);
 
-      const autonomyRunId = queuedCommand.autonomy?.runId;
-      if (autonomyRunId) {
-        void markAutonomyRunRunning(autonomyRunId);
-      }
+        const userMessage = createUserMessage({
+          content: command.value,
+          isMeta: command.isMeta ? true : undefined,
+          origin: command.origin,
+        });
 
-      void onQuery([userMessage], newAbortController, true, [], mainLoopModel)
-        .then(() => {
-          if (autonomyRunId) {
-            void finalizeAutonomyRunCompleted({
-              runId: autonomyRunId,
+        let claimedCommands: QueuedCommand[] | null = null;
+        const getClaimedCommands = async (): Promise<QueuedCommand[]> => {
+          if (claimedCommands) {
+            return claimedCommands;
+          }
+          claimedCommands = (
+            await claimConsumableQueuedAutonomyCommands([command])
+          ).claimedCommands;
+          return claimedCommands;
+        };
+
+        let executed = false;
+        try {
+          executed =
+            (await onQuery(
+              [userMessage],
+              newAbortController,
+              true,
+              [],
+              mainLoopModel,
+              undefined,
+              undefined,
+              undefined,
+              command,
+            )) !== false;
+        } catch (error: unknown) {
+          try {
+            await finalizeAutonomyCommandsForTurn({
+              commands: await getClaimedCommands(),
+              outcome: { type: 'failed', error },
               currentDir: getCwd(),
               priority: 'later',
-            }).then(nextCommands => {
-              for (const command of nextCommands) {
-                enqueue(command);
-              }
             });
-          }
-        })
-        .catch((error: unknown) => {
-          if (autonomyRunId) {
-            void finalizeAutonomyRunFailed({
-              runId: autonomyRunId,
-              error: String(error),
-            });
+          } catch (finalizeError: unknown) {
+            logError(toError(finalizeError));
           }
           logError(toError(error));
-        });
+          return;
+        }
+
+        if (!executed) {
+          return;
+        }
+        try {
+          const nextCommands = await finalizeAutonomyCommandsForTurn({
+            commands: await getClaimedCommands(),
+            outcome: { type: 'completed' },
+            currentDir: getCwd(),
+            priority: 'later',
+          });
+          for (const nextCommand of nextCommands) {
+            enqueue(nextCommand);
+          }
+        } catch (finalizeError: unknown) {
+          logError(toError(finalizeError));
+        }
+      })().catch((error: unknown) => {
+        logError(toError(error));
+      });
       return true;
     },
     [onQuery, mainLoopModel, store],

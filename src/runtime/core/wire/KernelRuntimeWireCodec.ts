@@ -628,6 +628,27 @@ function parseRunTurnCommand(
     'providerOverride',
     optionalProviderSelection(record, 'providerOverride'),
   )
+  assignOptional(
+    command,
+    'executionMode',
+    optionalString(record, 'executionMode') as
+      | KernelRuntimeRunTurnCommand['executionMode']
+      | undefined,
+  )
+  assignOptional(
+    command,
+    'contextAssembly',
+    optionalRecord(record, 'contextAssembly') as
+      | KernelRuntimeRunTurnCommand['contextAssembly']
+      | undefined,
+  )
+  assignOptional(
+    command,
+    'capabilityPlane',
+    optionalRecord(record, 'capabilityPlane') as
+      | KernelRuntimeRunTurnCommand['capabilityPlane']
+      | undefined,
+  )
   return withMetadata(command, metadata)
 }
 

@@ -82,6 +82,57 @@ describe('RuntimeConversation', () => {
     ).toBe('running')
   })
 
+  test('stores canonical turn input contract on turn snapshots', () => {
+    const conversation = createConversation()
+
+    const turn = conversation.startTurn({
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      prompt: 'hello',
+      executionMode: 'headless',
+      contextAssembly: {
+        modelVisible: [
+          {
+            type: 'turn.prompt',
+            category: 'model_visible',
+            source: 'user_input',
+          },
+        ],
+        hostVisible: [],
+        operatorDebug: [],
+      },
+      capabilityPlane: {
+        runtimeSupports: ['tool:Read'],
+        hostGrants: ['tool:Read'],
+        modePermits: ['tool:Read'],
+        toolRequires: ['tool:Read'],
+      },
+      metadata: { source: 'test' },
+    })
+
+    expect(turn.snapshot().input).toEqual({
+      executionMode: 'headless',
+      contextAssembly: {
+        modelVisible: [
+          {
+            type: 'turn.prompt',
+            category: 'model_visible',
+            source: 'user_input',
+          },
+        ],
+        hostVisible: [],
+        operatorDebug: [],
+      },
+      capabilityPlane: {
+        runtimeSupports: ['tool:Read'],
+        hostGrants: ['tool:Read'],
+        modePermits: ['tool:Read'],
+        toolRequires: ['tool:Read'],
+      },
+      metadata: { source: 'test' },
+    })
+  })
+
   test('keeps abort-before-start and abort-after-complete stable', () => {
     const conversation = createConversation()
 

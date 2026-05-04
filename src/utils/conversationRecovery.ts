@@ -18,7 +18,9 @@ import type {
   NormalizedUserMessage,
 } from '../types/message.js'
 import { PERMISSION_MODES } from '../types/permissions.js'
-import { suppressNextSkillListing } from './attachments.js'
+import {
+  suppressNextSkillListing,
+} from './attachments.js'
 import {
   copyFileHistoryForResume,
   type FileHistorySnapshot,

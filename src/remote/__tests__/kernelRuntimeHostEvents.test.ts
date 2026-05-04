@@ -6,9 +6,16 @@ import type {
   KernelRuntimeEnvelopeBase,
 } from '../../runtime/contracts/events.js'
 import {
+  getCanonicalProjectionFromKernelEvent,
+  getCompatibilityProjectionFromKernelEvent,
+  getKernelRuntimeLifecycleProjection,
+  getKernelRuntimeTerminalProjection,
+  getKernelRuntimeTerminalProjectionFromSDKResultMessage,
   getSDKMessageFromKernelRuntimeEnvelope,
   getTextOutputDeltaFromKernelRuntimeEnvelope,
   handleKernelRuntimeHostEvent,
+  hasCanonicalProjection,
+  hasCompatibilityProjection,
   isKernelTurnTerminalEvent,
   KernelRuntimeOutputDeltaDedupe,
   KernelRuntimeSDKMessageDedupe,
@@ -75,6 +82,90 @@ describe('kernel runtime host events', () => {
     )
   })
 
+  test('projects runtime terminal events into host stop reasons', () => {
+    expect(
+      getKernelRuntimeTerminalProjection(
+        createEvent('turn.completed', { stopReason: 'max_tokens' }),
+      ),
+    ).toEqual({
+      eventType: 'turn.completed',
+      isError: false,
+      runtimeStopReason: 'max_tokens',
+      hostStopReason: 'max_tokens',
+    })
+    expect(
+      getKernelRuntimeTerminalProjection(
+        createEvent('turn.failed', { stopReason: 'interrupt' }),
+      ),
+    ).toMatchObject({
+      eventType: 'turn.failed',
+      isError: true,
+      runtimeStopReason: 'interrupt',
+      hostStopReason: 'cancelled',
+    })
+    expect(
+      getKernelRuntimeTerminalProjection(
+        createEvent('turn.failed', { stopReason: 'error_max_turns' }),
+      ).hostStopReason,
+    ).toBe('max_turn_requests')
+  })
+
+  test('routes terminal projection to host consumers', () => {
+    const event = createEvent('turn.failed', { stopReason: 'aborted' })
+    const envelope = createEnvelope(event)
+    const onTurnTerminal = mock(
+      (
+        _envelope: KernelRuntimeEnvelopeBase,
+        _event: KernelEvent,
+        _projection: unknown,
+      ) => {},
+    )
+
+    handleKernelRuntimeHostEvent(envelope, { onTurnTerminal })
+
+    expect(onTurnTerminal).toHaveBeenCalledWith(
+      envelope,
+      event,
+      expect.objectContaining({
+        isError: true,
+        hostStopReason: 'cancelled',
+      }),
+    )
+  })
+
+  test('reads canonical projection metadata from runtime events', () => {
+    const event = {
+      ...createEvent('headless.sdk_message'),
+      metadata: { canonicalProjection: 'turn.output_delta' },
+    }
+
+    expect(getCanonicalProjectionFromKernelEvent(event)).toBe(
+      'turn.output_delta',
+    )
+    expect(hasCanonicalProjection(event, 'turn.output_delta')).toBe(true)
+    expect(hasCanonicalProjection(event, 'turn.completed')).toBe(false)
+    expect(
+      getCanonicalProjectionFromKernelEvent(
+        createEvent('headless.sdk_message'),
+      ),
+    ).toBeUndefined()
+  })
+
+  test('reads compatibility projection metadata from runtime events', () => {
+    const event = {
+      ...createEvent('tasks.notification'),
+      metadata: { compatibilityProjection: 'headless.sdk_task_notification' },
+    }
+
+    expect(getCompatibilityProjectionFromKernelEvent(event)).toBe(
+      'headless.sdk_task_notification',
+    )
+    expect(
+      hasCompatibilityProjection(event, 'headless.sdk_task_notification'),
+    ).toBe(true)
+    expect(hasCompatibilityProjection(event, 'headless.sdk_message')).toBe(false)
+  })
+
   test('extracts SDK payloads from headless.sdk_message envelopes', () => {
     const sdkMessage: SDKMessage = {
       type: 'result',
@@ -115,6 +206,78 @@ describe('kernel runtime host events', () => {
       sdkMessage,
       envelope,
       envelope.payload,
+    )
+  })
+
+  test('projects coordinator lifecycle events through host callbacks', () => {
+    const event = createEvent('handoff.completed', {
+      phase: 'handoff',
+      state: 'completed',
+      source: 'queued_task_notification',
+      taskId: 'task-1',
+      summary: 'done',
+    })
+    const envelope = createEnvelope(event)
+    const onLifecycle = mock(
+      (
+        _projection: unknown,
+        _envelope: KernelRuntimeEnvelopeBase,
+        _event: KernelEvent,
+      ) => {},
+    )
+
+    expect(getKernelRuntimeLifecycleProjection(event)).toMatchObject({
+      kind: 'coordinator.lifecycle',
+      eventType: 'handoff.completed',
+      phase: 'handoff',
+      state: 'completed',
+    })
+
+    handleKernelRuntimeHostEvent(envelope, { onLifecycle })
+
+    expect(onLifecycle).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'coordinator.lifecycle',
+        eventType: 'handoff.completed',
+      }),
+      envelope,
+      event,
+    )
+  })
+
+  test('projects task notification events through host callbacks', () => {
+    const event = createEvent('tasks.notification', {
+      taskId: 'task-1',
+      toolUseId: 'tool-1',
+      status: 'completed',
+      outputFile: '/tmp/task-1.txt',
+      summary: 'done',
+      source: 'queued_task_notification',
+    })
+    const envelope = createEnvelope(event)
+    const onLifecycle = mock(
+      (
+        _projection: unknown,
+        _envelope: KernelRuntimeEnvelopeBase,
+        _event: KernelEvent,
+      ) => {},
+    )
+
+    expect(getKernelRuntimeLifecycleProjection(event)).toMatchObject({
+      kind: 'tasks.notification',
+      taskId: 'task-1',
+      status: 'completed',
+    })
+
+    handleKernelRuntimeHostEvent(envelope, { onLifecycle })
+
+    expect(onLifecycle).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'tasks.notification',
+        taskId: 'task-1',
+      }),
+      envelope,
+      event,
     )
   })
 
@@ -161,6 +324,44 @@ describe('kernel runtime host events', () => {
       envelope,
       envelope.payload,
     )
+  })
+
+  test('projects SDK result terminal semantics through shared host mapping', () => {
+    expect(
+      getKernelRuntimeTerminalProjectionFromSDKResultMessage({
+        type: 'result',
+        subtype: 'success',
+        is_error: false,
+        stop_reason: 'max_tokens',
+      } as SDKMessage),
+    ).toMatchObject({
+      eventType: 'turn.completed',
+      hostStopReason: 'max_tokens',
+    })
+
+    expect(
+      getKernelRuntimeTerminalProjectionFromSDKResultMessage({
+        type: 'result',
+        subtype: 'error_max_turns',
+        is_error: true,
+      } as SDKMessage),
+    ).toMatchObject({
+      eventType: 'turn.failed',
+      hostStopReason: 'max_turn_requests',
+    })
+
+    expect(
+      getKernelRuntimeTerminalProjectionFromSDKResultMessage(
+        {
+          type: 'result',
+          subtype: 'success',
+          is_error: false,
+        } as SDKMessage,
+        { aborted: true },
+      ),
+    ).toMatchObject({
+      hostStopReason: 'cancelled',
+    })
   })
 
   test('dedupes SDK messages by stable uuid while allowing unkeyed deltas', () => {

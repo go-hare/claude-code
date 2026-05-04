@@ -70,6 +70,7 @@ describe('kernel permission facade', () => {
       pendingRequestIds: [],
       finalizedRequestIds: ['permission-1'],
       sessionGrantCount: 0,
+      capabilityPlaneCount: 1,
       disposed: false,
     })
 

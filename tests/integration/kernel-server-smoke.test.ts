@@ -1,77 +1,73 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import { afterEach, describe, expect, mock, test } from 'bun:test'
 
-const mockCreateDirectConnectSession = mock(async () => ({
-  config: {
-    sessionId: 'session_123',
-    serverUrl: 'http://127.0.0.1:9000',
-    wsUrl: 'ws://127.0.0.1:9000/sessions/session_123/ws',
-  },
-  workDir: '/tmp/workdir',
-}))
-const mockStartServer = mock(() => ({
-  port: 0,
-  stop: mock((_closeActiveConnections: boolean) => {}),
-}))
-const mockCreateServerLogger = mock(() => ({
-  warn: mock(() => {}),
-}))
-const mockDangerousBackendInstance = { kind: 'backend' }
-const mockRunConnectHeadlessRuntime = mock(async () => {})
-
-const MockSessionManager = mock(function MockSessionManager(
-  this: Record<string, unknown>,
-  backend: unknown,
-  options: unknown,
-) {
-  this.backend = backend
-  this.options = options
-  this.destroyAll = mock(async () => {})
-})
-
-class MockDirectConnectError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'DirectConnectError'
-  }
-}
-
-mock.module('../../src/kernel/serverHostDeps.js', () => ({
-  createDirectConnectSessionCompat: mockCreateDirectConnectSession,
-  DirectConnectError: MockDirectConnectError,
-  startServerHost: mockStartServer,
-  SessionManager: MockSessionManager,
-  DangerousBackend: mock(() => mockDangerousBackendInstance),
-  createServerLogger: mockCreateServerLogger,
-  runConnectHeadlessRuntime: mockRunConnectHeadlessRuntime,
-}))
-
-const {
+import {
   assembleServerHost,
   connectDirectHostSession,
   createDirectConnectSession,
-} = await import('../../src/kernel/serverHost.js')
+} from '../../src/kernel/serverHost.js'
+
+type StoppableServer = {
+  port?: number
+  stop: (closeActiveConnections: boolean) => void
+}
+
+const servers: StoppableServer[] = []
+
+function trackServer<T extends StoppableServer>(server: T): T {
+  servers.push(server)
+  return server
+}
+
+function getServerUrl(server: { port?: number }): string {
+  if (typeof server.port !== 'number') {
+    throw new Error('Expected test server port')
+  }
+  return `http://127.0.0.1:${server.port}`
+}
 
 afterEach(() => {
-  mock.restore()
+  while (servers.length > 0) {
+    servers.pop()?.stop(true)
+  }
 })
 
 describe('kernel server smoke', () => {
-  beforeEach(() => {
-    mockCreateDirectConnectSession.mockClear()
-    mockStartServer.mockClear()
-    mockCreateServerLogger.mockClear()
-    mockRunConnectHeadlessRuntime.mockClear()
-    MockSessionManager.mockClear()
-  })
-
   test('supports direct-connect and server assembly through the kernel surface only', async () => {
+    const requests: Array<{
+      authorization: string | null
+      body: unknown
+      method: string
+      pathname: string
+    }> = []
+    const directServer = trackServer(
+      Bun.serve({
+        hostname: '127.0.0.1',
+        port: 0,
+        async fetch(req): Promise<Response> {
+          const url = new URL(req.url)
+          requests.push({
+            authorization: req.headers.get('authorization'),
+            body: await req.json(),
+            method: req.method,
+            pathname: url.pathname,
+          })
+          return Response.json({
+            session_id: 'session_123',
+            ws_url: `ws://${url.host}/sessions/session_123/ws`,
+            work_dir: '/tmp/workdir',
+          })
+        },
+      }),
+    )
+
     const setOriginalCwd = mock(() => {})
     const setCwdState = mock(() => {})
     const setDirectConnectServerUrl = mock(() => {})
+    const serverUrl = getServerUrl(directServer)
 
     const directConfig = await connectDirectHostSession(
       {
-        serverUrl: 'http://127.0.0.1:9000',
+        serverUrl,
         authToken: 'token',
         cwd: '/tmp/project',
         dangerouslySkipPermissions: false,
@@ -86,19 +82,24 @@ describe('kernel server smoke', () => {
     expect(directConfig.sessionId).toBe('session_123')
     expect(setOriginalCwd).toHaveBeenCalledWith('/tmp/workdir')
     expect(setCwdState).toHaveBeenCalledWith('/tmp/workdir')
-    expect(setDirectConnectServerUrl).toHaveBeenCalledWith(
-      'http://127.0.0.1:9000',
-    )
+    expect(setDirectConnectServerUrl).toHaveBeenCalledWith(serverUrl)
 
     const session = await createDirectConnectSession({
-      serverUrl: 'http://127.0.0.1:9000',
+      serverUrl,
       authToken: 'token',
       cwd: '/tmp/project',
       dangerouslySkipPermissions: false,
     })
     expect(session.state).toEqual({
-      serverUrl: 'http://127.0.0.1:9000',
+      serverUrl,
       workDir: '/tmp/workdir',
+    })
+    expect(requests).toHaveLength(2)
+    expect(requests[0]).toMatchObject({
+      authorization: 'Bearer token',
+      body: { cwd: '/tmp/project' },
+      method: 'POST',
+      pathname: '/sessions',
     })
 
     const assembly = assembleServerHost({
@@ -108,16 +109,8 @@ describe('kernel server smoke', () => {
       maxSessions: '9',
       createAuthToken: () => 'generated-token',
     })
+    trackServer(assembly.server)
 
-    expect(MockSessionManager).toHaveBeenCalledWith(
-      mockDangerousBackendInstance,
-      {
-        idleTimeoutMs: 123,
-        maxSessions: 9,
-      },
-    )
-    expect(mockCreateServerLogger).toHaveBeenCalledTimes(1)
-    expect(mockStartServer).toHaveBeenCalledTimes(1)
     expect(assembly.config).toMatchObject({
       port: 0,
       host: '127.0.0.1',
@@ -125,5 +118,7 @@ describe('kernel server smoke', () => {
       idleTimeoutMs: 123,
       maxSessions: 9,
     })
+    const health = await fetch(`${getServerUrl(assembly.server)}/health`)
+    expect(health.status).toBe(200)
   })
 })

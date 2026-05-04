@@ -275,6 +275,8 @@ export type SubagentContextOverrides = {
   getAppState?: ToolUseContext['getAppState']
   /** Override the active task execution context */
   activeTaskExecutionContext?: ActiveTaskExecutionContext
+  /** Override the runtime capability plane visible to tool execution */
+  capabilityPlane?: ToolUseContext['capabilityPlane']
 
   /**
    * Explicit opt-in to share parent's setAppState callback.
@@ -389,6 +391,7 @@ export function createSubagentContext(
     activeTaskExecutionContext:
       overrides?.activeTaskExecutionContext ??
       parentContext.activeTaskExecutionContext,
+    capabilityPlane: overrides?.capabilityPlane ?? parentContext.capabilityPlane,
     nestedMemoryAttachmentTriggers: new Set<string>(),
     loadedNestedMemoryPaths: new Set<string>(),
     dynamicSkillDirTriggers: new Set<string>(),

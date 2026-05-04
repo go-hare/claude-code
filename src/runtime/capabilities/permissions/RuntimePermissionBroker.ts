@@ -1,10 +1,14 @@
 import type {
+  KernelCapabilityPlane,
+} from '../../contracts/capability.js'
+import type {
   KernelPermissionDecision,
   KernelPermissionDecisionValue,
   KernelPermissionRequest,
   KernelPermissionRequestId,
 } from '../../contracts/permissions.js'
 import type { RuntimeEventBus } from '../../core/events/RuntimeEventBus.js'
+import { createRuntimePermissionCapabilityPlane } from './PermissionCapabilityPlane.js'
 
 type RuntimePermissionTimer = ReturnType<typeof setTimeout>
 
@@ -84,6 +88,10 @@ export class RuntimePermissionBroker {
     string,
     RuntimePermissionSessionGrant
   >()
+  private readonly capabilityPlanes = new Map<
+    KernelPermissionRequestId,
+    KernelCapabilityPlane
+  >()
   private readonly now: () => string
   private readonly createSessionGrantKey: (
     request: KernelPermissionRequest,
@@ -111,6 +119,10 @@ export class RuntimePermissionBroker {
       return pending.promise
     }
 
+    this.capabilityPlanes.set(
+      request.permissionRequestId,
+      createRuntimePermissionCapabilityPlane(request),
+    )
     this.emitAuditEvent('permission.requested', request)
 
     const reusableGrant = this.findReusableSessionGrant(request)
@@ -182,14 +194,26 @@ export class RuntimePermissionBroker {
     pendingRequestIds: KernelPermissionRequestId[]
     finalizedRequestIds: KernelPermissionRequestId[]
     sessionGrantCount: number
+    capabilityPlaneCount: number
     disposed: boolean
   } {
     return {
       pendingRequestIds: [...this.pending.keys()],
       finalizedRequestIds: [...this.finalized.keys()],
       sessionGrantCount: this.sessionGrants.size,
+      capabilityPlaneCount: this.capabilityPlanes.size,
       disposed: this.disposed,
     }
+  }
+
+  getCapabilityPlane(
+    permissionRequestId: KernelPermissionRequestId,
+  ): KernelCapabilityPlane | undefined {
+    return this.capabilityPlanes.get(permissionRequestId)
+  }
+
+  listCapabilityPlanes(): readonly KernelCapabilityPlane[] {
+    return [...this.capabilityPlanes.values()]
   }
 
   private createPendingRequest(
@@ -265,6 +289,10 @@ export class RuntimePermissionBroker {
     decision: KernelPermissionDecision,
   ): void {
     this.finalized.set(request.permissionRequestId, decision)
+    this.capabilityPlanes.set(
+      request.permissionRequestId,
+      createRuntimePermissionCapabilityPlane(request, decision),
+    )
 
     if (decision.decision === 'allow_session') {
       const grant: RuntimePermissionSessionGrant = {

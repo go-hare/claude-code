@@ -29,10 +29,10 @@ function createBaseParams() {
     setUserInputOnProcessing: mock((_prompt?: string) => {}),
     setAbortController: mock((_abortController: AbortController | null) => {}),
     onQuery: mock(
-      async () => undefined,
+      async () => true,
     ) as unknown as (
       ...args: unknown[]
-    ) => Promise<void>,
+    ) => Promise<boolean>,
     setAppState: mock((_updater: unknown) => {}),
   }
 }

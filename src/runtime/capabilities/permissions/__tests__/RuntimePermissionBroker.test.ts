@@ -3,6 +3,11 @@ import { describe, expect, test } from 'bun:test'
 import { RuntimeEventBus } from '../../../core/events/RuntimeEventBus.js'
 import type { KernelPermissionRequest } from '../../../contracts/permissions.js'
 import {
+  getKernelCapabilityDenial,
+  isKernelCapabilityPermitted,
+  toolCapabilityName,
+} from '../../CapabilityPlane.js'
+import {
   RuntimePermissionBroker,
   RuntimePermissionBrokerDisposedError,
   RuntimePermissionDecisionError,
@@ -76,12 +81,31 @@ describe('RuntimePermissionBroker', () => {
       pendingRequestIds: [],
       finalizedRequestIds: ['permission-1'],
       sessionGrantCount: 0,
+      capabilityPlaneCount: 1,
+    })
+    const plane = broker.getCapabilityPlane('permission-1')!
+    expect(isKernelCapabilityPermitted(plane, toolCapabilityName('Bash'))).toBe(
+      true,
+    )
+    expect(plane).toMatchObject({
+      runtimeSupports: ['tool:Bash'],
+      hostGrants: ['tool:Bash'],
+      modePermits: ['tool:Bash'],
+      toolRequires: ['tool:Bash'],
+      metadata: {
+        source: 'permission_broker',
+        permissionRequestId: 'permission-1',
+        decision: 'allow_once',
+        decidedBy: 'host',
+      },
     })
 
     expect(
       eventBus.replay({ conversationId: 'conversation-1' }).map(envelope => ({
         type: requireEventPayload(envelope).type,
-        payload: requireEventPayload(envelope).payload,
+        payload: projectPermissionAuditPayload(
+          requireEventPayload(envelope).payload,
+        ),
       })),
     ).toEqual([
       {
@@ -91,6 +115,9 @@ describe('RuntimePermissionBroker', () => {
           toolName: 'Bash',
           action: 'run',
           risk: 'medium',
+          decidedBy: undefined,
+          decision: undefined,
+          reason: undefined,
         },
       },
       {
@@ -132,6 +159,47 @@ describe('RuntimePermissionBroker', () => {
 
     await expect(firstPending).resolves.toEqual(firstDecision)
     expect(duplicateDecision).toEqual(firstDecision)
+  })
+
+  test('records pending and denied permission states as capability planes', async () => {
+    const broker = new RuntimePermissionBroker()
+    const pending = broker.requestPermission(createRequest('permission-1'))
+
+    expect(broker.getCapabilityPlane('permission-1')).toMatchObject({
+      runtimeSupports: ['tool:Bash'],
+      hostGrants: [],
+      modePermits: [],
+      toolRequires: ['tool:Bash'],
+      metadata: {
+        source: 'permission_broker',
+        permissionRequestId: 'permission-1',
+      },
+    })
+
+    broker.decide({
+      permissionRequestId: 'permission-1',
+      decision: 'deny',
+      decidedBy: 'policy',
+      reason: 'blocked by rule',
+    })
+    await expect(pending).resolves.toMatchObject({
+      decision: 'deny',
+    })
+
+    expect(
+      getKernelCapabilityDenial(
+        broker.getCapabilityPlane('permission-1')!,
+        toolCapabilityName('Bash'),
+      ),
+    ).toMatchObject({
+      capability: 'tool:Bash',
+      actor: 'mode',
+      reason: 'permission_deny',
+      metadata: {
+        decidedBy: 'policy',
+        reason: 'blocked by rule',
+      },
+    })
   })
 
   test('times out unresolved requests with fail-closed deny', async () => {
@@ -315,3 +383,16 @@ describe('RuntimePermissionBroker', () => {
     expect(capturedSignal?.aborted).toBe(true)
   })
 })
+
+function projectPermissionAuditPayload(payload: unknown): Record<string, unknown> {
+  const record = payload as Record<string, unknown>
+  return {
+    permissionRequestId: record.permissionRequestId,
+    toolName: record.toolName,
+    action: record.action,
+    risk: record.risk,
+    decidedBy: record.decidedBy,
+    decision: record.decision,
+    reason: record.reason,
+  }
+}

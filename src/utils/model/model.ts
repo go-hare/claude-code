@@ -24,11 +24,16 @@ import { getModelStrings, resolveOverriddenModel } from './modelStrings.js'
 import { formatModelPricing, getOpus46CostTier } from '../modelCost.js'
 import { getSettings_DEPRECATED } from '../settings/settings.js'
 import type { PermissionMode } from '../permissions/PermissionMode.js'
-import { getAPIProvider } from './providers.js'
+import { getAPIProvider, isFirstPartyAnthropicBaseUrl } from './providers.js'
 import { LIGHTNING_BOLT } from '../../constants/figures.js'
 import { isModelAllowed } from './modelAllowlist.js'
 import { type ModelAlias, isModelAlias } from './aliases.js'
 import { capitalize } from '../stringUtils.js'
+
+function isAliasOrAliasWithSuffix(value: string): boolean {
+  const base = value.replace(/\[1m\]$/i, '').trim()
+  return isModelAlias(base)
+}
 
 export type ModelShortName = string
 export type ModelName = string
@@ -145,7 +150,7 @@ export function getDefaultOpusModel(): ModelName {
   // Fall back to user's configured model — custom providers may not
   // recognize hardcoded Anthropic model IDs.
   const userSpecifiedOpus = getUserSpecifiedModelSetting()
-  if (userSpecifiedOpus) {
+  if (userSpecifiedOpus && !isAliasOrAliasWithSuffix(userSpecifiedOpus)) {
     return parseUserSpecifiedModel(userSpecifiedOpus)
   }
   // 3P providers (Bedrock, Vertex, Foundry) all publish Opus 4.7 in sync
@@ -179,7 +184,7 @@ export function getDefaultSonnetModel(): ModelName {
   // custom providers (proxies, national clouds) may not recognize the
   // hardcoded Anthropic model IDs.
   const userSpecified = getUserSpecifiedModelSetting()
-  if (userSpecified) {
+  if (userSpecified && !isAliasOrAliasWithSuffix(userSpecified)) {
     return parseUserSpecifiedModel(userSpecified)
   }
   // Default to Sonnet 4.5 for 3P since they may not have 4.6 yet
@@ -207,7 +212,7 @@ export function getDefaultHaikuModel(): ModelName {
   // Fall back to user's configured model — custom providers may not
   // recognize hardcoded Anthropic model IDs.
   const userSpecifiedHaiku = getUserSpecifiedModelSetting()
-  if (userSpecifiedHaiku) {
+  if (userSpecifiedHaiku && !isAliasOrAliasWithSuffix(userSpecifiedHaiku)) {
     return parseUserSpecifiedModel(userSpecifiedHaiku)
   }
 
@@ -396,7 +401,8 @@ export function isOpus1mMergeEnabled(): boolean {
   if (
     is1mContextDisabled() ||
     isProSubscriber() ||
-    getAPIProvider() !== 'firstParty'
+    getAPIProvider() !== 'firstParty' ||
+    !isFirstPartyAnthropicBaseUrl()
   ) {
     return false
   }

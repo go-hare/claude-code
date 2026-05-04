@@ -93,6 +93,9 @@ class KernelConversationFacade implements KernelConversation {
         prompt,
         attachments: options.attachments,
         providerOverride: options.providerOverride,
+        executionMode: options.executionMode,
+        contextAssembly: options.contextAssembly,
+        capabilityPlane: options.capabilityPlane,
         metadata: options.metadata,
       }),
     )

@@ -212,13 +212,13 @@ export function registerCliHostCommands(
       )
       .option(
         '--local',
-        'e2e test mode - spawn the child CLI locally (skip ssh/deploy). Exercises the auth proxy and unix-socket plumbing without a remote host.',
+        'e2e test mode — spawn the child CLI locally (skip ssh/deploy). Exercises the auth proxy and unix-socket plumbing without a remote host.',
       )
       .action(async () => {
         process.stderr.write(
-          'Usage: hare ssh <user@host | ssh-config-alias> [dir]\n\n' +
-            'Runs Claude Code on a remote Linux host. You do not need to install\n' +
-            'anything on the remote or run `claude auth login` there - the binary is\n' +
+          'Usage: claude ssh <user@host | ssh-config-alias> [dir]\n\n' +
+            "Runs Claude Code on a remote Linux host. You don't need to install\n" +
+            'anything on the remote or run `claude auth login` there — the binary is\n' +
             'deployed over SSH and API auth tunnels back through your local machine.\n',
         )
         process.exit(1)
@@ -599,70 +599,19 @@ export function registerCliHostCommands(
     }
   }
 
-  const autonomyCmd = program
+  program
     .command('autonomy')
     .description(describe(['autonomy']))
-    .configureHelp(options.createSortedHelpConfig())
-
-  autonomyCmd
-    .command('status')
-    .description(describe(['autonomy', 'status']))
-    .option(
-      '--deep',
-      'Include teams, pipes, daemon, and remote-control sections',
-    )
-    .action(async (commandOptions: { deep?: boolean }) => {
-      const { autonomyStatusHandler } = await import('../../cli/handlers/autonomy.js')
-      await autonomyStatusHandler(commandOptions)
-      process.exit(0)
-    })
-
-  autonomyCmd
-    .command('runs [limit]')
-    .description(describe(['autonomy', 'runs']))
-    .action(async (limit?: string) => {
-      const { autonomyRunsHandler } = await import('../../cli/handlers/autonomy.js')
-      await autonomyRunsHandler(limit)
-      process.exit(0)
-    })
-
-  autonomyCmd
-    .command('flows [limit]')
-    .description(describe(['autonomy', 'flows']))
-    .action(async (limit?: string) => {
-      const { autonomyFlowsHandler } = await import('../../cli/handlers/autonomy.js')
-      await autonomyFlowsHandler(limit)
-      process.exit(0)
-    })
-
-  const autonomyFlowCmd = autonomyCmd
-    .command('flow <flowId>')
-    .description(describe(['autonomy', 'flow']))
-    .action(async (flowId: string) => {
-      const { autonomyFlowHandler } = await import('../../cli/handlers/autonomy.js')
-      await autonomyFlowHandler(flowId)
-      process.exit(0)
-    })
-
-  autonomyFlowCmd
-    .command('cancel <flowId>')
-    .description(describe(['autonomy', 'flow', 'cancel']))
-    .action(async (flowId: string) => {
-      const { autonomyFlowCancelHandler } = await import(
+    .helpOption(false)
+    .allowUnknownOption(true)
+    .allowExcessArguments(true)
+    .action(async (...actionArgs: unknown[]) => {
+      const command = actionArgs.at(-1) as CommanderCommand
+      const { getAutonomyCommandText } = await import(
         '../../cli/handlers/autonomy.js'
       )
-      await autonomyFlowCancelHandler(flowId)
-      process.exit(0)
-    })
-
-  autonomyFlowCmd
-    .command('resume <flowId>')
-    .description(describe(['autonomy', 'flow', 'resume']))
-    .action(async (flowId: string) => {
-      const { autonomyFlowResumeHandler } = await import(
-        '../../cli/handlers/autonomy.js'
-      )
-      await autonomyFlowResumeHandler(flowId)
+      const rawArgs = Array.isArray(command?.args) ? command.args.join(' ') : ''
+      process.stdout.write(`${await getAutonomyCommandText(rawArgs)}\n`)
       process.exit(0)
     })
 
@@ -753,8 +702,8 @@ export function registerCliHostCommands(
     .command('update')
     .description(describe(['update']))
     .action(async () => {
-        const { updateHare } = await import('../../cli/updateHare.js')
-        await updateHare()
+        const { updateCCB } = await import('../../cli/updateCCB.js')
+        await updateCCB()
     })
 
   if (process.env.USER_TYPE === 'ant') {

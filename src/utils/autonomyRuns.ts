@@ -684,6 +684,7 @@ export async function commitAutonomyQueuedPrompt(params: {
     autonomy: {
       runId: run.runId,
       trigger: params.prepared.trigger,
+      rootDir,
       sourceId: params.sourceId,
       sourceLabel: params.sourceLabel,
       ...(run.parentFlowId ? { flowId: run.parentFlowId } : {}),

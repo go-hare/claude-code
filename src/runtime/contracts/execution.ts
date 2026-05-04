@@ -1,4 +1,6 @@
 import type { RuntimeCommandResolver } from './command.js'
+import type { KernelCapabilityPlane } from './capability.js'
+import type { KernelContextAssembly } from './context.js'
 import type { RuntimeHostBridge } from './host.js'
 import type { RuntimeMcpRegistry } from './mcp.js'
 import type { RuntimePermissionEvaluator } from './permissions.js'
@@ -6,6 +8,7 @@ import type { RuntimePersistenceStore } from './persistence.js'
 import type { RuntimeProviderRegistry } from './provider.js'
 import type { RuntimeStateProviders } from './state.js'
 import type { RuntimeToolCatalog, RuntimeToolExecutor } from './tool.js'
+import type { KernelExecutionMode } from './turn.js'
 
 export type RuntimeExecutionStatus =
   | 'idle'
@@ -61,6 +64,9 @@ export interface RuntimeExecutionContext {
 export type RuntimeTurnInput = {
   prompt: string | readonly unknown[]
   source?: string
+  executionMode?: KernelExecutionMode
+  contextAssembly?: KernelContextAssembly
+  capabilityPlane?: KernelCapabilityPlane
   maxTurns?: number
   fallbackModel?: string
   maxOutputTokens?: number

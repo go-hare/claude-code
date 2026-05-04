@@ -160,4 +160,36 @@ describe('runConnectHeadlessRuntime', () => {
 
     expect(stdoutChunks.join('')).toBe('hello world\n')
   })
+
+  test('projects semantic turn.failed runtime events as direct-host failures', async () => {
+    FakeWebSocket.messagesToEmit = [
+      createRuntimeEvent(1, {
+        type: 'turn.output_delta',
+        replayable: true,
+        payload: { text: 'partial output' },
+      }),
+      createRuntimeEvent(2, {
+        type: 'turn.failed',
+        replayable: true,
+        payload: {
+          state: 'failed',
+          stopReason: 'interrupt',
+          error: 'interrupted by host',
+        },
+      }),
+    ]
+
+    const runPromise = runConnectHeadlessRuntime(
+      {
+        serverUrl: 'http://localhost:8080',
+        sessionId: 'session-1',
+        wsUrl: 'ws://localhost:8080/sessions/session-1/ws',
+      },
+      'hello',
+      'text',
+    )
+
+    await expect(runPromise).rejects.toThrow('interrupted by host')
+    expect(stdoutChunks.join('')).toBe('')
+  })
 })

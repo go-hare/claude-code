@@ -100,13 +100,34 @@ import {
 } from '../../core/state/index.js'
 import { createBootstrapStateProvider } from '../../core/state/bootstrapProvider.js'
 import type { RuntimeSessionLifecycle } from '../../contracts/session.js'
-import type { KernelRuntimeEnvelopeBase } from '../../contracts/events.js'
+import type {
+  KernelEvent,
+  KernelRuntimeEnvelopeBase,
+} from '../../contracts/events.js'
+import type {
+  KernelExecutionMode,
+  KernelTurnInputContract,
+} from '../../contracts/turn.js'
+import type {
+  KernelContextAssembly,
+  KernelContextEntry,
+} from '../../contracts/context.js'
+import type { KernelCapabilityPlane } from '../../contracts/capability.js'
 import { RuntimeEventBus } from '../../core/events/RuntimeEventBus.js'
 import {
   createHeadlessSDKMessageRuntimeEvent,
+  createTurnOutputDeltaRuntimeEventFromSDKMessage,
+  getCanonicalProjectionForSDKMessage,
+  getRuntimeAbortStopReason,
   getSDKMessageFromRuntimeEnvelope,
   getSDKResultTurnOutcome,
 } from '../../core/events/compatProjection.js'
+import { createRuntimeToolCapabilityPlane } from '../tools/ToolCapabilityPlane.js'
+
+export type RuntimeTurnPreludeEvent = Omit<
+  KernelEvent,
+  'runtimeId' | 'eventId' | 'conversationId' | 'turnId'
+>
 
 // Lazy: MessageSelector.tsx pulls React/ink; only needed for message filtering at query time
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -164,6 +185,55 @@ const snipProjection = feature('HISTORY_SNIP')
   : null
 /* eslint-enable @typescript-eslint/no-require-imports */
 
+function createPromptContextAssembly(
+  prompt: string | ContentBlockParam[],
+): KernelContextAssembly {
+  const promptKind = typeof prompt === 'string' ? 'text' : 'content_blocks'
+  const promptMetadata: Record<string, unknown> = { promptKind }
+  if (typeof prompt === 'string') {
+    promptMetadata.charCount = prompt.length
+  } else {
+    promptMetadata.blockCount = prompt.length
+  }
+
+  const modelVisible: KernelContextEntry = {
+    type: 'turn.prompt',
+    category: 'model_visible',
+    source: 'user_input',
+    metadata: promptMetadata,
+  }
+  return {
+    modelVisible: [modelVisible],
+    hostVisible: [],
+    operatorDebug: [
+      {
+        type: 'turn_input.summary',
+        category: 'operator_debug',
+        source: 'runtime',
+        metadata: promptMetadata,
+      },
+    ],
+  }
+}
+
+function stripRuntimeToolPlane(
+  plane: KernelCapabilityPlane,
+): KernelCapabilityPlane {
+  const stripped: KernelCapabilityPlane = {
+    runtimeSupports: plane.runtimeSupports,
+    hostGrants: plane.hostGrants,
+    modePermits: plane.modePermits,
+    toolRequires: plane.toolRequires,
+  }
+  if (plane.denies) {
+    stripped.denies = plane.denies
+  }
+  if (plane.metadata) {
+    stripped.metadata = plane.metadata
+  }
+  return stripped
+}
+
 export type QueryEngineConfig = {
   cwd: string
   tools: Tools
@@ -197,6 +267,8 @@ export type QueryEngineConfig = {
   abortController?: AbortController
   orphanedPermission?: OrphanedPermission
   activeTaskExecutionContext?: ToolUseContext['activeTaskExecutionContext']
+  executionMode?: KernelExecutionMode
+  capabilityPlane?: KernelCapabilityPlane
   runtimePermission?: ToolPermissionRuntimeContext
   /**
    * Snip-boundary handler: receives each yielded system message plus the
@@ -218,7 +290,11 @@ export type QueryEngineConfig = {
 export interface RuntimeExecutionSession extends RuntimeSessionLifecycle {
   submitRuntimeTurn(
     prompt: string | ContentBlockParam[],
-    options?: { uuid?: string; isMeta?: boolean },
+    options?: {
+      uuid?: string
+      isMeta?: boolean
+      preludeEvents?: readonly RuntimeTurnPreludeEvent[]
+    },
   ): AsyncGenerator<KernelRuntimeEnvelopeBase, void, unknown>
   getReadFileState(): FileStateCache
 }
@@ -321,12 +397,45 @@ export class SessionRuntime implements RuntimeExecutionSession {
     }
   }
 
+  private createTurnInputContract(
+    prompt: string | ContentBlockParam[],
+  ): KernelTurnInputContract {
+    const capabilityPlane =
+      this.config.capabilityPlane ??
+      stripRuntimeToolPlane(
+        createRuntimeToolCapabilityPlane(
+          this.config.tools,
+          this.config.getAppState().toolPermissionContext,
+        ),
+      )
+    return {
+      executionMode: this.config.executionMode ?? 'headless',
+      contextAssembly: createPromptContextAssembly(prompt),
+      capabilityPlane,
+      metadata: {
+        source: 'SessionRuntime.submitRuntimeTurn',
+      },
+    }
+  }
+
   async *submitRuntimeTurn(
     prompt: string | ContentBlockParam[],
-    options?: { uuid?: string; isMeta?: boolean },
+    options?: {
+      uuid?: string
+      isMeta?: boolean
+      preludeEvents?: readonly RuntimeTurnPreludeEvent[]
+    },
   ): AsyncGenerator<KernelRuntimeEnvelopeBase, void, unknown> {
     const sessionId = this.getSessionId()
     const turnId = options?.uuid ?? randomUUID()
+    const turnInput = this.createTurnInputContract(prompt)
+    const pendingRuntimeEvents: KernelRuntimeEnvelopeBase[] = []
+    const enqueueRuntimeEvent = (event: KernelEvent): void => {
+      pendingRuntimeEvents.push(this.runtimeEventBus.emit(event))
+    }
+    const drainPendingRuntimeEvents = (): KernelRuntimeEnvelopeBase[] =>
+      pendingRuntimeEvents.splice(0)
+
     yield this.runtimeEventBus.emit({
       conversationId: sessionId,
       turnId,
@@ -336,25 +445,88 @@ export class SessionRuntime implements RuntimeExecutionSession {
         conversationId: sessionId,
         turnId,
         state: 'running',
+        input: turnInput,
       },
     })
+    for (const event of options?.preludeEvents ?? []) {
+      yield this.runtimeEventBus.emit({
+        conversationId: sessionId,
+        turnId,
+        ...event,
+      })
+    }
 
     let sawTerminalResult = false
+    let emittedAbortRequested = false
+    const maybeCreateAbortRequestedEnvelope = ():
+      | KernelRuntimeEnvelopeBase
+      | undefined => {
+      if (emittedAbortRequested) {
+        return undefined
+      }
+      const stopReason = getRuntimeAbortStopReason(
+        this.abortController.signal,
+      )
+      if (!stopReason) {
+        return undefined
+      }
+      emittedAbortRequested = true
+      return this.runtimeEventBus.emit({
+        conversationId: sessionId,
+        turnId,
+        type: 'turn.abort_requested',
+        replayable: true,
+        payload: {
+          conversationId: sessionId,
+          turnId,
+          state: 'aborting',
+          stopReason,
+        },
+      })
+    }
+
     try {
       for await (const message of this.bindBootstrapState(
-        this.runQueryTurn(prompt, options),
+        this.runQueryTurn(prompt, options, turnId, enqueueRuntimeEvent),
       )) {
+        for (const envelope of drainPendingRuntimeEvents()) {
+          yield envelope
+        }
+
+        const abortRequestedEnvelope = maybeCreateAbortRequestedEnvelope()
+        if (abortRequestedEnvelope) {
+          yield abortRequestedEnvelope
+        }
+
+        const outputDeltaEvent = createTurnOutputDeltaRuntimeEventFromSDKMessage({
+          conversationId: sessionId,
+          turnId,
+          message,
+        })
+        if (outputDeltaEvent) {
+          yield this.runtimeEventBus.emit(outputDeltaEvent)
+        }
+
+        const canonicalProjection =
+          getCanonicalProjectionForSDKMessage(message)
         yield this.runtimeEventBus.emit(
           createHeadlessSDKMessageRuntimeEvent({
             conversationId: sessionId,
             turnId,
             message,
+            metadata: canonicalProjection
+              ? { canonicalProjection }
+              : undefined,
           }),
         )
 
         if (message.type === 'result') {
           sawTerminalResult = true
-          const outcome = getSDKResultTurnOutcome(message)
+          const outcome = getSDKResultTurnOutcome(message, {
+            abortReason: getRuntimeAbortStopReason(
+              this.abortController.signal,
+            ),
+          })
           yield this.runtimeEventBus.emit({
             conversationId: sessionId,
             turnId,
@@ -370,21 +542,43 @@ export class SessionRuntime implements RuntimeExecutionSession {
         }
       }
 
+      for (const envelope of drainPendingRuntimeEvents()) {
+        yield envelope
+      }
+
+      const abortRequestedEnvelope = maybeCreateAbortRequestedEnvelope()
+      if (abortRequestedEnvelope) {
+        yield abortRequestedEnvelope
+      }
+
       if (!sawTerminalResult) {
+        const abortReason = getRuntimeAbortStopReason(
+          this.abortController.signal,
+        )
         yield this.runtimeEventBus.emit({
           conversationId: sessionId,
           turnId,
-          type: 'turn.completed',
+          type: abortReason ? 'turn.failed' : 'turn.completed',
           replayable: true,
           payload: {
             conversationId: sessionId,
             turnId,
-            state: 'completed',
-            stopReason: null,
+            state: abortReason ? 'failed' : 'completed',
+            stopReason: abortReason,
           },
         })
       }
     } catch (error) {
+      const abortRequestedEnvelope = maybeCreateAbortRequestedEnvelope()
+      if (abortRequestedEnvelope) {
+        yield abortRequestedEnvelope
+      }
+      for (const envelope of drainPendingRuntimeEvents()) {
+        yield envelope
+      }
+      const abortReason = getRuntimeAbortStopReason(
+        this.abortController.signal,
+      )
       yield this.runtimeEventBus.emit({
         conversationId: sessionId,
         turnId,
@@ -394,7 +588,9 @@ export class SessionRuntime implements RuntimeExecutionSession {
           conversationId: sessionId,
           turnId,
           state: 'failed',
-          stopReason: error instanceof Error ? error.message : String(error),
+          stopReason:
+            abortReason ??
+            (error instanceof Error ? error.message : String(error)),
         },
       })
       throw error
@@ -420,6 +616,8 @@ export class SessionRuntime implements RuntimeExecutionSession {
   private async *runQueryTurn(
     prompt: string | ContentBlockParam[],
     options?: { uuid?: string; isMeta?: boolean },
+    turnId?: string,
+    emitRuntimeEvent?: (event: KernelEvent) => void,
   ): AsyncGenerator<SDKMessage, void, unknown> {
     if (!this.live) {
       throw new Error('Execution session has been stopped')
@@ -606,6 +804,7 @@ export class SessionRuntime implements RuntimeExecutionSession {
         this.config.activeTaskExecutionContext ??
         getActiveTaskExecutionContext(),
       runtimePermission: this.config.runtimePermission,
+      capabilityPlane: this.config.capabilityPlane,
     }
 
     // Handle orphaned permission (only once per engine lifetime)
@@ -740,6 +939,7 @@ export class SessionRuntime implements RuntimeExecutionSession {
         this.config.activeTaskExecutionContext ??
         getActiveTaskExecutionContext(),
       runtimePermission: this.config.runtimePermission,
+      capabilityPlane: this.config.capabilityPlane,
     }
 
     headlessProfilerCheckpoint('before_skills_plugins')
@@ -900,6 +1100,26 @@ export class SessionRuntime implements RuntimeExecutionSession {
       querySource: 'sdk',
       maxTurns,
       taskBudget,
+      onContextAssemblyPrepared: (contextAssembly, metadata) => {
+        if (!turnId) {
+          return
+        }
+        emitRuntimeEvent?.({
+          conversationId: this.getSessionId(),
+          turnId,
+          type: 'turn.context_assembled',
+          replayable: true,
+          payload: {
+            conversationId: this.getSessionId(),
+            turnId,
+            contextAssembly,
+          },
+          metadata: {
+            source: metadata.phase,
+            ...metadata,
+          },
+        })
+      },
     })) {
       // Record assistant, user, and compact boundary messages
       if (
@@ -1394,7 +1614,7 @@ export class SessionRuntime implements RuntimeExecutionSession {
   }
 
   interrupt(): void {
-    this.abortController.abort()
+    this.abortController.abort('interrupt')
   }
 
   /** Reset the abort controller so the next submitRuntimeTurn() call can start
@@ -1495,6 +1715,9 @@ export type AskRuntimeOptions = {
   setSDKStatus?: (status: SDKStatus) => void
   orphanedPermission?: OrphanedPermission
   activeTaskExecutionContext?: ToolUseContext['activeTaskExecutionContext']
+  executionMode?: KernelExecutionMode
+  capabilityPlane?: KernelCapabilityPlane
+  preludeEvents?: readonly RuntimeTurnPreludeEvent[]
   createSessionRuntime?: ExecutionSessionFactory
 }
 
@@ -1534,6 +1757,9 @@ export async function* askRuntime({
   setSDKStatus,
   orphanedPermission,
   activeTaskExecutionContext,
+  executionMode = 'headless',
+  capabilityPlane,
+  preludeEvents,
   createSessionRuntime,
 }: AskRuntimeOptions): AsyncGenerator<KernelRuntimeEnvelopeBase, void, unknown> {
   const sessionBootstrapStateProvider =
@@ -1570,6 +1796,8 @@ export async function* askRuntime({
     abortController,
     orphanedPermission,
     activeTaskExecutionContext,
+    executionMode,
+    capabilityPlane,
     ...(feature('HISTORY_SNIP')
       ? {
           snipReplay: (yielded: Message, store: Message[]) => {
@@ -1585,6 +1813,7 @@ export async function* askRuntime({
     for await (const envelope of engine.submitRuntimeTurn(prompt, {
       uuid: promptUuid,
       isMeta,
+      preludeEvents,
     })) {
       yield envelope
     }

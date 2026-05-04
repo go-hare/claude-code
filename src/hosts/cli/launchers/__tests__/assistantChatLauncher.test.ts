@@ -2,12 +2,6 @@ import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import type { AssistantChatLaunchOptions } from '../assistantChatLauncher.js'
 
 const callOrder: string[] = []
-const infoMessage = {
-  uuid: 'msg-assistant',
-  type: 'system',
-  content: 'assistant-attached',
-}
-
 const mockLaunchRepl = mock(
   async (
     _root: unknown,
@@ -18,15 +12,6 @@ const mockLaunchRepl = mock(
     callOrder.push('launch')
   },
 )
-const mockCreateSystemMessage = mock((_message: string, _variant: string) => {
-  callOrder.push('message')
-  return infoMessage
-})
-const mockCreateUserMessage = mock((_options: { content: string }) => ({
-  uuid: 'msg-user',
-  type: 'user',
-  content: _options.content,
-}))
 const mockCreateRemoteSessionConfig = mock(
   (
     sessionId: string,
@@ -83,17 +68,10 @@ const mockPrepareApiRequest = mock(async () => {
   }
 })
 
-const actualMessages = await import('../../../../utils/messages.js')
 const actualCommands = await import('../../../../commands.js')
 
 mock.module('../../../../replLauncher.js', () => ({
   launchRepl: mockLaunchRepl,
-}))
-
-mock.module('../../../../utils/messages.js', () => ({
-  ...actualMessages,
-  createSystemMessage: mockCreateSystemMessage,
-  createUserMessage: mockCreateUserMessage,
 }))
 
 mock.module('../../../../remote/RemoteSessionManager.js', () => ({
@@ -181,7 +159,6 @@ describe('runAssistantChatLaunch', () => {
   beforeEach(() => {
     callOrder.length = 0
     mockLaunchRepl.mockClear()
-    mockCreateSystemMessage.mockClear()
     mockCreateRemoteSessionConfig.mockClear()
     mockFilterCommandsForRemoteMode.mockClear()
     mockDiscoverAssistantSessions.mockClear()
@@ -208,7 +185,6 @@ describe('runAssistantChatLaunch', () => {
       'prepare-auth',
       'enable-remote',
       'remote-config',
-      'message',
       'filter-commands',
       'launch',
     ])
@@ -219,10 +195,14 @@ describe('runAssistantChatLaunch', () => {
       false,
       true,
     )
-    expect(mockCreateSystemMessage).toHaveBeenCalledWith(
-      'Attached to assistant session assistan…',
-      'info',
-    )
+    const launchArgs = mockLaunchRepl.mock.calls[0] as unknown as
+      | [unknown, unknown, { initialMessages?: unknown[] }, unknown]
+      | undefined
+    expect(launchArgs?.[2].initialMessages?.[0]).toMatchObject({
+      type: 'system',
+      content: 'Attached to assistant session assistan…',
+      level: 'info',
+    })
     expect(mockLaunchRepl).toHaveBeenCalledTimes(1)
     expect(options.onConnectionError).toHaveBeenCalledTimes(0)
     expect(options.onCancelled).toHaveBeenCalledTimes(0)

@@ -30,6 +30,7 @@ import { trySessionMemoryCompaction } from './sessionMemoryCompact.js'
 // Reserve this many tokens for output during compaction
 // Based on p99.99 of compact summary output being 17,387 tokens.
 const MAX_OUTPUT_TOKENS_FOR_SUMMARY = 20_000
+const TOOL_RESULT_GROWTH_ESTIMATE = 15_000
 const promptStateProvider = createRuntimePromptStateProvider()
 const compactionStateProvider = createRuntimeCompactionStateProvider()
 
@@ -71,6 +72,30 @@ export const WARNING_THRESHOLD_BUFFER_TOKENS = 20_000
 export const ERROR_THRESHOLD_BUFFER_TOKENS = 20_000
 export const MANUAL_COMPACT_BUFFER_TOKENS = 3_000
 
+/**
+ * Context-aware autocompact buffer. Larger context windows need more
+ * headroom because a single turn can produce proportionally more tokens
+ * (longer model outputs + larger tool results).
+ */
+export function getAutocompactBufferTokens(model: string): number {
+  const effectiveWindow = getEffectiveContextWindowSize(model)
+  if (effectiveWindow >= 800_000) return 50_000
+  if (effectiveWindow >= 400_000) return 30_000
+  return AUTOCOMPACT_BUFFER_TOKENS
+}
+
+/**
+ * Estimate the maximum token growth a single turn can produce.
+ * Used for predictive autocompact checks before the API call.
+ */
+export function estimateMaxTurnGrowth(model: string): number {
+  const maxOutput = Math.min(
+    getMaxOutputTokensForModel(model),
+    MAX_OUTPUT_TOKENS_FOR_SUMMARY,
+  )
+  return maxOutput + TOOL_RESULT_GROWTH_ESTIMATE
+}
+
 // Stop trying autocompact after this many consecutive failures.
 // BQ 2026-03-10: 1,279 sessions had 50+ consecutive failures (up to 3,272)
 // in a single session, wasting ~250K API calls/day globally.
@@ -80,7 +105,7 @@ export function getAutoCompactThreshold(model: string): number {
   const effectiveContextWindow = getEffectiveContextWindowSize(model)
 
   const autocompactThreshold =
-    effectiveContextWindow - AUTOCOMPACT_BUFFER_TOKENS
+    effectiveContextWindow - getAutocompactBufferTokens(model)
 
   // Override for easier testing of autocompact
   const envPercent = process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE

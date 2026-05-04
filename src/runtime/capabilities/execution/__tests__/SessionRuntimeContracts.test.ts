@@ -74,6 +74,50 @@ describe('SessionRuntime contracts', () => {
     expect(acpAgentContent).not.toContain('queryEngine.submitMessage')
   })
 
+  test('runtime turns emit canonical event semantics before compatibility projection', () => {
+    expect(content).toContain('createTurnOutputDeltaRuntimeEventFromSDKMessage')
+    expect(content).toContain("type: 'turn.abort_requested'")
+    expect(content).toContain('metadata: canonicalProjection')
+    expect(content).toContain('abortReason: getRuntimeAbortStopReason')
+    expect(content).toContain("this.abortController.abort('interrupt')")
+  })
+
+  test('runtime turns carry canonical input contract categories', () => {
+    expect(content).toContain('KernelTurnInputContract')
+    expect(content).toContain('createRuntimeToolCapabilityPlane')
+    expect(content).toContain('createTurnInputContract(prompt)')
+    expect(content).toContain('input: turnInput')
+    expect(content).toContain("type: 'turn.context_assembled'")
+    expect(content).toContain('source: metadata.phase')
+    expect(queryContent).toContain('onContextAssemblyPrepared')
+    expect(queryContent).toContain('contextCategories')
+    expect(queryContent).toContain("'attachment_batch'")
+    expect(queryContent).toContain("'memory_prefetch'")
+    expect(queryContent).toContain("'skill_prefetch'")
+    expect(headlessRuntimeLoopContent).toContain(
+      "executionMode: toolState.executionMode ?? 'headless'",
+    )
+    expect(headlessRuntimeLoopContent).toContain(
+      'capabilityPlane: toolState.capabilityPlane',
+    )
+    expect(content).toContain('preludeEvents?: readonly RuntimeTurnPreludeEvent[]')
+    expect(content).toContain('preludeEvents,')
+    expect(headlessRuntimeLoopContent).toContain(
+      'projectHeadlessTaskNotification',
+    )
+    expect(headlessRuntimeLoopContent).toContain(
+      'projectCoordinatorLifecycleFromSdkMessage',
+    )
+    expect(headlessRuntimeLoopContent).toContain(
+      "type: 'team.shutdown_requested'",
+    )
+    expect(headlessRuntimeLoopContent).toContain(
+      "type: 'team.cleanup_completed'",
+    )
+    expect(headlessRuntimeLoopContent).toContain('preludeEvents,')
+    expect(acpAgentContent).toContain("executionMode: 'acp'")
+  })
+
   test('keeps MessageSelector optional at the runtime boundary', () => {
     expect(content).toContain(
       "(): typeof import('../../../components/MessageSelector.js') | null",
@@ -127,14 +171,11 @@ describe('SessionRuntime contracts', () => {
     )
   })
 
-  test('headless runtime reloads open owned task context before each runtime turn', () => {
-    expect(headlessRuntimeLoopContent).toContain(
-      'const activeTaskExecutionContext = options.forkSession',
+  test('headless runtime does not implicitly reload open task context before each runtime turn', () => {
+    expect(headlessRuntimeLoopContent).not.toContain(
+      'resolveOpenTaskExecutionContext()',
     )
-    expect(headlessRuntimeLoopContent).toContain(
-      ': await resolveOpenTaskExecutionContext()',
-    )
-    expect(headlessRuntimeLoopContent).toContain(
+    expect(headlessRuntimeLoopContent).not.toContain(
       'activeTaskExecutionContext,',
     )
   })

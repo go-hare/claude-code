@@ -328,7 +328,10 @@ import {
 } from "src/utils/gracefulShutdown.js";
 import { setAllHookEventsEnabled } from "src/utils/hooks/hookEvents.js";
 import { refreshModelCapabilities } from "src/utils/model/modelCapabilities.js";
-import { peekForStdinData, writeToStderr } from "src/utils/process.js";
+import {
+	readTextFromStdinWithTimeout,
+	writeToStderr,
+} from "src/utils/process.js";
 import { setCwd } from "src/utils/Shell.js";
 import { parseSettingSourcesFlag } from "src/utils/settings/constants.js";
 import { plural } from "src/utils/stringUtils.js";
@@ -1204,18 +1207,15 @@ async function getInputPrompt(
 			return process.stdin;
 		}
 		process.stdin.setEncoding("utf8");
-		let data = "";
-		const onData = (chunk: string) => {
-			data += chunk;
-		};
-		process.stdin.on("data", onData);
 		// If no data arrives in 3s, stop waiting and warn. Stdin is likely an
 		// inherited pipe from a parent that isn't writing (subprocess spawned
 		// without explicit stdin handling). 3s covers slow producers like curl,
 		// jq on large files, python with import overhead. The warning makes
 		// silent data loss visible for the rare producer that's slower still.
-		const timedOut = await peekForStdinData(process.stdin, 3000);
-		process.stdin.off("data", onData);
+		const { text: data, timedOut } = await readTextFromStdinWithTimeout(
+			process.stdin,
+			3000,
+		);
 		if (timedOut) {
 			process.stderr.write(
 				"Warning: no stdin data received in 3s, proceeding without it. " +

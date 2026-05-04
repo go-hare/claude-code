@@ -9,6 +9,7 @@ import type { RuntimeProviderSelection } from '../../contracts/provider.js'
 import type {
   KernelTurnAbortRequest,
   KernelTurnId,
+  KernelTurnInputContract,
   KernelTurnRunRequest,
   KernelTurnSnapshot,
 } from '../../contracts/turn.js'
@@ -119,7 +120,11 @@ export class RuntimeConversation {
       return existing
     }
 
-    const turn = this.createTurn(request.turnId)
+    const turn = this.createTurn(
+      request.turnId,
+      undefined,
+      createTurnInputContract(request),
+    )
     turn.start()
     this.turns.set(turn.id, turn)
     this.activeTurn = turn
@@ -197,12 +202,14 @@ export class RuntimeConversation {
   private createTurn(
     turnId: KernelTurnId,
     initialSnapshot?: KernelTurnSnapshot,
+    input?: KernelTurnInputContract,
   ): RuntimeTurnController {
     const createTurn =
       this.options.createTurn ?? (options => new RuntimeTurnController(options))
     return createTurn({
       conversationId: this.id,
       turnId,
+      input,
       initialSnapshot,
       now: this.now,
     })
@@ -277,5 +284,23 @@ export class RuntimeConversation {
 
   private touch(): void {
     this.updatedAt = this.now()
+  }
+}
+
+function createTurnInputContract(
+  request: KernelTurnRunRequest,
+): KernelTurnInputContract | undefined {
+  if (
+    !request.executionMode ||
+    !request.contextAssembly ||
+    !request.capabilityPlane
+  ) {
+    return undefined
+  }
+  return {
+    executionMode: request.executionMode,
+    contextAssembly: request.contextAssembly,
+    capabilityPlane: request.capabilityPlane,
+    metadata: request.metadata,
   }
 }

@@ -2,11 +2,6 @@ import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import type { SSHLaunchOptions } from '../sshLauncher.js'
 
 const callOrder: string[] = []
-const sshInfoMessage = {
-  uuid: 'msg-ssh',
-  type: 'system',
-  content: 'ssh-connected',
-}
 
 const mockCreateSSHSession = mock(async (_options: unknown, _hooks?: unknown) => {
   callOrder.push('create-remote')
@@ -32,18 +27,6 @@ const mockLaunchRepl = mock(
     callOrder.push('launch')
   },
 )
-const mockCreateSystemMessage = mock((_message: string, _variant: string) => {
-  callOrder.push('system-message')
-  return sshInfoMessage
-})
-const mockCreateUserMessage = mock((_options: { content: string }) => {
-  callOrder.push('user-message')
-  return {
-    uuid: 'msg-user',
-    type: 'user',
-    content: _options.content,
-  }
-})
 const mockStatsStore = {
   increment() {},
   set() {},
@@ -54,8 +37,6 @@ const mockStatsStore = {
   },
 } as never
 
-const actualMessages = await import('../../../../utils/messages.js')
-
 mock.module('../../../../ssh/createSSHSession.js', () => ({
   createSSHSession: mockCreateSSHSession,
   createLocalSSHSession: mockCreateLocalSSHSession,
@@ -64,12 +45,6 @@ mock.module('../../../../ssh/createSSHSession.js', () => ({
 
 mock.module('../../../../replLauncher.js', () => ({
   launchRepl: mockLaunchRepl,
-}))
-
-mock.module('../../../../utils/messages.js', () => ({
-  ...actualMessages,
-  createSystemMessage: mockCreateSystemMessage,
-  createUserMessage: mockCreateUserMessage,
 }))
 
 const { runSshRemoteLaunch } = await import('../sshLauncher.js')
@@ -128,8 +103,6 @@ describe('runSshRemoteLaunch', () => {
     mockCreateSSHSession.mockClear()
     mockCreateLocalSSHSession.mockClear()
     mockLaunchRepl.mockClear()
-    mockCreateSystemMessage.mockClear()
-    mockCreateUserMessage.mockClear()
   })
 
   test('creates a remote SSH session and launches the REPL', async () => {
@@ -153,11 +126,16 @@ describe('runSshRemoteLaunch', () => {
     expect(options.stateWriter.setDirectConnectServerUrl).toHaveBeenCalledWith(
       'example-host',
     )
-    expect(mockCreateSystemMessage).toHaveBeenCalledWith(
-      'SSH session to example-host\nRemote cwd: /tmp/remote-cwd\nAuth: unix socket -R -> local proxy',
-      'info',
-    )
     expect(mockLaunchRepl).toHaveBeenCalledTimes(1)
+    const launchArgs = mockLaunchRepl.mock.calls[0] as unknown as
+      | [unknown, unknown, { initialMessages?: unknown[] }, unknown]
+      | undefined
+    expect(launchArgs?.[2].initialMessages?.[0]).toMatchObject({
+      type: 'system',
+      content:
+        'SSH session to example-host\nRemote cwd: /tmp/remote-cwd\nAuth: unix socket -R -> local proxy',
+      level: 'info',
+    })
     expect(options.onConnectionError).toHaveBeenCalledTimes(0)
   })
 
@@ -171,10 +149,15 @@ describe('runSshRemoteLaunch', () => {
     expect(options.stateWriter.setDirectConnectServerUrl).toHaveBeenCalledWith(
       'local',
     )
-    expect(mockCreateSystemMessage).toHaveBeenCalledWith(
-      'Local ssh-proxy test session\ncwd: /tmp/local-cwd\nAuth: unix socket -> local proxy',
-      'info',
-    )
+    const launchArgs = mockLaunchRepl.mock.calls[0] as unknown as
+      | [unknown, unknown, { initialMessages?: unknown[] }, unknown]
+      | undefined
+    expect(launchArgs?.[2].initialMessages?.[0]).toMatchObject({
+      type: 'system',
+      content:
+        'Local ssh-proxy test session\ncwd: /tmp/local-cwd\nAuth: unix socket -> local proxy',
+      level: 'info',
+    })
   })
 
   test('routes SSH setup failures through the provided error handler', async () => {

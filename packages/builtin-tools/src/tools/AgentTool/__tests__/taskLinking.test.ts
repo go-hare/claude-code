@@ -39,15 +39,10 @@ describe('taskLinking', () => {
 
   test('rejects unknown task_id instead of launching untracked work', async () => {
     const warnings: string[] = []
-    const inheritedContext = {
-      taskListId: 'session-1',
-      taskId: 'parent-task',
-    }
 
     await expect(
       resolveAgentTaskExecutionContext({
         taskId: 'missing-task',
-        inheritedContext,
         explicitOwnedFiles: undefined,
         getTaskListId: () => 'session-1',
         getTask: async () => undefined,
@@ -82,5 +77,16 @@ describe('taskLinking', () => {
         ownedFiles: ['src/owned.ts'],
       },
     })
+  })
+
+  test('does not inherit parent task context when task_id is omitted', async () => {
+    const result = await resolveAgentTaskExecutionContext({
+      explicitOwnedFiles: undefined,
+      getTaskListId: () => 'session-1',
+      getTask: async () => undefined,
+      getTaskOwnedFiles: () => undefined,
+    })
+
+    expect(result).toEqual({})
   })
 })

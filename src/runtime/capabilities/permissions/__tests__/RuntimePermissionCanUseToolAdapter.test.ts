@@ -71,7 +71,19 @@ function requireEventPayload(envelope: RuntimeEventEnvelope) {
 function auditPayloads(eventBus: RuntimeEventBus): unknown[] {
   return eventBus
     .replay({ conversationId: 'conversation-1' })
-    .map(envelope => requireEventPayload(envelope).payload)
+    .map(envelope => {
+      const payload = requireEventPayload(envelope)
+        .payload as Record<string, unknown>
+      return {
+        permissionRequestId: payload.permissionRequestId,
+        toolName: payload.toolName,
+        action: payload.action,
+        risk: payload.risk,
+        decidedBy: payload.decidedBy,
+        decision: payload.decision,
+        reason: payload.reason,
+      }
+    })
 }
 
 describe('wrapCanUseToolWithRuntimePermissions', () => {
@@ -107,6 +119,9 @@ describe('wrapCanUseToolWithRuntimePermissions', () => {
         toolName: 'Read',
         action: 'tool.call',
         risk: 'low',
+        decidedBy: undefined,
+        decision: undefined,
+        reason: undefined,
       },
       {
         permissionRequestId: 'tool-use-1',
@@ -187,6 +202,9 @@ describe('wrapCanUseToolWithRuntimePermissions', () => {
         toolName: 'Read',
         action: 'tool.call',
         risk: 'destructive',
+        decidedBy: undefined,
+        decision: undefined,
+        reason: undefined,
       },
       {
         permissionRequestId: 'tool-use-1',

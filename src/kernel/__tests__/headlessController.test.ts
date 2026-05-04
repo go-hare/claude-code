@@ -197,4 +197,77 @@ describe('normalizeKernelHeadlessEvent', () => {
       text: 'hello',
     })
   })
+
+  test('normalizes terminal and SDK projections with shared helpers', () => {
+    expect(
+      normalizeKernelHeadlessEvent({
+        schemaVersion: 'kernel.runtime.v1',
+        messageId: 'message-2',
+        sequence: 2,
+        timestamp: '2026-04-30T00:00:00.000Z',
+        source: 'kernel_runtime',
+        kind: 'event',
+        conversationId: 'conversation-1',
+        turnId: 'turn-1',
+        payload: {
+          type: 'turn.completed',
+          replayable: true,
+          payload: {
+            stopReason: 'max_tokens',
+          },
+        },
+      }),
+    ).toMatchObject({
+      type: 'turn.completed',
+      stopReason: 'max_tokens',
+    })
+
+    expect(
+      normalizeKernelHeadlessEvent({
+        schemaVersion: 'kernel.runtime.v1',
+        messageId: 'message-3',
+        sequence: 3,
+        timestamp: '2026-04-30T00:00:00.000Z',
+        source: 'kernel_runtime',
+        kind: 'event',
+        conversationId: 'conversation-1',
+        turnId: 'turn-1',
+        payload: {
+          type: 'turn.failed',
+          replayable: true,
+          payload: {
+            error: 'boom',
+          },
+        },
+      }),
+    ).toMatchObject({
+      type: 'turn.failed',
+      error: 'boom',
+    })
+
+    const sdkPayload = {
+      type: 'assistant',
+      text: 'sdk text',
+    }
+    expect(
+      normalizeKernelHeadlessEvent({
+        schemaVersion: 'kernel.runtime.v1',
+        messageId: 'message-4',
+        sequence: 4,
+        timestamp: '2026-04-30T00:00:00.000Z',
+        source: 'kernel_runtime',
+        kind: 'event',
+        conversationId: 'conversation-1',
+        turnId: 'turn-1',
+        payload: {
+          type: 'headless.sdk_message',
+          replayable: true,
+          payload: sdkPayload,
+        },
+      }),
+    ).toMatchObject({
+      type: 'sdk.message',
+      message: sdkPayload,
+    })
+  })
 })

@@ -33,6 +33,22 @@ export type KernelCapabilityDescriptor = {
   metadata?: Record<string, unknown>
 }
 
+export type KernelCapabilityPlaneDenial = {
+  capability: KernelCapabilityName
+  actor: 'runtime' | 'host' | 'mode' | 'tool' | 'agent'
+  reason: string
+  metadata?: Record<string, unknown>
+}
+
+export type KernelCapabilityPlane = {
+  runtimeSupports: readonly KernelCapabilityName[]
+  hostGrants: readonly KernelCapabilityName[]
+  modePermits: readonly KernelCapabilityName[]
+  toolRequires: readonly KernelCapabilityName[]
+  denies?: readonly KernelCapabilityPlaneDenial[]
+  metadata?: Record<string, unknown>
+}
+
 export type KernelCapabilityReloadScope =
   | { type: 'capability'; name: KernelCapabilityName }
   | { type: 'dependency-closure'; name: KernelCapabilityName }

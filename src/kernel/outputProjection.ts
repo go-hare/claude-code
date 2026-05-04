@@ -12,6 +12,28 @@ import {
   type LegacyStreamJsonProjectionOptions,
   type SDKResultTurnOutcome,
 } from '../runtime/core/events/compatProjection.js'
+export {
+  getCanonicalProjectionFromKernelEvent,
+  getCompatibilityProjectionFromKernelEvent,
+  getKernelRuntimeCoordinatorLifecycleProjection,
+  getKernelRuntimeLifecycleProjection,
+  getKernelRuntimeTaskNotificationProjection,
+  getKernelRuntimeTerminalProjection,
+  getKernelRuntimeTerminalProjectionFromSDKResultMessage,
+  getTextOutputDeltaFromKernelRuntimeEnvelope,
+  handleKernelRuntimeHostEvent,
+  hasCanonicalProjection,
+  hasCompatibilityProjection,
+  isKernelTurnTerminalEvent as isKernelRuntimeHostTurnTerminalEvent,
+  type KernelRuntimeCoordinatorLifecycleEventType,
+  type KernelRuntimeCoordinatorLifecycleProjection,
+  type KernelRuntimeHostEventCallbacks,
+  type KernelRuntimeHostStopReason,
+  type KernelRuntimeLifecycleProjection,
+  type KernelRuntimeTaskNotificationProjection,
+  type KernelRuntimeTerminalProjection,
+  type KernelRuntimeTextOutputDelta,
+} from '../runtime/core/events/KernelRuntimeHostProjection.js'
 import { emitHeadlessRuntimeMessage } from '../runtime/capabilities/execution/internal/headlessStreamEmission.js'
 
 export type KernelLegacySDKMessage = SDKMessage

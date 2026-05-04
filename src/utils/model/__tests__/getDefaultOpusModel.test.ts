@@ -5,7 +5,12 @@ import {
   setSessionSettingsCache,
 } from 'src/utils/settings/settingsCache.js'
 import { ALL_MODEL_CONFIGS } from '../configs.js'
-import { getDefaultOpusModel } from '../model.js'
+import {
+  getDefaultHaikuModel as getDefaultHaikuModelFromModel,
+  getDefaultOpusModel,
+  getDefaultSonnetModel,
+  isOpus1mMergeEnabled,
+} from '../model.js'
 import { getOpus46Option } from '../modelOptions.js'
 import { getModelStrings } from '../modelStrings.js'
 
@@ -17,6 +22,9 @@ const envKeys = [
   'CLAUDE_CODE_USE_OPENAI',
   'CLAUDE_CODE_USE_GROK',
   'ANTHROPIC_DEFAULT_OPUS_MODEL',
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_MODEL',
+  'ANTHROPIC_BASE_URL',
   'OPENAI_DEFAULT_OPUS_MODEL',
   'GEMINI_DEFAULT_OPUS_MODEL',
 ] as const
@@ -78,6 +86,27 @@ describe('getDefaultOpusModel', () => {
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
     process.env.OPENAI_DEFAULT_OPUS_MODEL = 'gpt-5-turbo'
     expect(getDefaultOpusModel()).toBe('gpt-5-turbo')
+  })
+
+  test('skips alias fallback for opus aliases to avoid recursion', () => {
+    process.env.ANTHROPIC_MODEL = 'opus[1m]'
+    expect(getDefaultOpusModel()).toBe(ALL_MODEL_CONFIGS.opus47.firstParty)
+  })
+
+  test('skips alias fallback for sonnet aliases to avoid recursion', () => {
+    process.env.ANTHROPIC_MODEL = 'sonnet[1m]'
+    expect(getDefaultSonnetModel()).toBe(getModelStrings().sonnet46)
+  })
+
+  test('skips alias fallback for haiku aliases to avoid recursion', () => {
+    process.env.ANTHROPIC_MODEL = 'haiku[1m]'
+    expect(getDefaultHaikuModelFromModel()).toBe(getModelStrings().haiku45)
+  })
+
+  test('disables opus 1m merge on custom anthropic proxy base urls', () => {
+    process.env.ANTHROPIC_API_KEY = 'dummy'
+    process.env.ANTHROPIC_BASE_URL = 'https://proxy.example.com'
+    expect(isOpus1mMergeEnabled()).toBe(false)
   })
 })
 

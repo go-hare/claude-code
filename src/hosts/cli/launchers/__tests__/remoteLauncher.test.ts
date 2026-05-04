@@ -2,16 +2,6 @@ import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import type { RemoteLaunchOptions } from '../remoteLauncher.js'
 
 const callOrder: string[] = []
-const remoteInfoMessage = {
-  uuid: 'msg-remote',
-  type: 'system',
-  content: 'remote-info',
-}
-const initialUserMessage = {
-  uuid: 'msg-user',
-  type: 'user',
-  content: 'remote prompt',
-}
 
 const mockGetBranch = mock(async () => 'feature/test-branch')
 const mockTeleportToRemoteWithErrorHandling = mock(
@@ -53,14 +43,6 @@ const mockCreateRemoteSessionConfig = mock(
     }
   },
 )
-const mockCreateSystemMessage = mock((_message: string, _variant: string) => {
-  callOrder.push('system-message')
-  return remoteInfoMessage
-})
-const mockCreateUserMessage = mock((_options: { content: string }) => {
-  callOrder.push('user-message')
-  return initialUserMessage
-})
 const mockFilterCommandsForRemoteMode = mock((commands: unknown[]) => {
   callOrder.push('filter-commands')
   return commands
@@ -85,7 +67,6 @@ const mockStatsStore = {
   },
 } as never
 
-const actualMessages = await import('../../../../utils/messages.js')
 const actualCommands = await import('../../../../commands.js')
 
 mock.module('../remoteGitDeps.js', () => ({
@@ -115,12 +96,6 @@ mock.module('../launchAuthDeps.js', () => ({
 
 mock.module('../../../../remote/RemoteSessionManager.js', () => ({
   createRemoteSessionConfig: mockCreateRemoteSessionConfig,
-}))
-
-mock.module('../../../../utils/messages.js', () => ({
-  ...actualMessages,
-  createSystemMessage: mockCreateSystemMessage,
-  createUserMessage: mockCreateUserMessage,
 }))
 
 mock.module('../../../../commands.js', () => ({
@@ -184,8 +159,6 @@ describe('runRemoteLaunch', () => {
     mockPrepareApiRequest.mockClear()
     mockGetClaudeAIOAuthTokens.mockClear()
     mockCreateRemoteSessionConfig.mockClear()
-    mockCreateSystemMessage.mockClear()
-    mockCreateUserMessage.mockClear()
     mockFilterCommandsForRemoteMode.mockClear()
     mockLaunchRepl.mockClear()
   })
@@ -201,8 +174,6 @@ describe('runRemoteLaunch', () => {
       'enable-remote',
       'prepare-auth',
       'remote-config',
-      'system-message',
-      'user-message',
       'filter-commands',
       'launch',
     ])
@@ -215,6 +186,18 @@ describe('runRemoteLaunch', () => {
     )
     expect(options.onConnectionError).toHaveBeenCalledTimes(0)
     expect(options.onCreatedWithoutTui).toHaveBeenCalledTimes(0)
+    const launchArgs = mockLaunchRepl.mock.calls[0] as unknown as
+      | [unknown, unknown, { initialMessages?: unknown[] }, unknown]
+      | undefined
+    expect(launchArgs?.[2].initialMessages?.[0]).toMatchObject({
+      type: 'system',
+      content: expect.stringContaining('/remote-session-123?m=0'),
+      level: 'info',
+    })
+    expect(launchArgs?.[2].initialMessages?.[1]).toMatchObject({
+      type: 'user',
+      message: { content: 'remote prompt' },
+    })
   })
 
   test('hands off to the non-TUI callback when remote TUI is disabled', async () => {

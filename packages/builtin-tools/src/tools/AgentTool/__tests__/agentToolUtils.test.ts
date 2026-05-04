@@ -331,6 +331,35 @@ describe("resolveAgentTools", () => {
     expect(mainThread.invalidTools).toEqual([]);
   });
 
+  test("filters sub-agent tools through the parent capability plane", () => {
+    const definition = {
+      tools: ["Safe", "Danger"],
+      disallowedTools: [],
+      source: "built-in",
+      permissionMode: "default",
+    } as any;
+    const availableTools = [{ name: "Safe" }, { name: "Danger" }] as any;
+    const parentCapabilityPlane = {
+      runtimeSupports: ["tool:Safe", "tool:Danger"],
+      hostGrants: ["tool:Safe"],
+      modePermits: ["tool:Safe", "tool:Danger"],
+      toolRequires: [],
+    } as any;
+
+    const subAgent = resolveAgentTools(
+      definition,
+      availableTools,
+      false,
+      false,
+      parentCapabilityPlane,
+    );
+
+    expect(subAgent.resolvedTools.map((tool: any) => tool.name)).toEqual(["Safe"]);
+    expect(subAgent.invalidTools).toEqual(["Danger"]);
+    expect(subAgent.capabilityPlane.hostGrants).toEqual(["tool:Safe"]);
+    expect(subAgent.capabilityPlane.modePermits).toEqual(["tool:Danger", "tool:Safe"]);
+  });
+
   test("keeps Agent for subagents when it survives filtering", () => {
     const definition = {
       tools: ["Agent(worker)"],

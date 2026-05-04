@@ -10,31 +10,126 @@ describe('runReplForegroundQueryController', () => {
     const enqueuePrompt = mock(() => {})
     const runTurn = mock(async () => {})
 
-    await runReplForegroundQueryController({
-      turn: {
-        newMessages: [
-          {
-            type: 'user',
-            isMeta: false,
-            message: { content: 'hello world' },
-          },
-        ] as any,
-        abortController: new AbortController(),
-        shouldQuery: true,
-        additionalAllowedTools: [],
-        mainLoopModelParam: 'sonnet',
-      },
-      runtime: {
-        runTurn,
-        queryGuard,
-      },
-      host: createHostHarness({
-        enqueuePrompt,
+    await expect(
+      runReplForegroundQueryController({
+        turn: {
+          newMessages: [
+            {
+              type: 'user',
+              isMeta: false,
+              message: { content: 'hello world' },
+            },
+          ] as any,
+          abortController: new AbortController(),
+          shouldQuery: true,
+          additionalAllowedTools: [],
+          mainLoopModelParam: 'sonnet',
+        },
+        runtime: {
+          runTurn,
+          queryGuard,
+        },
+        host: createHostHarness({
+          enqueuePrompt,
+        }),
       }),
-    })
+    ).resolves.toBe(false)
 
     expect(enqueuePrompt).toHaveBeenCalledWith('hello world')
     expect(runTurn).toHaveBeenCalledTimes(0)
+  })
+
+  test('re-enqueues original queued commands when a foreground query is already running', async () => {
+    const queryGuard = new QueryGuard()
+    expect(queryGuard.tryStart()).not.toBeNull()
+    const enqueuePrompt = mock(() => {})
+    const enqueueQueuedCommand = mock(() => {})
+    const runTurn = mock(async () => {})
+    const queuedCommand = {
+      value: 'scheduled follow-up',
+      mode: 'prompt',
+      autonomy: {
+        runId: 'run-1',
+        trigger: 'scheduled-task',
+      },
+    }
+
+    await expect(
+      runReplForegroundQueryController({
+        turn: {
+          newMessages: [
+            {
+              type: 'user',
+              isMeta: false,
+              message: { content: 'scheduled follow-up' },
+            },
+          ] as any,
+          abortController: new AbortController(),
+          shouldQuery: true,
+          additionalAllowedTools: [],
+          mainLoopModelParam: 'sonnet',
+          queuedCommand: queuedCommand as any,
+        },
+        runtime: {
+          runTurn,
+          queryGuard,
+        },
+        host: createHostHarness({
+          enqueuePrompt,
+          enqueueQueuedCommand,
+        }),
+      }),
+    ).resolves.toBe(false)
+
+    expect(enqueueQueuedCommand).toHaveBeenCalledWith(queuedCommand)
+    expect(enqueuePrompt).not.toHaveBeenCalled()
+    expect(runTurn).toHaveBeenCalledTimes(0)
+  })
+
+  test('re-enqueues original queued command when onBeforeQuery vetoes execution', async () => {
+    const queryGuard = new QueryGuard()
+    const enqueueQueuedCommand = mock(() => {})
+    const runTurn = mock(async () => {})
+    const queuedCommand = {
+      value: 'scheduled follow-up',
+      mode: 'prompt',
+      autonomy: {
+        runId: 'run-2',
+        trigger: 'scheduled-task',
+      },
+    }
+    const host = createHostHarness({
+      enqueueQueuedCommand,
+    })
+    host.onBeforeQueryCallback = mock(async () => false)
+
+    await expect(
+      runReplForegroundQueryController({
+        turn: {
+          newMessages: [
+            {
+              type: 'user',
+              isMeta: false,
+              message: { content: 'scheduled follow-up' },
+            },
+          ] as any,
+          abortController: new AbortController(),
+          shouldQuery: true,
+          additionalAllowedTools: [],
+          mainLoopModelParam: 'sonnet',
+          input: 'scheduled follow-up',
+          queuedCommand: queuedCommand as any,
+        },
+        runtime: {
+          runTurn,
+          queryGuard,
+        },
+        host,
+      }),
+    ).resolves.toBe(false)
+
+    expect(enqueueQueuedCommand).toHaveBeenCalledWith(queuedCommand)
+    expect(runTurn).not.toHaveBeenCalled()
   })
 
   test('runs foreground query and finalizes host state on success', async () => {
@@ -47,27 +142,29 @@ describe('runReplForegroundQueryController', () => {
       loadingStartTimeMs: Date.now() - 31_000,
     })
 
-    await runReplForegroundQueryController({
-      turn: {
-        newMessages: [
-          {
-            type: 'user',
-            isMeta: false,
-            message: { content: 'ship it' },
-          },
-        ] as any,
-        abortController,
-        shouldQuery: true,
-        additionalAllowedTools: ['Read'],
-        mainLoopModelParam: 'sonnet',
-        input: 'ship it',
-      },
-      runtime: {
-        runTurn,
-        queryGuard,
-      },
-      host,
-    })
+    await expect(
+      runReplForegroundQueryController({
+        turn: {
+          newMessages: [
+            {
+              type: 'user',
+              isMeta: false,
+              message: { content: 'ship it' },
+            },
+          ] as any,
+          abortController,
+          shouldQuery: true,
+          additionalAllowedTools: ['Read'],
+          mainLoopModelParam: 'sonnet',
+          input: 'ship it',
+        },
+        runtime: {
+          runTurn,
+          queryGuard,
+        },
+        host,
+      }),
+    ).resolves.toBe(true)
 
     expect(host.mrOnBeforeQuery).toHaveBeenCalledTimes(1)
     expect(runTurn).toHaveBeenCalledTimes(1)
@@ -81,6 +178,7 @@ describe('runReplForegroundQueryController', () => {
 
 function createHostHarness(overrides?: {
   enqueuePrompt?: (value: string) => void
+  enqueueQueuedCommand?: (command: unknown) => void
   loadingStartTimeMs?: number
 }) {
   const state = {
@@ -103,6 +201,8 @@ function createHostHarness(overrides?: {
   const totalPausedMsRef = { current: 0 }
   const inputValueRef = { current: '' }
   const enqueuePrompt = overrides?.enqueuePrompt ?? mock(() => {})
+  const enqueueQueuedCommand =
+    overrides?.enqueueQueuedCommand ?? mock((_command: unknown) => {})
 
   return {
     state,
@@ -147,5 +247,6 @@ function createHostHarness(overrides?: {
     removeLastFromHistory: mock(() => {}),
     restoreMessage: mock((_message: unknown) => {}),
     enqueuePrompt,
+    enqueueQueuedCommand,
   } as any
 }

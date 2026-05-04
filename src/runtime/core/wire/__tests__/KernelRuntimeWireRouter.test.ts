@@ -2247,6 +2247,54 @@ describe('KernelRuntimeWireRouter', () => {
     })
   })
 
+  test('parses run_turn input contract from an NDJSON command line', () => {
+    const command = parseKernelRuntimeCommandLine(
+      JSON.stringify({
+        schemaVersion: KERNEL_RUNTIME_COMMAND_SCHEMA_VERSION,
+        type: 'run_turn',
+        requestId: 'run-input-1',
+        conversationId: 'conversation-1',
+        turnId: 'turn-1',
+        prompt: 'hello',
+        executionMode: 'headless',
+        contextAssembly: {
+          modelVisible: [
+            {
+              type: 'turn.prompt',
+              category: 'model_visible',
+              source: 'user_input',
+            },
+          ],
+          hostVisible: [],
+          operatorDebug: [],
+        },
+        capabilityPlane: {
+          runtimeSupports: ['tool:Read'],
+          hostGrants: ['tool:Read'],
+          modePermits: ['tool:Read'],
+          toolRequires: ['tool:Read'],
+        },
+      }),
+    )
+
+    expect(command).toMatchObject({
+      type: 'run_turn',
+      executionMode: 'headless',
+      contextAssembly: {
+        modelVisible: [
+          {
+            type: 'turn.prompt',
+            category: 'model_visible',
+            source: 'user_input',
+          },
+        ],
+      },
+      capabilityPlane: {
+        runtimeSupports: ['tool:Read'],
+      },
+    })
+  })
+
   test('parses decide_permission from an NDJSON command line', () => {
     const command = parseKernelRuntimeCommandLine(
       JSON.stringify({

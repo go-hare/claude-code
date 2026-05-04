@@ -146,6 +146,14 @@ describe("truncate", () => {
     expect(truncate("hello", 10)).toBe("hello");
   });
 
+  test("returns empty string for undefined input", () => {
+    expect(truncate(undefined, 10)).toBe("");
+  });
+
+  test("returns empty string for null input", () => {
+    expect(truncate(null, 10)).toBe("");
+  });
+
   test("truncates long string", () => {
     const result = truncate("hello world foo bar", 10);
     expect(result).toContain("…");

@@ -216,6 +216,9 @@ export type KernelRuntimeRunTurnCommand =
     prompt: KernelTurnRunRequest['prompt']
     attachments?: KernelTurnRunRequest['attachments']
     providerOverride?: RuntimeProviderSelection
+    executionMode?: KernelTurnRunRequest['executionMode']
+    contextAssembly?: KernelTurnRunRequest['contextAssembly']
+    capabilityPlane?: KernelTurnRunRequest['capabilityPlane']
   }
 
 export type KernelRuntimeAbortTurnCommand =

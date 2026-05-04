@@ -93,7 +93,11 @@ import type {
   RuntimeTeamMessageRequest,
   RuntimeTeamMessageResult,
 } from '../../contracts/team.js'
-import type { KernelTurnId, KernelTurnSnapshot } from '../../contracts/turn.js'
+import type {
+  KernelTurnId,
+  KernelTurnRunRequest,
+  KernelTurnSnapshot,
+} from '../../contracts/turn.js'
 import type {
   KernelRuntimeCompanionAction,
   KernelRuntimeCompanionReactionRequest,
@@ -150,12 +154,9 @@ export type KernelRuntimeWireConversation = {
   readonly id: KernelConversationId
   readonly activeTurnId: KernelTurnId | undefined
   snapshot(): KernelConversationSnapshot
-  runTurn(request: {
-    turnId: KernelTurnId
-    prompt: string | readonly unknown[]
-    attachments?: readonly unknown[]
-    metadata?: Record<string, unknown>
-  }): KernelTurnSnapshot
+  runTurn(
+    request: Omit<KernelTurnRunRequest, 'conversationId'>,
+  ): KernelTurnSnapshot
   completeTurn(
     turnId: KernelTurnId,
     stopReason?: string | null,
@@ -996,6 +997,9 @@ export class KernelRuntimeWireRouter {
       turnId: command.turnId,
       prompt: command.prompt,
       attachments: command.attachments,
+      executionMode: command.executionMode,
+      contextAssembly: command.contextAssembly,
+      capabilityPlane: command.capabilityPlane,
       metadata: command.metadata,
     })
     await this.recordConversationSnapshot(conversation, snapshot, command)

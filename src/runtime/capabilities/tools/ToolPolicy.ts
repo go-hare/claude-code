@@ -13,9 +13,12 @@ import {
   REPL_ONLY_TOOLS,
   isReplModeEnabled,
 } from '@go-hare/builtin-tools/tools/REPLTool/constants.js'
-import { getDenyRuleForTool } from '../../../utils/permissions/permissions.js'
 import { isEnvTruthy } from '../../../utils/envUtils.js'
 import { getAllBaseTools, getSimpleModeTools } from './ToolCatalog.js'
+import {
+  createRuntimeToolCapabilityPlane,
+  filterToolsByRuntimeToolCapabilityPlane,
+} from './ToolCapabilityPlane.js'
 
 export { getAllBaseTools } from './ToolCatalog.js'
 
@@ -59,7 +62,10 @@ export function filterToolsByDenyRules<
     mcpInfo?: { serverName: string; toolName: string }
   },
 >(tools: readonly T[], permissionContext: ToolPermissionContext): T[] {
-  return tools.filter(tool => !getDenyRuleForTool(permissionContext, tool))
+  return filterToolsByRuntimeToolCapabilityPlane(
+    tools,
+    createRuntimeToolCapabilityPlane(tools, permissionContext),
+  )
 }
 
 export function getTools(permissionContext: ToolPermissionContext): Tools {

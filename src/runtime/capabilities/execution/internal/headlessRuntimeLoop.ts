@@ -14,7 +14,11 @@ import type { ToolPermissionContext } from 'src/Tool.js'
 import type { ThinkingConfig } from 'src/utils/thinking.js'
 import { assembleToolPool, filterToolsByDenyRules } from 'src/tools.js'
 import uniqBy from 'lodash-es/uniqBy.js'
-import { mergeAndFilterTools } from 'src/utils/toolPool.js'
+import { resolveMergedToolState } from 'src/utils/toolPool.js'
+import {
+  createRuntimeCoordinatorToolCapabilityPlane,
+  stripRuntimeCoordinatorToolCapabilityPlane,
+} from 'src/runtime/capabilities/coordinator/CoordinatorCapabilityPlane.js'
 import {
   logEvent,
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
@@ -318,6 +322,15 @@ import {
   observeHeadlessBackgroundSdkMessage,
 } from './headlessBackgroundWork.js'
 import {
+  projectHeadlessTaskNotification,
+  type RuntimeTurnPreludeEvent,
+} from './headlessTaskNotificationProjection.js'
+import {
+  createCoordinatorLifecycleEvent,
+  projectCoordinatorLifecycleFromSdkMessage,
+  type CoordinatorLifecycleRuntimeEvent,
+} from './headlessCoordinatorLifecycleEvents.js'
+import {
   createHeadlessRuntimeStreamPublisher,
   createHeadlessStreamCollector,
 } from './headlessStreaming.js'
@@ -378,7 +391,6 @@ import {
 } from '../../../../utils/teammateMailbox.js'
 import { removeTeammateFromTeamFile } from '../../../../utils/swarm/teamHelpers.js'
 import {
-  resolveOpenTaskExecutionContext,
   unassignTeammateTasks,
 } from '../../../../utils/tasks.js'
 import { getRunningTasks } from '../../../../utils/task/framework.js'
@@ -1005,6 +1017,8 @@ function runHeadlessStreaming(
     | undefined
   let inputClosed = false
   let shutdownPromptInjected = false
+  let shutdownRequestEventEmitted = false
+  let shutdownCompletedEventEmitted = false
   let heldBackResult: StdoutMessage | null = null
   let heldBackAssistantMessages: StdoutMessage[] = []
   let terminalResultEmitted = false
@@ -1171,12 +1185,86 @@ function runHeadlessStreaming(
     pendingLastEmittedEntry: null,
   }
 
-  const observeHeadlessBackgroundSdkEvent = (message: StdoutMessage) => {
+  const emitCoordinatorLifecycleEvent = (
+    event: CoordinatorLifecycleRuntimeEvent,
+  ): void => {
+    headlessConversation.eventBus.emit({
+      conversationId: headlessConversation.id,
+      ...event,
+    })
+  }
+
+  const emitTeamLifecycleEvent = (
+    args: Omit<
+      Parameters<typeof createCoordinatorLifecycleEvent>[0],
+      'teamName' | 'activeTeammateCount'
+    > & {
+      teamName?: string
+      activeTeammateCount?: number
+    },
+  ): void => {
+    const teamContext = getAppState().teamContext
+    emitCoordinatorLifecycleEvent(
+      createCoordinatorLifecycleEvent({
+        ...args,
+        teamName: args.teamName ?? teamContext?.teamName,
+        activeTeammateCount:
+          args.activeTeammateCount ??
+          (teamContext?.teammates
+            ? Object.keys(teamContext.teammates).length
+            : undefined),
+      }),
+    )
+  }
+
+  const emitTeamShutdownRequested = (reason: string): void => {
+    if (shutdownRequestEventEmitted) {
+      return
+    }
+    shutdownRequestEventEmitted = true
+    emitTeamLifecycleEvent({
+      type: 'team.shutdown_requested',
+      phase: 'team_shutdown',
+      state: 'requested',
+      source: 'headless_team_shutdown',
+      reason,
+    })
+  }
+
+  const emitTeamShutdownCompleted = (teamName?: string): void => {
+    if (shutdownCompletedEventEmitted) {
+      return
+    }
+    shutdownCompletedEventEmitted = true
+    emitTeamLifecycleEvent({
+      type: 'team.shutdown_completed',
+      phase: 'team_shutdown',
+      state: 'completed',
+      source: 'headless_team_shutdown',
+      teamName,
+      activeTeammateCount: 0,
+    })
+  }
+
+  const observeHeadlessBackgroundSdkEvent = (
+    message: StdoutMessage,
+    options: { emitLifecycle?: boolean } = {},
+  ) => {
     observeHeadlessBackgroundSdkMessage(
       message,
       backgroundEventTracking,
       headlessConversation.activeTurnId,
     )
+    if (options.emitLifecycle === false) {
+      return
+    }
+    const lifecycleEvent = projectCoordinatorLifecycleFromSdkMessage(
+      message,
+      headlessConversation.activeTurnId,
+    )
+    if (lifecycleEvent) {
+      emitCoordinatorLifecycleEvent(lifecycleEvent)
+    }
   }
 
   const drainTrackedSdkEvents = (): StdoutMessage[] => {
@@ -1485,22 +1573,21 @@ function runHeadlessStreaming(
   // Shared tool assembly for runtime turns and the get_context_usage control request.
   // Closes over the runtime MCP service so both call
   // sites see late-connecting servers.
-  const buildAllTools = (appState: AppState): Tools => {
+  const buildAllToolState = (appState: AppState) => {
     const assembledTools = assembleToolPool(
       appState.toolPermissionContext,
       appState.mcp.tools,
     )
-    let allTools = dedupeToolsByName(
-      mergeAndFilterTools(
-        [
-          ...tools,
-          ...mcpService.getSdkTools(),
-          ...mcpService.getDynamicState().tools,
-        ],
-        assembledTools,
-        appState.toolPermissionContext.mode,
-      ),
-    )
+    const mergedState = resolveMergedToolState({
+      initialTools: [
+        ...tools,
+        ...mcpService.getSdkTools(),
+        ...mcpService.getDynamicState().tools,
+      ],
+      assembled: assembledTools,
+      mode: appState.toolPermissionContext.mode,
+    })
+    let allTools = dedupeToolsByName(mergedState.tools)
     if (options.permissionPromptToolName) {
       allTools = allTools.filter(
         tool => !toolMatchesName(tool, options.permissionPromptToolName!),
@@ -1514,8 +1601,19 @@ function runHeadlessStreaming(
         allTools = [...allTools, syntheticOutputResult.tool]
       }
     }
-    return allTools
+    return {
+      tools: allTools,
+      capabilityPlane:
+        mergedState.executionMode === 'coordinator'
+          ? stripRuntimeCoordinatorToolCapabilityPlane(
+              createRuntimeCoordinatorToolCapabilityPlane(allTools),
+            )
+          : mergedState.capabilityPlane,
+      executionMode: mergedState.executionMode,
+    }
   }
+  const buildAllTools = (appState: AppState): Tools =>
+    buildAllToolState(appState).tools
 
   // Bridge handle for remote-control (SDK control message).
   // Mirrors the REPL's useReplBridge hook: the handle is created when
@@ -1626,14 +1724,38 @@ function runHeadlessStreaming(
       return
     }
     didCleanupSession = true
-    if (suggestionState.inflightPromise) {
-      await Promise.race([suggestionState.inflightPromise, sleep(5000)])
+    emitTeamLifecycleEvent({
+      type: 'team.cleanup_started',
+      phase: 'team_cleanup',
+      state: 'started',
+      source: 'headless_team_cleanup',
+    })
+    try {
+      if (suggestionState.inflightPromise) {
+        await Promise.race([suggestionState.inflightPromise, sleep(5000)])
+      }
+      suggestionState.abortController?.abort()
+      suggestionState.abortController = null
+      await finalizePendingAsyncHooks()
+      emitTeamLifecycleEvent({
+        type: 'team.cleanup_completed',
+        phase: 'team_cleanup',
+        state: 'completed',
+        source: 'headless_team_cleanup',
+      })
+    } catch (error) {
+      emitTeamLifecycleEvent({
+        type: 'team.cleanup_failed',
+        phase: 'team_cleanup',
+        state: 'failed',
+        source: 'headless_team_cleanup',
+        error: errorMessage(error),
+      })
+      throw error
+    } finally {
+      await session.cleanup()
+      output.done()
     }
-    suggestionState.abortController?.abort()
-    suggestionState.abortController = null
-    await finalizePendingAsyncHooks()
-    await session.cleanup()
-    output.done()
   }
 
   // Abort the current operation when a 'now' priority message arrives.
@@ -1779,7 +1901,8 @@ function runHeadlessStreaming(
             )
           }
 
-          const allTools = buildAllTools(appState)
+          const toolState = buildAllToolState(appState)
+          const allTools = toolState.tools
 
           for (const uuid of batchUuids) {
             notifyCommandLifecycle(uuid, 'started')
@@ -1790,86 +1913,26 @@ function runHeadlessStreaming(
           // to the runtime turn so the model sees the agent result and can act on it.
           // This matches TUI behavior where useQueueProcessor always feeds
           // notifications to the model regardless of coordinator mode.
+          const preludeEvents: RuntimeTurnPreludeEvent[] = []
           if (command.mode === 'task-notification') {
-            const notificationText =
-              typeof command.value === 'string' ? command.value : ''
-            // Parse the XML-formatted notification
-            const taskIdMatch = notificationText.match(
-              /<task-id>([^<]+)<\/task-id>/,
-            )
-            const toolUseIdMatch = notificationText.match(
-              /<tool-use-id>([^<]+)<\/tool-use-id>/,
-            )
-            const outputFileMatch = notificationText.match(
-              /<output-file>([^<]+)<\/output-file>/,
-            )
-            const statusMatch = notificationText.match(
-              /<status>([^<]+)<\/status>/,
-            )
-            const summaryMatch = notificationText.match(
-              /<summary>([^<]+)<\/summary>/,
-            )
-
-            const isValidStatus = (
-              s: string | undefined,
-            ): s is 'completed' | 'failed' | 'stopped' | 'killed' =>
-              s === 'completed' ||
-              s === 'failed' ||
-              s === 'stopped' ||
-              s === 'killed'
-            const rawStatus = statusMatch?.[1]
-            const status = isValidStatus(rawStatus)
-              ? rawStatus === 'killed'
-                ? 'stopped'
-                : rawStatus
-              : 'completed'
-
-            const usageMatch = notificationText.match(
-              /<usage>([\s\S]*?)<\/usage>/,
-            )
-            const usageContent = usageMatch?.[1] ?? ''
-            const totalTokensMatch = usageContent.match(
-              /<total_tokens>(\d+)<\/total_tokens>/,
-            )
-            const toolUsesMatch = usageContent.match(
-              /<tool_uses>(\d+)<\/tool_uses>/,
-            )
-            const durationMsMatch = usageContent.match(
-              /<duration_ms>(\d+)<\/duration_ms>/,
-            )
-
-            // Only emit a task_notification SDK event when a <status> tag is
-            // present — that means this is a terminal notification (completed/
-            // failed/stopped). Stream events from enqueueStreamEvent carry no
-            // <status> (they're progress pings); emitting them here would
-            // default to 'completed' and falsely close the task for SDK
-            // consumers. Terminal bookends are now emitted directly via
-            // emitTaskTerminatedSdk, so skipping statusless events is safe.
-            if (statusMatch) {
-              const taskNotificationMessage = {
-                type: 'system',
-                subtype: 'task_notification',
-                task_id: taskIdMatch?.[1] ?? '',
-                tool_use_id: toolUseIdMatch?.[1],
-                status,
-                output_file: outputFileMatch?.[1] ?? '',
-                summary: summaryMatch?.[1] ?? '',
-                usage:
-                  totalTokensMatch && toolUsesMatch
-                    ? {
-                        total_tokens: parseInt(totalTokensMatch[1]!, 10),
-                        tool_uses: parseInt(toolUsesMatch[1]!, 10),
-                        duration_ms: durationMsMatch
-                          ? parseInt(durationMsMatch[1]!, 10)
-                          : 0,
-                      }
-                    : undefined,
-                session_id:
+            const taskNotificationProjection =
+              projectHeadlessTaskNotification({
+                value: command.value,
+                sessionId:
                   session.bootstrapStateProvider.getSessionIdentity().sessionId,
                 uuid: randomUUID(),
-              } as StdoutMessage
-              observeHeadlessBackgroundSdkEvent(taskNotificationMessage)
-              emitOutput(taskNotificationMessage)
+              })
+
+            // Only emit terminal task notifications. Stream events from
+            // enqueueStreamEvent carry no <status> and must not close SDK tasks.
+            if (taskNotificationProjection) {
+              preludeEvents.push(taskNotificationProjection.runtimeEvent)
+              preludeEvents.push(taskNotificationProjection.handoffEvent)
+              observeHeadlessBackgroundSdkEvent(
+                taskNotificationProjection.sdkMessage,
+                { emitLifecycle: false },
+              )
+              emitOutput(taskNotificationProjection.sdkMessage)
             }
             // No continue -- fall through so the runtime turn processes the result.
           }
@@ -1992,9 +2055,6 @@ function runHeadlessStreaming(
             await runWithWorkload(
               cmd.workload ?? options.workload,
               async () => {
-                const activeTaskExecutionContext = options.forkSession
-                  ? undefined
-                  : await resolveOpenTaskExecutionContext()
                 for await (const envelope of askRuntime({
                   commands: uniqBy(
                     [
@@ -2052,6 +2112,9 @@ function runHeadlessStreaming(
                     ),
                   agents: runtimeCapabilities.getAgents(),
                   orphanedPermission: cmd.orphanedPermission,
+                  executionMode: toolState.executionMode ?? 'headless',
+                  capabilityPlane: toolState.capabilityPlane,
+                  preludeEvents,
                   setSDKStatus: status => {
                     emitOutput({
                       type: 'system',
@@ -2063,7 +2126,6 @@ function runHeadlessStreaming(
                         uuid: randomUUID(),
                     })
                   },
-                  activeTaskExecutionContext,
                 })) {
                   const sdkMessage =
                     projectRuntimeEnvelopeToLegacySDKMessage(envelope)
@@ -2425,6 +2487,9 @@ function runHeadlessStreaming(
             logForDebugging(
               '[print.ts] No more active teammates, stopping poll',
             )
+            if (inputClosed || shutdownPromptInjected) {
+              emitTeamShutdownCompleted(refreshedState.teamContext?.teamName)
+            }
             break
           }
 
@@ -2454,6 +2519,14 @@ function runHeadlessStreaming(
                 logForDebugging(
                   `[print.ts] Processing shutdown_approved from ${teammateToRemove}`,
                 )
+                emitTeamLifecycleEvent({
+                  type: 'team.shutdown_approved',
+                  phase: 'team_shutdown',
+                  state: 'approved',
+                  source: 'headless_team_shutdown',
+                  teamName,
+                  teammateName: teammateToRemove,
+                })
 
                 // Find the teammate ID by name
                 const teammateId = refreshedState.teamContext?.teammates
@@ -2463,37 +2536,73 @@ function runHeadlessStreaming(
                   : undefined
 
                 if (teammateId) {
-                  // Remove from team file
-                  removeTeammateFromTeamFile(teamName, {
-                    agentId: teammateId,
-                    name: teammateToRemove,
-                  })
-                  logForDebugging(
-                    `[print.ts] Removed ${teammateToRemove} from team file`,
-                  )
-
-                  // Unassign tasks owned by this teammate
-                  await unassignTeammateTasks(
+                  emitTeamLifecycleEvent({
+                    type: 'team.cleanup_started',
+                    phase: 'team_cleanup',
+                    state: 'started',
+                    source: 'headless_team_cleanup',
                     teamName,
                     teammateId,
-                    teammateToRemove,
-                    'shutdown',
-                  )
-
-                  // Remove from teamContext in AppState
-                  setAppState(prev => {
-                    if (!prev.teamContext?.teammates) return prev
-                    if (!(teammateId in prev.teamContext.teammates)) return prev
-                    const { [teammateId]: _, ...remainingTeammates } =
-                      prev.teamContext.teammates
-                    return {
-                      ...prev,
-                      teamContext: {
-                        ...prev.teamContext,
-                        teammates: remainingTeammates,
-                      },
-                    }
+                    teammateName: teammateToRemove,
+                    reason: 'shutdown_approved',
                   })
+                  try {
+                    // Remove from team file
+                    removeTeammateFromTeamFile(teamName, {
+                      agentId: teammateId,
+                      name: teammateToRemove,
+                    })
+                    logForDebugging(
+                      `[print.ts] Removed ${teammateToRemove} from team file`,
+                    )
+
+                    // Unassign tasks owned by this teammate
+                    await unassignTeammateTasks(
+                      teamName,
+                      teammateId,
+                      teammateToRemove,
+                      'shutdown',
+                    )
+
+                    // Remove from teamContext in AppState
+                    setAppState(prev => {
+                      if (!prev.teamContext?.teammates) return prev
+                      if (!(teammateId in prev.teamContext.teammates))
+                        return prev
+                      const { [teammateId]: _, ...remainingTeammates } =
+                        prev.teamContext.teammates
+                      return {
+                        ...prev,
+                        teamContext: {
+                          ...prev.teamContext,
+                          teammates: remainingTeammates,
+                        },
+                      }
+                    })
+                    emitTeamLifecycleEvent({
+                      type: 'team.cleanup_completed',
+                      phase: 'team_cleanup',
+                      state: 'completed',
+                      source: 'headless_team_cleanup',
+                      teamName,
+                      teammateId,
+                      teammateName: teammateToRemove,
+                      reason: 'shutdown_approved',
+                    })
+                  } catch (error) {
+                    emitTeamLifecycleEvent({
+                      type: 'team.cleanup_failed',
+                      phase: 'team_cleanup',
+                      state: 'failed',
+                      source: 'headless_team_cleanup',
+                      teamName,
+                      teammateId,
+                      teammateName: teammateToRemove,
+                      reason: 'shutdown_approved',
+                      error: errorMessage(error),
+                    })
+                    throw error
+                  }
                 }
               }
             }
@@ -2523,6 +2632,7 @@ function runHeadlessStreaming(
             logForDebugging(
               '[print.ts] Input closed with active teammates, injecting shutdown prompt',
             )
+            emitTeamShutdownRequested('input_closed')
             enqueue({
               mode: 'prompt',
               value: SHUTDOWN_TEAM_PROMPT,
@@ -2544,7 +2654,19 @@ function runHeadlessStreaming(
         // Wait for any working in-process team members to finish
         const currentAppState = getAppState()
         if (hasWorkingInProcessTeammates(currentAppState)) {
+          emitTeamLifecycleEvent({
+            type: 'team.idle_wait_started',
+            phase: 'team_idle',
+            state: 'waiting',
+            source: 'headless_team_idle',
+          })
           await waitForTeammatesToBecomeIdle(setAppState, currentAppState)
+          emitTeamLifecycleEvent({
+            type: 'team.idle_reached',
+            phase: 'team_idle',
+            state: 'reached',
+            source: 'headless_team_idle',
+          })
         }
 
         // Re-fetch state after potential wait
@@ -2562,6 +2684,7 @@ function runHeadlessStreaming(
 
       if (hasActiveSwarm) {
         // Team members are idle or pane-based - inject prompt to shut down team
+        emitTeamShutdownRequested('active_swarm_on_input_closed')
         enqueue({
           mode: 'prompt',
           value: SHUTDOWN_TEAM_PROMPT,
@@ -2569,6 +2692,7 @@ function runHeadlessStreaming(
         })
         void run()
       } else {
+        emitTeamShutdownCompleted()
         await cleanupHeadlessSession()
       }
     }

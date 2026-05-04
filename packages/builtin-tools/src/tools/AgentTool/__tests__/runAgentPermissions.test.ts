@@ -17,7 +17,7 @@ function makePermissionContext(
 }
 
 describe('getSpawnedAgentToolPermissionContext', () => {
-  test('drops synthetic --tools deny rules while keeping explicit CLI denies', () => {
+  test('preserves parent CLI deny rules for spawned agents', () => {
     const context = makePermissionContext({
       alwaysDenyRules: {
         cliArg: ['Read', 'Bash', 'ExplicitDanger'],
@@ -28,13 +28,13 @@ describe('getSpawnedAgentToolPermissionContext', () => {
 
     const result = getSpawnedAgentToolPermissionContext(context)
 
-    expect(result.alwaysDenyRules.cliArg).toEqual(['ExplicitDanger'])
-    expect(result.alwaysDenyRules.session).toEqual(['Write'])
-    expect(context.alwaysDenyRules.cliArg).toEqual([
+    expect(result.alwaysDenyRules.cliArg).toEqual([
       'Read',
       'Bash',
       'ExplicitDanger',
     ])
+    expect(result.alwaysDenyRules.session).toEqual(['Write'])
+    expect(result).toBe(context)
   })
 
   test('leaves legacy permission contexts unchanged', () => {

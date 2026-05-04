@@ -65,6 +65,7 @@ import {
   getKernelTurnOutputText,
   getKernelTurnTerminalSnapshot,
   isKernelCommandsExecutedEvent,
+  isKernelCoordinatorLifecycleEvent,
   isKernelAgentsRunCancelledEvent,
   isKernelAgentsSpawnedEvent,
   isKernelHooksRanEvent,
@@ -85,6 +86,7 @@ import {
   isKernelSkillsReloadedEvent,
   isKernelTasksAssignedEvent,
   isKernelTasksCreatedEvent,
+  isKernelTasksNotificationEvent,
   isKernelTasksUpdatedEvent,
   isKernelToolsCalledEvent,
 } from './runtimeEvents.js'
@@ -311,6 +313,7 @@ export {
   getKernelTurnOutputText,
   getKernelTurnTerminalSnapshot,
   isKernelCommandsExecutedEvent,
+  isKernelCoordinatorLifecycleEvent,
   isKernelAgentsRunCancelledEvent,
   isKernelAgentsSpawnedEvent,
   isKernelHooksRanEvent,
@@ -333,6 +336,7 @@ export {
   isKernelSkillsReloadedEvent,
   isKernelTasksAssignedEvent,
   isKernelTasksCreatedEvent,
+  isKernelTasksNotificationEvent,
   isKernelTasksUpdatedEvent,
   isKernelToolsCalledEvent,
   isKernelTurnTerminalEvent,
@@ -545,6 +549,9 @@ export type KernelRunTurnOptions = {
   turnId?: KernelTurnId
   attachments?: KernelTurnRunRequest['attachments']
   providerOverride?: RuntimeProviderSelection
+  executionMode?: KernelTurnRunRequest['executionMode']
+  contextAssembly?: KernelTurnRunRequest['contextAssembly']
+  capabilityPlane?: KernelTurnRunRequest['capabilityPlane']
   metadata?: Record<string, unknown>
 }
 

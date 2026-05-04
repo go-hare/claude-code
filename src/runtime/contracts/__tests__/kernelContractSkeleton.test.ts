@@ -7,6 +7,7 @@ const contractsRoot = join(import.meta.dir, '..')
 const CONTRACT_FILES = [
   'runtime.ts',
   'conversation.ts',
+  'context.ts',
   'turn.ts',
   'events.ts',
   'capability.ts',
@@ -61,6 +62,7 @@ describe('public kernel contract skeleton', () => {
 
     expect(index).toContain("export * from './runtime.js'")
     expect(index).toContain("export * from './conversation.js'")
+    expect(index).toContain("export * from './context.js'")
     expect(index).toContain("export * from './turn.js'")
     expect(index).toContain("export * from './events.js'")
     expect(index).toContain("export * from './capability.js'")
@@ -70,13 +72,26 @@ describe('public kernel contract skeleton', () => {
     expect(await readContract('conversation.ts')).toContain(
       'KernelConversationId',
     )
+    expect(await readContract('context.ts')).toContain(
+      'KernelContextAssembly',
+    )
+    expect(await readContract('context.ts')).toContain(
+      'KernelContextAssemblyPhase',
+    )
     expect(await readContract('turn.ts')).toContain('KernelTurnId')
+    expect(await readContract('turn.ts')).toContain('KernelExecutionMode')
+    expect(await readContract('turn.ts')).toContain('KernelTurnInputContract')
+    expect(await readContract('turn.ts')).toContain('contextAssembly')
+    expect(await readContract('turn.ts')).toContain('capabilityPlane')
     expect(await readContract('events.ts')).toContain(
       'KernelRuntimeEnvelopeBase',
     )
     expect(await readContract('events.ts')).toContain('KernelRuntimeEventSink')
     expect(await readContract('capability.ts')).toContain(
       'KernelCapabilityDescriptor',
+    )
+    expect(await readContract('capability.ts')).toContain(
+      'KernelCapabilityPlane',
     )
     expect(await readContract('command.ts')).toContain(
       'RuntimeCommandGraphEntry',
