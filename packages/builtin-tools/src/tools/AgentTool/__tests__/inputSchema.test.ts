@@ -25,6 +25,7 @@ const {
   inputSchema,
   resolveAgentInvocationRouting,
 } = await import('../AgentTool.js')
+const { zodToJsonSchema } = await import('src/utils/zodToJsonSchema.js')
 
 const agentInput = {
   description: 'Read package name',
@@ -112,5 +113,19 @@ describe('AgentTool inputSchema', () => {
       effectiveType: 'worker',
       isForkPath: true,
     })
+  })
+
+  test('marks team-routing fields as TeamCreate-only in the API schema', () => {
+    const schema = zodToJsonSchema(inputSchema()) as {
+      properties?: Record<string, { description?: string }>
+    }
+
+    expect(schema.properties?.name?.description).toContain('Agent Teams only')
+    expect(schema.properties?.name?.description).toContain('TeamCreate')
+    expect(schema.properties?.team_name?.description).toContain(
+      'Agent Teams only',
+    )
+    expect(schema.properties?.team_name?.description).toContain('TeamCreate')
+    expect(schema.properties?.mode?.description).toContain('Agent Teams only')
   })
 })

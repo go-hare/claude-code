@@ -88,7 +88,7 @@ SDKMessage / legacy `stream-json` projection helper 的 public surface 降级也
 - `projectRuntimeEnvelopeToLegacyRuntimeEventStreamJsonMessage(...)` 负责
   runtime-event-only stream-json 内部投影。
 - `projectRuntimeEnvelopeToLegacySDKStreamJsonMessages(...)` 负责
-  SDK-message-only stream-json 内部投影。
+  headless message-only stream-json 内部投影。
 - root `./kernel` 不再导出 `SDKMessage` / legacy stream-json projection helper；
   这些 helper 只作为 runtime 内部 transitional bridge 保留。
 - headless verbose streaming 与 runtime event output 不再手写
@@ -107,9 +107,15 @@ release-gated live smoke 已在 2026-05-04 最终复跑通过：
 
 `query()` / `runQueryTurn()` 去 SDKMessage 化已明确降级为 P1 hardening：
 当前 public/runtime 层已经以 `KernelEvent` / `KernelRuntimeEnvelope` 为唯一对外
-语义面，后续只是把内部 `Message -> SDKMessage -> KernelEvent` 的中间投影改成
-`Message -> KernelEvent -> SDKMessage projection`。这不再阻塞 kernel complete
-封板。
+语义面，后续只是继续把内部 `Message -> SDKMessage -> KernelEvent` 的中间投影改成
+`Message -> KernelEvent -> SDKMessage projection`。截至 2026-05-04 Phase 3G，
+`runQueryTurn(...)` 已不再返回 `AsyncGenerator<SDKMessage>`，而是通过显式
+`query_sidecar` flush marker 驱动 adapter 投影；`QueryTurnEventAdapter` 也已移除
+SDKMessage-to-canonical 的 public method，SDK result 不再能经 adapter 反推
+terminal。Phase 3H 已进一步把 compatibility headless message builders 拆到
+`QueryTurnCompatibilityProjector.ts`，adapter 本体只保留事件编排和 ownership
+逻辑。这不再阻塞 kernel complete 封板。执行拆分见
+[`query-event-hardening-plan.md`](./query-event-hardening-plan.md)。
 
 如果后续进入正式 release，只需要在 release commit 上复跑同一组 gated smoke。
 

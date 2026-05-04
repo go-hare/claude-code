@@ -4,11 +4,9 @@ import { randomUUID } from 'crypto'
 import last from 'lodash-es/last.js'
 import type {
   PermissionMode,
-  SDKCompactBoundaryMessage,
   SDKMessage,
   SDKPermissionDenial,
   SDKStatus,
-  SDKUserMessageReplay,
 } from '../../../entrypoints/agentSdkTypes.js'
 import type { BetaMessageDeltaUsage } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import { accumulateUsage, updateUsage } from '../../../services/api/claude.js'
@@ -30,7 +28,6 @@ import type { CanUseToolFn } from '../../../hooks/useCanUseTool.js'
 import { loadMemoryPrompt } from '../../../memdir/memdir.js'
 import { hasAutoMemPathOverride } from '../../../memdir/paths.js'
 import { query } from '../../../query.js'
-import { categorizeRetryableAPIError } from '../../../services/api/errors.js'
 import type { MCPServerConnection } from '../../../services/mcp/types.js'
 import type { AppState } from '../../../state/AppState.js'
 import { type Tools, type ToolUseContext, toolMatchesName } from '../../../Tool.js'
@@ -38,7 +35,6 @@ import type { AgentDefinition } from '@go-hare/builtin-tools/tools/AgentTool/loa
 import { SYNTHETIC_OUTPUT_TOOL_NAME } from '@go-hare/builtin-tools/tools/SyntheticOutputTool/SyntheticOutputTool.js'
 import type { APIError } from '@anthropic-ai/sdk'
 import type {
-  CompactMetadata,
   Message,
   SystemCompactBoundaryMessage,
 } from '../../../types/message.js'
@@ -115,19 +111,32 @@ import type {
 import type { KernelCapabilityPlane } from '../../contracts/capability.js'
 import { RuntimeEventBus } from '../../core/events/RuntimeEventBus.js'
 import {
-  createHeadlessSDKMessageRuntimeEvent,
-  createTurnOutputDeltaRuntimeEventFromSDKMessage,
-  getCanonicalProjectionForSDKMessage,
   getRuntimeAbortStopReason,
   getSDKMessageFromRuntimeEnvelope,
-  getSDKResultTurnOutcome,
 } from '../../core/events/compatProjection.js'
 import { createRuntimeToolCapabilityPlane } from '../tools/ToolCapabilityPlane.js'
+import {
+  createQueryTurnEventAdapter,
+  type QueryTurnMessageProjectionOptions,
+  type QueryTurnProjectionInput,
+} from './internal/QueryTurnEventAdapter.js'
 
 export type RuntimeTurnPreludeEvent = Omit<
   KernelEvent,
   'runtimeId' | 'eventId' | 'conversationId' | 'turnId'
 >
+
+type QueryResultSDKMessage = SDKMessage & {
+  type: 'result'
+  subtype?: string
+  is_error?: boolean
+  stop_reason?: string | null
+}
+
+type QueryTurnSidecarOutput = {
+  type: 'query_sidecar'
+  messages: SDKMessage[]
+}
 
 // Lazy: MessageSelector.tsx pulls React/ink; only needed for message filtering at query time
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -147,11 +156,6 @@ function selectableUserMessagesFilter(message: unknown): boolean {
 }
 
 import {
-  localCommandOutputToSDKAssistantMessage,
-  toSDKCompactMetadata,
-} from '../../../utils/messages/mappers.js'
-import {
-  buildSystemInitMessage,
   sdkCompatToolName,
 } from '../../../utils/messages/systemInit.js'
 import {
@@ -162,7 +166,8 @@ import {
 import {
   handleOrphanedPermission,
   isResultSuccessful,
-  normalizeMessage,
+  createToolProgressTrackingState,
+  type ToolProgressTrackingState,
 } from '../../../utils/queryHelpers.js'
 
 // Dead code elimination: conditional import for coordinator mode
@@ -324,6 +329,7 @@ export class SessionRuntime implements RuntimeExecutionSession {
   private live = true
   private readonly contentReplacementState: ContentReplacementState | undefined
   private readonly runtimeEventBus: RuntimeEventBus
+  private readonly progressTrackingState: ToolProgressTrackingState
   private readonly stateProviders: ReturnType<
     typeof createExecutionStateProviders
   >
@@ -352,6 +358,7 @@ export class SessionRuntime implements RuntimeExecutionSession {
         config.initialContentReplacements,
       )
     this.totalUsage = EMPTY_USAGE
+    this.progressTrackingState = createToolProgressTrackingState()
     this.stateProviders = createExecutionStateProviders({
       getAppState: config.getAppState,
       setAppState: config.setAppState,
@@ -435,6 +442,19 @@ export class SessionRuntime implements RuntimeExecutionSession {
     }
     const drainPendingRuntimeEvents = (): KernelRuntimeEnvelopeBase[] =>
       pendingRuntimeEvents.splice(0)
+    const turnEventAdapter = createQueryTurnEventAdapter({
+      conversationId: sessionId,
+      turnId,
+      getAbortReason: () =>
+        getRuntimeAbortStopReason(this.abortController.signal),
+      getProgressProjectionEnvironment: () => ({
+        now: Date.now(),
+        remoteEnabled:
+          isEnvTruthy(process.env.CLAUDE_CODE_REMOTE) ||
+          Boolean(process.env.CLAUDE_CODE_CONTAINER_ID),
+      }),
+      progressTrackingState: this.progressTrackingState,
+    })
 
     yield this.runtimeEventBus.emit({
       conversationId: sessionId,
@@ -456,7 +476,6 @@ export class SessionRuntime implements RuntimeExecutionSession {
       })
     }
 
-    let sawTerminalResult = false
     let emittedAbortRequested = false
     const maybeCreateAbortRequestedEnvelope = ():
       | KernelRuntimeEnvelopeBase
@@ -486,9 +505,29 @@ export class SessionRuntime implements RuntimeExecutionSession {
     }
 
     try {
-      for await (const message of this.bindBootstrapState(
-        this.runQueryTurn(prompt, options, turnId, enqueueRuntimeEvent),
+      for await (const sidecar of this.bindBootstrapState(
+        this.runQueryTurn(
+          prompt,
+          options,
+          turnId,
+          enqueueRuntimeEvent,
+          (queryMessage, projectionOptions) => {
+            const projection =
+              turnEventAdapter.projectQueryMessageWithCompatibility(
+                queryMessage,
+                projectionOptions,
+              )
+            for (const event of projection.events) {
+              enqueueRuntimeEvent(event)
+            }
+            return {
+              type: 'query_sidecar',
+              messages: projection.compatibilityMessages,
+            }
+          },
+        ),
       )) {
+        void sidecar
         for (const envelope of drainPendingRuntimeEvents()) {
           yield envelope
         }
@@ -498,48 +537,6 @@ export class SessionRuntime implements RuntimeExecutionSession {
           yield abortRequestedEnvelope
         }
 
-        const outputDeltaEvent = createTurnOutputDeltaRuntimeEventFromSDKMessage({
-          conversationId: sessionId,
-          turnId,
-          message,
-        })
-        if (outputDeltaEvent) {
-          yield this.runtimeEventBus.emit(outputDeltaEvent)
-        }
-
-        const canonicalProjection =
-          getCanonicalProjectionForSDKMessage(message)
-        yield this.runtimeEventBus.emit(
-          createHeadlessSDKMessageRuntimeEvent({
-            conversationId: sessionId,
-            turnId,
-            message,
-            metadata: canonicalProjection
-              ? { canonicalProjection }
-              : undefined,
-          }),
-        )
-
-        if (message.type === 'result') {
-          sawTerminalResult = true
-          const outcome = getSDKResultTurnOutcome(message, {
-            abortReason: getRuntimeAbortStopReason(
-              this.abortController.signal,
-            ),
-          })
-          yield this.runtimeEventBus.emit({
-            conversationId: sessionId,
-            turnId,
-            type: outcome.eventType,
-            replayable: true,
-            payload: {
-              conversationId: sessionId,
-              turnId,
-              state: outcome.state,
-              stopReason: outcome.stopReason,
-            },
-          })
-        }
       }
 
       for (const envelope of drainPendingRuntimeEvents()) {
@@ -551,22 +548,10 @@ export class SessionRuntime implements RuntimeExecutionSession {
         yield abortRequestedEnvelope
       }
 
-      if (!sawTerminalResult) {
-        const abortReason = getRuntimeAbortStopReason(
-          this.abortController.signal,
+      if (!turnEventAdapter.hasTerminalResult()) {
+        yield this.runtimeEventBus.emit(
+          turnEventAdapter.createFallbackTerminalEvent(),
         )
-        yield this.runtimeEventBus.emit({
-          conversationId: sessionId,
-          turnId,
-          type: abortReason ? 'turn.failed' : 'turn.completed',
-          replayable: true,
-          payload: {
-            conversationId: sessionId,
-            turnId,
-            state: abortReason ? 'failed' : 'completed',
-            stopReason: abortReason,
-          },
-        })
       }
     } catch (error) {
       const abortRequestedEnvelope = maybeCreateAbortRequestedEnvelope()
@@ -618,7 +603,11 @@ export class SessionRuntime implements RuntimeExecutionSession {
     options?: { uuid?: string; isMeta?: boolean },
     turnId?: string,
     emitRuntimeEvent?: (event: KernelEvent) => void,
-  ): AsyncGenerator<SDKMessage, void, unknown> {
+    emitQueryRuntimeEvents?: (
+      message: QueryTurnProjectionInput,
+      options?: QueryTurnMessageProjectionOptions,
+    ) => QueryTurnSidecarOutput,
+  ): AsyncGenerator<QueryTurnSidecarOutput, void, unknown> {
     if (!this.live) {
       throw new Error('Execution session has been stopped')
     }
@@ -807,6 +796,15 @@ export class SessionRuntime implements RuntimeExecutionSession {
       capabilityPlane: this.config.capabilityPlane,
     }
 
+    const projectQuerySidecar = (
+      message: QueryTurnProjectionInput,
+      projectionOptions?: QueryTurnMessageProjectionOptions,
+    ): QueryTurnSidecarOutput =>
+      emitQueryRuntimeEvents?.(message, projectionOptions) ?? {
+        type: 'query_sidecar',
+        messages: [],
+      }
+
     // Handle orphaned permission (only once per engine lifetime)
     if (orphanedPermission && !this.hasHandledOrphanedPermission) {
       this.hasHandledOrphanedPermission = true
@@ -816,7 +814,7 @@ export class SessionRuntime implements RuntimeExecutionSession {
         this.mutableMessages,
         processUserInputContext,
       )) {
-        yield message
+        yield projectQuerySidecar(message)
       }
     }
 
@@ -896,6 +894,18 @@ export class SessionRuntime implements RuntimeExecutionSession {
     }))
 
     const mainLoopModel = modelFromUserInput ?? initialMainLoopModel
+    const emitTerminalResult = <T extends QueryResultSDKMessage>(
+      result: T,
+    ): QueryTurnSidecarOutput =>
+      projectQuerySidecar({
+        type: 'query_result',
+        subtype:
+          typeof result.subtype === 'string' ? result.subtype : undefined,
+        isError: result.is_error === true,
+        stopReason:
+          typeof result.stop_reason === 'string' ? result.stop_reason : null,
+        sdkMessage: result,
+      })
 
     // Recreate after processing the prompt to pick up updated messages and
     // model (from slash commands).
@@ -953,17 +963,20 @@ export class SessionRuntime implements RuntimeExecutionSession {
     ])
     headlessProfilerCheckpoint('after_skills_plugins')
 
-    yield buildSystemInitMessage({
-      tools,
-      mcpClients,
-      model: mainLoopModel,
-      permissionMode: initialAppState.toolPermissionContext
-        .mode as PermissionMode, // TODO: avoid the cast
-      commands,
-      agents,
-      skills,
-      plugins: enabledPlugins,
-      fastMode: initialAppState.fastMode,
+    yield projectQuerySidecar({
+      type: 'query_system_init',
+      inputs: {
+        tools,
+        mcpClients,
+        model: mainLoopModel,
+        permissionMode: initialAppState.toolPermissionContext
+          .mode as PermissionMode, // TODO: avoid the cast
+        commands,
+        agents,
+        skills,
+        plugins: enabledPlugins,
+        fastMode: initialAppState.fastMode,
+      },
     })
 
     // Record when system message is yielded for headless latency tracking
@@ -981,19 +994,17 @@ export class SessionRuntime implements RuntimeExecutionSession {
             msg.message!.content.includes(`<${LOCAL_COMMAND_STDERR_TAG}>`) ||
             msg.isCompactSummary)
         ) {
-          yield {
-            type: 'user',
+          yield projectQuerySidecar({
+            type: 'query_user_replay',
             message: {
               ...msg.message,
               content: stripAnsi(msg.message!.content),
             },
-            session_id: this.getSessionId(),
-            parent_tool_use_id: null,
             uuid: msg.uuid,
             timestamp: msg.timestamp,
             isReplay: !msg.isCompactSummary,
             isSynthetic: msg.isMeta || msg.isVisibleInTranscriptOnly,
-          } as unknown as SDKUserMessageReplay
+          })
         }
 
         // Local command output — yield as a synthetic assistant message so
@@ -1007,18 +1018,12 @@ export class SessionRuntime implements RuntimeExecutionSession {
           (msg.content.includes(`<${LOCAL_COMMAND_STDOUT_TAG}>`) ||
             msg.content.includes(`<${LOCAL_COMMAND_STDERR_TAG}>`))
         ) {
-          yield localCommandOutputToSDKAssistantMessage(msg.content, msg.uuid)
+          yield projectQuerySidecar(msg)
         }
 
         if (msg.type === 'system' && msg.subtype === 'compact_boundary') {
           const compactMsg = msg as SystemCompactBoundaryMessage
-          yield {
-            type: 'system',
-            subtype: 'compact_boundary' as const,
-            session_id: this.getSessionId(),
-            uuid: msg.uuid,
-            compact_metadata: toSDKCompactMetadata(compactMsg.compactMetadata),
-          } as unknown as SDKCompactBoundaryMessage
+          yield projectQuerySidecar(compactMsg)
         }
       }
 
@@ -1032,7 +1037,7 @@ export class SessionRuntime implements RuntimeExecutionSession {
         }
       }
 
-      yield {
+      yield emitTerminalResult({
         type: 'result',
         subtype: 'success',
         is_error: false,
@@ -1051,7 +1056,7 @@ export class SessionRuntime implements RuntimeExecutionSession {
           initialAppState.fastMode,
         ),
         uuid: randomUUID(),
-      }
+      })
       return
     }
 
@@ -1088,7 +1093,6 @@ export class SessionRuntime implements RuntimeExecutionSession {
     const initialStructuredOutputCalls = jsonSchema
       ? countToolCalls(this.mutableMessages, SYNTHETIC_OUTPUT_TOOL_NAME)
       : 0
-
     for await (const message of query({
       messages,
       systemPrompt,
@@ -1174,15 +1178,13 @@ export class SessionRuntime implements RuntimeExecutionSession {
           hasAcknowledgedInitialMessages = true
           for (const msgToAck of messagesToAck) {
             if (msgToAck.type === 'user') {
-              yield {
-                type: 'user',
-                message: msgToAck.message,
-                session_id: this.getSessionId(),
-                parent_tool_use_id: null,
+              yield projectQuerySidecar({
+                type: 'query_user_replay',
+                message: msgToAck.message as Record<string, unknown>,
                 uuid: msgToAck.uuid,
                 timestamp: msgToAck.timestamp,
                 isReplay: true,
-              } as unknown as SDKUserMessageReplay
+              })
             }
           }
         }
@@ -1206,7 +1208,7 @@ export class SessionRuntime implements RuntimeExecutionSession {
             lastStopReason = stopReason
           }
           this.mutableMessages.push(msg)
-          yield* normalizeMessage(msg)
+          yield projectQuerySidecar(msg)
           break
         }
         case 'progress': {
@@ -1221,13 +1223,13 @@ export class SessionRuntime implements RuntimeExecutionSession {
             messages.push(msg)
             void recordTranscript(messages)
           }
-          yield* normalizeMessage(msg)
+          yield projectQuerySidecar(msg)
           break
         }
         case 'user': {
           const msg = message as Message
           this.mutableMessages.push(msg)
-          yield* normalizeMessage(msg)
+          yield projectQuerySidecar(msg)
           break
         }
         case 'stream_event': {
@@ -1264,13 +1266,13 @@ export class SessionRuntime implements RuntimeExecutionSession {
           }
 
           if (includePartialMessages) {
-            yield {
+            yield projectQuerySidecar({
               type: 'stream_event' as const,
               event,
               session_id: this.getSessionId(),
               parent_tool_use_id: null,
               uuid: randomUUID(),
-            }
+            })
           }
 
           break
@@ -1300,7 +1302,7 @@ export class SessionRuntime implements RuntimeExecutionSession {
                 await flushSessionStorage()
               }
             }
-            yield {
+            yield emitTerminalResult({
               type: 'result',
               subtype: 'error_max_turns',
               duration_ms: Date.now() - startTime,
@@ -1321,7 +1323,7 @@ export class SessionRuntime implements RuntimeExecutionSession {
               errors: [
                 `Reached maximum number of turns (${attachment.maxTurns})`,
               ],
-            }
+            })
             return
           }
           // Yield queued_command attachments as SDK user message replays
@@ -1329,18 +1331,7 @@ export class SessionRuntime implements RuntimeExecutionSession {
             replayUserMessages &&
             attachment.type === 'queued_command'
           ) {
-            yield {
-              type: 'user',
-              message: {
-                role: 'user' as const,
-                content: attachment.prompt,
-              },
-              session_id: this.getSessionId(),
-              parent_tool_use_id: null,
-              uuid: attachment.source_uuid || msg.uuid,
-              timestamp: msg.timestamp,
-              isReplay: true,
-            } as unknown as SDKUserMessageReplay
+            yield projectQuerySidecar(msg)
           }
           break
         }
@@ -1387,41 +1378,18 @@ export class SessionRuntime implements RuntimeExecutionSession {
               messages.splice(0, localBoundaryIdx)
             }
 
-            yield {
-              type: 'system',
-              subtype: 'compact_boundary' as const,
-              session_id: this.getSessionId(),
-              uuid: msg.uuid,
-              compact_metadata: toSDKCompactMetadata(compactMsg.compactMetadata),
-            }
+            yield projectQuerySidecar(compactMsg)
           }
           if (msg.subtype === 'api_error') {
             const apiErrorMsg = msg as Message & { retryAttempt: number; maxRetries: number; retryInMs: number; error: APIError }
-            yield {
-              type: 'system',
-              subtype: 'api_retry' as const,
-              attempt: apiErrorMsg.retryAttempt,
-              max_retries: apiErrorMsg.maxRetries,
-              retry_delay_ms: apiErrorMsg.retryInMs,
-              error_status: apiErrorMsg.error.status ?? null,
-              error: categorizeRetryableAPIError(apiErrorMsg.error),
-              session_id: this.getSessionId(),
-              uuid: msg.uuid,
-            }
+            yield projectQuerySidecar(apiErrorMsg)
           }
           // Don't yield other system messages in headless mode
           break
         }
         case 'tool_use_summary': {
           const msg = message as Message & { summary: unknown; precedingToolUseIds: unknown }
-          // Yield tool use summary messages to SDK
-          yield {
-            type: 'tool_use_summary' as const,
-            summary: msg.summary,
-            preceding_tool_use_ids: msg.precedingToolUseIds,
-            session_id: this.getSessionId(),
-            uuid: msg.uuid,
-          }
+          yield projectQuerySidecar(msg)
           break
         }
       }
@@ -1436,7 +1404,7 @@ export class SessionRuntime implements RuntimeExecutionSession {
             await flushSessionStorage()
           }
         }
-        yield {
+        yield emitTerminalResult({
           type: 'result',
           subtype: 'error_max_budget_usd',
           duration_ms: Date.now() - startTime,
@@ -1455,7 +1423,7 @@ export class SessionRuntime implements RuntimeExecutionSession {
           ),
           uuid: randomUUID(),
           errors: [`Reached maximum budget ($${maxBudgetUsd})`],
-        }
+        })
         return
       }
 
@@ -1479,7 +1447,7 @@ export class SessionRuntime implements RuntimeExecutionSession {
               await flushSessionStorage()
             }
           }
-          yield {
+          yield emitTerminalResult({
             type: 'result',
             subtype: 'error_max_structured_output_retries',
             duration_ms: Date.now() - startTime,
@@ -1500,7 +1468,7 @@ export class SessionRuntime implements RuntimeExecutionSession {
             errors: [
               `Failed to provide valid structured output after ${maxRetries} attempts`,
             ],
-          }
+          })
           return
         }
       }
@@ -1538,7 +1506,7 @@ export class SessionRuntime implements RuntimeExecutionSession {
     }
 
     if (!isResultSuccessful(result, lastStopReason)) {
-      yield {
+      yield emitTerminalResult({
         type: 'result',
         subtype: 'error_during_execution',
         duration_ms: Date.now() - startTime,
@@ -1571,7 +1539,7 @@ export class SessionRuntime implements RuntimeExecutionSession {
             ...all.slice(start).map(_ => _.error),
           ]
         })(),
-      }
+      })
       return
     }
 
@@ -1590,7 +1558,7 @@ export class SessionRuntime implements RuntimeExecutionSession {
       isApiError = Boolean(result.isApiErrorMessage)
     }
 
-    yield {
+    yield emitTerminalResult({
       type: 'result',
       subtype: 'success',
       is_error: isApiError,
@@ -1610,7 +1578,7 @@ export class SessionRuntime implements RuntimeExecutionSession {
         initialAppState.fastMode,
       ),
       uuid: randomUUID(),
-    }
+    })
   }
 
   interrupt(): void {

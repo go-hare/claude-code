@@ -236,18 +236,18 @@ const fullInputSchema = lazySchema(() => {
       .string()
       .optional()
       .describe(
-        'Name for the spawned agent. Makes it addressable via SendMessage({to: name}) while running.',
+        'Agent Teams only: teammate name for a TeamCreate-created team. Omit for ordinary subagents.',
       ),
     team_name: z
       .string()
       .optional()
       .describe(
-        'Team name for spawning. Uses current team context if omitted.',
+        'Agent Teams only: existing TeamCreate-created team name. Omit for ordinary subagents.',
       ),
     mode: permissionModeSchema()
       .optional()
       .describe(
-        'Permission mode for spawned teammate (e.g., "plan" to require plan approval).',
+        'Agent Teams only: permission mode for spawned teammate (e.g., "plan"). Omit for ordinary subagents.',
       ),
   })
 

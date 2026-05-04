@@ -32,6 +32,20 @@ const headlessRuntimeLoopContent = readFileSync(
   ),
   'utf8',
 )
+const queryTurnEventAdapterContent = readFileSync(
+  join(
+    repoRoot,
+    'src/runtime/capabilities/execution/internal/QueryTurnEventAdapter.ts',
+  ),
+  'utf8',
+)
+const queryTurnCompatibilityProjectorContent = readFileSync(
+  join(
+    repoRoot,
+    'src/runtime/capabilities/execution/internal/QueryTurnCompatibilityProjector.ts',
+  ),
+  'utf8',
+)
 const queryHelpersContent = readFileSync(
   join(repoRoot, 'src/utils/queryHelpers.ts'),
   'utf8',
@@ -59,14 +73,14 @@ describe('SessionRuntime contracts', () => {
     expect(content).toContain('export const createExecutionSessionRuntime')
   })
 
-  test('keeps legacy SDK projection outside runtime owners', () => {
+  test('keeps legacy compatibility message projection outside runtime owners', () => {
     expect(content).toContain('private async *runQueryTurn(')
     expect(content).toContain(
       'for await (const envelope of this.submitRuntimeTurn(prompt, options))',
     )
     expect(content).toContain('for await (const envelope of askRuntime(options))')
     expect(content).toContain('getSDKMessageFromRuntimeEnvelope(envelope)')
-    expect(content).toContain('for await (const message of this.bindBootstrapState(')
+    expect(content).toContain('for await (const sidecar of this.bindBootstrapState(')
     expect(queryEngineEntryContent).not.toContain('ask,')
     expect(acpAgentContent).toContain(
       'session.queryEngine.submitRuntimeTurn(promptInput)',
@@ -75,10 +89,50 @@ describe('SessionRuntime contracts', () => {
   })
 
   test('runtime turns emit canonical event semantics before compatibility projection', () => {
-    expect(content).toContain('createTurnOutputDeltaRuntimeEventFromSDKMessage')
+    expect(content).toContain('createQueryTurnEventAdapter')
+    expect(content).toContain(
+      'turnEventAdapter.projectQueryMessageWithCompatibility(',
+    )
+    expect(content).toContain('type QueryTurnSidecarOutput')
+    expect(content).toContain('AsyncGenerator<QueryTurnSidecarOutput')
+    expect(content).toContain("type: 'query_sidecar'")
+    expect(content).toContain('yield projectQuerySidecar(')
+    expect(content).toContain('const emitTerminalResult')
+    expect(content).toContain("type: 'query_result'")
+    expect(content).toContain('sdkMessage: result')
+    expect(content).toContain("type: 'query_system_init'")
+    expect(content).not.toContain('buildSystemInitMessage')
+    expect(content).toContain('yield projectQuerySidecar(compactMsg)')
+    expect(content).toContain('yield projectQuerySidecar(msg)')
+    expect(content).toContain("type: 'query_user_replay'")
+    expect(content).toContain('yield projectQuerySidecar(apiErrorMsg)')
+    expect(content).not.toContain('includeCompatibility: false')
+    expect(content).not.toContain('emitQueryRuntimeEvents?.(msg) ?? []')
+    expect(content).not.toContain('emitQueryRuntimeEvents?.(message) ?? []')
+    expect(content).not.toContain('yield* normalizeMessage(msg)')
+    expect(content).not.toContain("type: 'query_sdk_message'")
+    expect(content).not.toContain('turnEventAdapter.projectSDKMessage(message)')
+    expect(queryTurnEventAdapterContent).not.toContain(
+      'projectSDKMessage(message: SDKMessage)',
+    )
+    expect(queryTurnEventAdapterContent).not.toContain(
+      'getSDKResultTurnOutcome',
+    )
+    expect(queryTurnEventAdapterContent).toContain(
+      "from './QueryTurnCompatibilityProjector.js'",
+    )
+    expect(queryTurnEventAdapterContent).not.toContain('normalizeMessages')
+    expect(queryTurnEventAdapterContent).not.toContain('buildSystemInitMessage')
+    expect(queryTurnEventAdapterContent).not.toContain(
+      'projectProgressMessageToSDKMessageProjection',
+    )
+    expect(queryTurnCompatibilityProjectorContent).toContain(
+      'queryMessageToCompatibilitySDKMessages',
+    )
+    expect(content).toContain(
+      'turnEventAdapter.createFallbackTerminalEvent()',
+    )
     expect(content).toContain("type: 'turn.abort_requested'")
-    expect(content).toContain('metadata: canonicalProjection')
-    expect(content).toContain('abortReason: getRuntimeAbortStopReason')
     expect(content).toContain("this.abortController.abort('interrupt')")
   })
 
@@ -183,6 +237,15 @@ describe('SessionRuntime contracts', () => {
   test('runtime resume restores nested memory dedupe state from transcript messages', () => {
     expect(queryHelpersContent).toContain(
       'export function extractLoadedNestedMemoryPathsFromMessages(',
+    )
+    expect(queryHelpersContent).toContain(
+      'export function projectProgressMessageToSDKMessages(',
+    )
+    expect(queryHelpersContent).toContain(
+      'export function projectProgressMessageToSDKMessageProjection(',
+    )
+    expect(queryHelpersContent).toContain(
+      '): AsyncGenerator<Message, void, unknown> {',
     )
     expect(content).toContain(
       'initialLoadedNestedMemoryPaths?: readonly string[]',
