@@ -17,7 +17,7 @@
 
 ## 当前判断
 
-截至 2026-04-28，当前内核化已经进入 **内部 kernel 完整状态**：执行、
+截至 2026-05-04，当前内核化已经进入 **内部 kernel 完整状态**：执行、
 事件、权限、capability refresh、multi-session isolation、wire runtime、
 headless / interactive capability materialization 与 ACP / host compatibility
 adapter 均已按 runtime-first owner 收口。CLI 仍是第一宿主，但 legacy 输出与
@@ -83,19 +83,37 @@ public semver surface 已冻结到 `src/kernel/index.ts` 与 package-level `./ke
 SDKMessage / legacy stream-json projection helper 不再从 root `./kernel` 导出，
 只保留为 runtime 内部 transitional bridge。新宿主只应消费
 `KernelRuntimeEnvelope` / `KernelEvent` / wire contract，不再把 Agent SDK 当作
-第二条 public 接口线。最后只剩发布前按需复跑 optional live smoke，并在后续
-public API 扩面时避免把 `src/runtime` internals 误暴露成稳定 contract。
+第二条 public 接口线。2026-05-04 最终 release smoke 已复跑全绿；后续
+`query()` / `runQueryTurn()` 去 SDKMessage 化归类为 **P1 hardening**，不是当前
+kernel complete blocker。
 
 本轮 release-gated smoke 已执行并通过：
 
 - `RUN_BUILT_CLI_SMOKE=1 bun test tests/integration/kernel-built-cli-smoke.test.ts`
-  通过，覆盖 built Bun / built Node CLI 的 headless `stream-json` turn。
-- `RUN_ACP_LIVE_SMOKE=1 bun test tests/integration/kernel-acp-live-smoke.test.ts`
-  通过，覆盖 built ACP stdio transport 到 OpenAI-compatible endpoint。
-- `bun run scripts/kernel-deep-smoke.ts --timeout-ms 90000` 通过，覆盖 source
-  headless live turn。
+  通过，覆盖 built Bun / built Node CLI 的 headless `stream-json` turn；harness
+  现在显式设置 `CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST=1`，防止用户级
+  `settings.env` 覆盖 mock OpenAI routing。
+- `RUN_ACP_LIVE_SMOKE=1 ... bun test tests/integration/kernel-acp-live-smoke.test.ts`
+  通过，覆盖 built ACP stdio transport 到本地 OpenAI-compatible endpoint。
 - `bun run scripts/kernel-deep-smoke.ts --built --timeout-ms 90000` 通过，覆盖
-  source、built Bun 与 built Node live turn。
+  source headless live turn、built Bun live turn 与 built Node live turn。
+- `bun test tests/integration/kernel-direct-connect-smoke.test.ts tests/integration/kernel-headless-smoke.test.ts tests/integration/kernel-server-smoke.test.ts`
+  通过，覆盖 direct-connect 真实 HTTP + WebSocket transport、kernel headless
+  façade 与 server assembly。
+
+query 去 SDKMessage 化的最终判断：
+
+- 当前 public/runtime owner 已经是 `KernelRuntimeEnvelope` / `KernelEvent`；
+  `submitRuntimeTurn(...)` 对外产出 canonical runtime envelope。
+- `query.ts` 本身产出内部 `Message` / `StreamEvent`，不是 public
+  `SDKMessage`；但 `SessionRuntime.runQueryTurn(...)` 仍先把内部 message 投成
+  `SDKMessage`，再由 `submitRuntimeTurn(...)` 反推 canonical event。
+- 后续 P1 hardening 目标是抽 `QueryTurnEventAdapter` / `RuntimeTurnEventEmitter`：
+  让内部 query turn 直接生成 `KernelEvent`，`SDKMessage` 只从 envelope 反向
+  projection 给 `submitMessage()`、`stream-json` 与 ACP fallback。
+- 这会触碰 result synthesis、partial stream、tool summary、compact boundary、
+  stop hooks、budget/max-turns/error result，必须单独分支推进，不能作为当前
+  kernel complete 的收尾小刀。
 
 结合 2026-04-23 本轮收口进展，更准确的补充口径是：
 

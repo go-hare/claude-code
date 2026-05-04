@@ -96,12 +96,20 @@ SDKMessage / legacy `stream-json` projection helper 的 public surface 降级也
 
 后续只剩：
 
-release-gated live smoke 已在 2026-05-04 执行通过：
+release-gated live smoke 已在 2026-05-04 最终复跑通过：
 
 1. built CLI gated smoke：built Bun / built Node headless `stream-json` turn 通过。
 2. ACP live smoke：built ACP stdio transport 到 OpenAI-compatible endpoint 通过。
 3. source deep smoke：source headless live turn 通过。
 4. built deep smoke：source、built Bun、built Node live turn 全部通过。
+5. direct-connect/headless/server smoke：真实 HTTP + WebSocket direct-connect、
+   kernel headless façade 与 server assembly 均通过。
+
+`query()` / `runQueryTurn()` 去 SDKMessage 化已明确降级为 P1 hardening：
+当前 public/runtime 层已经以 `KernelEvent` / `KernelRuntimeEnvelope` 为唯一对外
+语义面，后续只是把内部 `Message -> SDKMessage -> KernelEvent` 的中间投影改成
+`Message -> KernelEvent -> SDKMessage projection`。这不再阻塞 kernel complete
+封板。
 
 如果后续进入正式 release，只需要在 release commit 上复跑同一组 gated smoke。
 

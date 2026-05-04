@@ -134,6 +134,7 @@ function getDeepEnv(): Record<string, string> {
 
   return {
     CLAUDE_CODE_USE_OPENAI: '1',
+    CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST: '1',
     OPENAI_API_KEY: apiKey,
     OPENAI_BASE_URL: baseUrl,
     OPENAI_MODEL: model,

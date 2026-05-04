@@ -123,6 +123,7 @@ function createChildEnv(env: LiveAcpEnv): NodeJS.ProcessEnv {
   const childEnv: NodeJS.ProcessEnv = {
     ...process.env,
     CLAUDE_CODE_USE_OPENAI: '1',
+    CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST: '1',
     OPENAI_API_KEY: env.apiKey,
     OPENAI_BASE_URL: env.baseUrl,
     OPENAI_MODEL: env.model,

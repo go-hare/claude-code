@@ -159,6 +159,7 @@ async function run(kind, cmd, args, prompt, env) {
   try {
     const sharedEnv = createChildEnv({
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+      CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST: "1",
       CLAUDE_CODE_USE_OPENAI: "1",
       NO_COLOR: "1",
       OPENAI_API_KEY: "test-openai-key",
