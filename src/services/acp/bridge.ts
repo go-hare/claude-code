@@ -30,14 +30,16 @@ import type {
   KernelRuntimeEnvelopeBase,
 } from '../../runtime/contracts/events.js'
 import {
-  handleKernelRuntimeHostEvent,
   hasCanonicalProjection,
+  getKernelRuntimeTerminalProjection,
   getKernelRuntimeTerminalProjectionFromSDKResultMessage,
+  getSDKMessageFromKernelRuntimeEnvelope,
+  getTextOutputDeltaFromKernelRuntimeEnvelope,
+  isKernelTurnTerminalEvent,
   KernelRuntimeOutputDeltaDedupe,
   KernelRuntimeSDKMessageDedupe,
-  type KernelRuntimeTerminalProjection,
-  type KernelRuntimeTextOutputDelta,
 } from '../../remote/kernelRuntimeHostEvents.js'
+import { getKernelEventFromEnvelope } from '../../runtime/core/events/KernelRuntimeEventFacade.js'
 import { promptToQueryInput } from './promptConversion.js'
 import { toDisplayPath, markdownEscape } from './utils.js'
 
@@ -66,6 +68,11 @@ type StreamedAssistantContentKind = 'image' | 'text' | 'thinking'
 type SDKMessageProjection = {
   message: SDKMessage
   event: KernelEvent
+}
+
+type AcpRuntimeEnvelopeProjection = {
+  sdkMessages: SDKMessageProjection[]
+  stopReason?: StopReason
 }
 // ── Tool info conversion ──────────────────────────────────────────
 
@@ -583,6 +590,7 @@ export async function forwardSessionUpdates(
   const sdkMessageDedupe = new KernelRuntimeSDKMessageDedupe()
   const outputDeltaDedupe = new KernelRuntimeOutputDeltaDedupe()
   const runtimeEnvelopeIterator = runtimeEnvelopes[Symbol.asyncIterator]()
+  let runtimeTerminalSeen = false
 
   try {
     while (!abortSignal.aborted) {
@@ -605,41 +613,18 @@ export async function forwardSessionUpdates(
       if (nextResult.done || abortSignal.aborted) break
       const runtimeEnvelope = nextResult.value
 
-      const messagesToProcess: SDKMessageProjection[] = []
-      {
-        const runtimeOutputDeltas: KernelRuntimeTextOutputDelta[] = []
-        const runtimeTerminalProjections: KernelRuntimeTerminalProjection[] = []
-        handleKernelRuntimeHostEvent(runtimeEnvelope, {
-          onSDKMessage: (message, _envelope, event) => {
-            messagesToProcess.push({
-              message: message as SDKMessage,
-              event,
-            })
-          },
-          onOutputDelta: delta => {
-            if (outputDeltaDedupe.shouldProcess(runtimeEnvelope)) {
-              runtimeOutputDeltas.push(delta)
-            }
-          },
-          onTurnTerminal: (_envelope, _event, projection) => {
-            runtimeTerminalProjections.push(projection)
-          },
-        })
-        for (const delta of runtimeOutputDeltas) {
-          await conn.sessionUpdate({
-            sessionId,
-            update: {
-              sessionUpdate: 'agent_message_chunk',
-              content: { type: 'text', text: delta.text },
-            },
-          })
-        }
-        for (const projection of runtimeTerminalProjections) {
-          stopReason = projection.hostStopReason as StopReason
-        }
+      const projection = await projectRuntimeEnvelopeToAcpSessionUpdates({
+        sessionId,
+        runtimeEnvelope,
+        conn,
+        outputDeltaDedupe,
+      })
+      if (projection.stopReason) {
+        stopReason = projection.stopReason
+        runtimeTerminalSeen = true
       }
 
-      for (const { message: msg, event: sourceEvent } of messagesToProcess) {
+      for (const { message: msg, event: sourceEvent } of projection.sdkMessages) {
         if (!sdkMessageDedupe.shouldProcess(msg)) {
           continue
         }
@@ -730,7 +715,7 @@ export async function forwardSessionUpdates(
             getKernelRuntimeTerminalProjectionFromSDKResultMessage(msg, {
               aborted: abortSignal.aborted,
             })
-          if (sdkTerminalProjection) {
+          if (sdkTerminalProjection && !runtimeTerminalSeen) {
             stopReason = sdkTerminalProjection.hostStopReason as StopReason
           }
           break
@@ -925,6 +910,51 @@ export async function forwardSessionUpdates(
   }
 
   return { stopReason, usage: accumulatedUsage }
+}
+
+async function projectRuntimeEnvelopeToAcpSessionUpdates({
+  sessionId,
+  runtimeEnvelope,
+  conn,
+  outputDeltaDedupe,
+}: {
+  sessionId: string
+  runtimeEnvelope: KernelRuntimeEnvelopeBase
+  conn: AgentSideConnection
+  outputDeltaDedupe: KernelRuntimeOutputDeltaDedupe
+}): Promise<AcpRuntimeEnvelopeProjection> {
+  const event = getKernelEventFromEnvelope(runtimeEnvelope)
+  if (!event) {
+    return { sdkMessages: [] }
+  }
+
+  const outputDelta = getTextOutputDeltaFromKernelRuntimeEnvelope(runtimeEnvelope)
+  if (outputDelta && outputDeltaDedupe.shouldProcess(runtimeEnvelope)) {
+    await conn.sessionUpdate({
+      sessionId,
+      update: {
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: outputDelta.text },
+      },
+    })
+  }
+
+  const projection: AcpRuntimeEnvelopeProjection = {
+    sdkMessages: [],
+  }
+  if (isKernelTurnTerminalEvent(event)) {
+    const terminalProjection = getKernelRuntimeTerminalProjection(event)
+    projection.stopReason = terminalProjection.hostStopReason as StopReason
+  }
+
+  const sdkMessage = getSDKMessageFromKernelRuntimeEnvelope(runtimeEnvelope)
+  if (sdkMessage) {
+    projection.sdkMessages.push({
+      message: sdkMessage as SDKMessage,
+      event,
+    })
+  }
+  return projection
 }
 
 // ── Assistant message conversion ──────────────────────────────────

@@ -108,6 +108,9 @@ contract。详细清单见 `docs/internals/kernelization-status.md` 中的“接
 - MCP、hooks、plugins、startup warmup 等宿主期装配，已经有 runtime service / adapter 收口，React/CLI 层逐步退回 UI 与 host callback。
 - `SessionRuntime.submitRuntimeTurn(...)`、`RuntimeEventBus` 与 runtime-first stream publisher 已经成为执行主链；`submitMessage(...)` / `ask(...)` 只保留兼容投影。
 - ACP 已直接消费 runtime envelope，legacy SDK-message / `stream-json` 仅保留 transport compatibility，不再是内部执行事实源。
+- ACP projection 当前优先消费 `KernelEvent`：纯 `turn.output_delta` 与 terminal
+  lifecycle 不再依赖 SDKMessage；SDKMessage fallback 只服务尚未 native 化的
+  content block、usage 与 tool-call 投影。
 - public event taxonomy、agents/tasks mutate contract 与 agent run lifecycle 已进入 package root、wire、client 主链。
 - `createKernelRuntime(...)` 现在已正式透传 runtime-level `provider` /
   `defaultProvider` init contract；`runtime.permissions.onEvent(...)` /

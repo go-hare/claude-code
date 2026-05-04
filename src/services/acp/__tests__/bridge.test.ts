@@ -736,6 +736,31 @@ describe('forwardSessionUpdates', () => {
     expect(result.stopReason).toBe('cancelled')
   })
 
+  test('keeps canonical runtime terminal stopReason ahead of SDK result fallback', async () => {
+    const conn = makeConn()
+    const sdkResult = {
+      type: 'result',
+      subtype: 'error_max_turns',
+      is_error: true,
+    } as unknown as SDKMessage
+
+    const result = await forwardSessionUpdates(
+      's1',
+      makeRuntimeStream([
+        makeRuntimeEnvelope('turn.completed', {
+          state: 'completed',
+          stopReason: null,
+        }),
+        makeRuntimeEnvelope('headless.sdk_message', sdkResult),
+      ]),
+      conn,
+      new AbortController().signal,
+      {},
+    )
+
+    expect(result.stopReason).toBe('end_turn')
+  })
+
   test('does not duplicate assistant text already emitted by stream_event', async () => {
     const conn = makeConn()
     const msgs: SDKMessage[] = [

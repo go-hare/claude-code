@@ -51,6 +51,11 @@ transport 只作为兼容投影保留，不再作为内部 source of truth。
 - Event plane 已统一到 runtime envelope / runtime event schema：ACP
   `SessionUpdate`、direct-connect host message、headless `stream-json` 与 legacy
   `SDKMessage` 都是 projection，不再和 canonical runtime events 平级持有真相。
+- ACP bridge 已进一步收成 runtime-event-first projection：`turn.output_delta`
+  与 `turn.completed` / `turn.failed` 直接由 `KernelEvent` 投影成
+  `SessionUpdate` / stopReason；`headless.sdk_message` 只作为复杂 content
+  block、usage 与 tool-call 的内部 transitional fallback，且不能覆盖已出现的
+  canonical terminal event。
 - Capability plane 已形成统一继承链：`runtime supports`、`host grants`、
   `mode permits`、`tool requires` 与 `agent inherits` 通过 capability plane /
   tool policy / permission broker 串联；agent 的 `exact_parent` 继承会被 parent
