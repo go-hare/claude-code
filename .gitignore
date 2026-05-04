@@ -8,11 +8,15 @@ coverage
 .vscode
 *.suo
 *.lock
+!bun.lock
 src/utils/vendor/
 
 # AI tool runtime directories
 .agents/
-.claude/
+.claude/*
+!.claude/agents/
+.claude/agents/*
+!.claude/agents/hello-agent.md
 .omx/
 .docs/task/
 # Binary / screenshot files (root only)
