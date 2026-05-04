@@ -19,6 +19,9 @@ let earlyInputBuffer = ''
 let isCapturing = false
 // Reference to the readable handler so we can remove it later
 let readableHandler: (() => void) | null = null
+// Safety valve: if Ink never takes over, release stdin's keepalive ref
+// without disabling capture.
+let safetyTimer: ReturnType<typeof setTimeout> | null = null
 
 /**
  * Start capturing stdin data early, before the REPL is initialized.
@@ -60,6 +63,17 @@ export function startCapturingEarlyInput(): void {
     }
 
     process.stdin.on('readable', readableHandler)
+
+    safetyTimer = setTimeout(() => {
+      try {
+        process.stdin.unref()
+      } catch {
+        // stdin may already be destroyed
+      }
+    }, 10_000)
+    if (typeof safetyTimer === 'object' && 'unref' in safetyTimer) {
+      safetyTimer.unref()
+    }
   } catch {
     // If we can't set raw mode, just silently continue without early capture
     isCapturing = false
@@ -172,9 +186,20 @@ export function stopCapturingEarlyInput(): void {
 
   isCapturing = false
 
+  if (safetyTimer) {
+    clearTimeout(safetyTimer)
+    safetyTimer = null
+  }
+
   if (readableHandler) {
     process.stdin.removeListener('readable', readableHandler)
     readableHandler = null
+  }
+
+  try {
+    process.stdin.unref()
+  } catch {
+    // stdin may already be destroyed
   }
 
   // Don't reset stdin state - the REPL's Ink App will manage stdin state.

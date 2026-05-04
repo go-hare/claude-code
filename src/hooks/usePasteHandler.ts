@@ -84,6 +84,16 @@ export function usePasteHandler({
   // reads stale pasteState.timeoutId (null) and takes the onInput path. If
   // that key is Enter, it submits the old input and the paste is lost.
   const pastePendingRef = React.useRef(false)
+  const bracketedPastePendingRef = React.useRef(false)
+  const queuedPostPasteInputsRef = React.useRef<
+    Array<{ input: string; key: Key }>
+  >([])
+  const bracketedPasteTimerRef =
+    React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const replayPostPasteTimerRef =
+    React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const onInputRef = React.useRef(onInput)
+  onInputRef.current = onInput
 
   const platform = React.useMemo(() => getPlatform(), [])
   const isMacOS = platform === 'macos'
@@ -91,6 +101,22 @@ export function usePasteHandler({
   React.useEffect(() => {
     return () => {
       isMountedRef.current = false
+      if (bracketedPasteTimerRef.current) {
+        clearTimeout(bracketedPasteTimerRef.current)
+      }
+      if (replayPostPasteTimerRef.current) {
+        clearTimeout(replayPostPasteTimerRef.current)
+      }
+    }
+  }, [])
+
+  const replayQueuedPostPasteInputs = React.useCallback(() => {
+    const queuedInputs = queuedPostPasteInputsRef.current
+    queuedPostPasteInputsRef.current = []
+    bracketedPastePendingRef.current = false
+
+    for (const queued of queuedInputs) {
+      onInputRef.current(queued.input, queued.key)
     }
   }, [])
 
@@ -125,118 +151,110 @@ export function usePasteHandler({
     CLIPBOARD_CHECK_DEBOUNCE_MS,
   )
 
+  const completeTextPaste = React.useCallback(
+    (rawText: string) => {
+      // Join chunks and filter out orphaned focus sequences
+      // These can appear when focus events split during paste
+      const pastedText = rawText.replace(/\[I$/, '').replace(/\[O$/, '')
+
+      // Check if the pasted text contains image file paths
+      // When dragging multiple images, they may come as:
+      // 1. Newline-separated paths (common in some terminals)
+      // 2. Space-separated paths (common when dragging from Finder)
+      // For space-separated paths, we split on spaces that precede absolute paths:
+      // - Unix: space followed by `/` (e.g., `/Users/...`)
+      // - Windows: space followed by drive letter and `:\` (e.g., `C:\Users\...`)
+      // This works because spaces within paths are escaped (e.g., `file\ name.png`)
+      const lines = pastedText
+        .split(/ (?=\/|[A-Za-z]:\\)/)
+        .flatMap(part => part.split('\n'))
+        .filter(line => line.trim())
+      const imagePaths = lines.filter(line => isImageFilePath(line))
+
+      if (onImagePaste && imagePaths.length > 0) {
+        const isTempScreenshot =
+          /\/TemporaryItems\/.*screencaptureui.*\/Screenshot/i.test(
+            pastedText,
+          )
+
+        // Process all image paths
+        void Promise.all(
+          imagePaths.map(imagePath => tryReadImageFromPath(imagePath)),
+        ).then(results => {
+          const validImages = results.filter(
+            (r): r is NonNullable<typeof r> => r !== null,
+          )
+
+          if (validImages.length > 0) {
+            // Successfully read at least one image
+            for (const imageData of validImages) {
+              const filename = basename(imageData.path)
+              onImagePaste(
+                imageData.base64,
+                imageData.mediaType,
+                filename,
+                imageData.dimensions,
+                imageData.path,
+              )
+            }
+            // If some paths weren't images, paste them as text
+            const nonImageLines = lines.filter(
+              line => !isImageFilePath(line),
+            )
+            if (nonImageLines.length > 0 && onPaste) {
+              onPaste(nonImageLines.join('\n'))
+            }
+            setIsPasting(false)
+          } else if (isTempScreenshot && isMacOS) {
+            // For temporary screenshot files that no longer exist, try clipboard
+            checkClipboardForImage()
+          } else {
+            if (onPaste) {
+              onPaste(pastedText)
+            }
+            setIsPasting(false)
+          }
+        })
+        return
+      }
+
+      // If paste is empty (common when trying to paste images with Cmd+V),
+      // check if clipboard has an image (macOS only)
+      if (isMacOS && onImagePaste && pastedText.length === 0) {
+        checkClipboardForImage()
+        return
+      }
+
+      // Handle regular paste
+      if (onPaste) {
+        onPaste(pastedText)
+      }
+      // Reset isPasting state after paste is complete
+      setIsPasting(false)
+    },
+    [checkClipboardForImage, isMacOS, onImagePaste, onPaste],
+  )
+
   const resetPasteTimeout = React.useCallback(
     (currentTimeoutId: ReturnType<typeof setTimeout> | null) => {
       if (currentTimeoutId) {
         clearTimeout(currentTimeoutId)
       }
       return setTimeout(
-        (
-          setPasteState,
-          onImagePaste,
-          onPaste,
-          setIsPasting,
-          checkClipboardForImage,
-          isMacOS,
-          pastePendingRef,
-        ) => {
+        (setPasteState, completeTextPaste, pastePendingRef) => {
           pastePendingRef.current = false
           setPasteState(({ chunks }) => {
-            // Join chunks and filter out orphaned focus sequences
-            // These can appear when focus events split during paste
-            const pastedText = chunks
-              .join('')
-              .replace(/\[I$/, '')
-              .replace(/\[O$/, '')
-
-            // Check if the pasted text contains image file paths
-            // When dragging multiple images, they may come as:
-            // 1. Newline-separated paths (common in some terminals)
-            // 2. Space-separated paths (common when dragging from Finder)
-            // For space-separated paths, we split on spaces that precede absolute paths:
-            // - Unix: space followed by `/` (e.g., `/Users/...`)
-            // - Windows: space followed by drive letter and `:\` (e.g., `C:\Users\...`)
-            // This works because spaces within paths are escaped (e.g., `file\ name.png`)
-            const lines = pastedText
-              .split(/ (?=\/|[A-Za-z]:\\)/)
-              .flatMap(part => part.split('\n'))
-              .filter(line => line.trim())
-            const imagePaths = lines.filter(line => isImageFilePath(line))
-
-            if (onImagePaste && imagePaths.length > 0) {
-              const isTempScreenshot =
-                /\/TemporaryItems\/.*screencaptureui.*\/Screenshot/i.test(
-                  pastedText,
-                )
-
-              // Process all image paths
-              void Promise.all(
-                imagePaths.map(imagePath => tryReadImageFromPath(imagePath)),
-              ).then(results => {
-                const validImages = results.filter(
-                  (r): r is NonNullable<typeof r> => r !== null,
-                )
-
-                if (validImages.length > 0) {
-                  // Successfully read at least one image
-                  for (const imageData of validImages) {
-                    const filename = basename(imageData.path)
-                    onImagePaste(
-                      imageData.base64,
-                      imageData.mediaType,
-                      filename,
-                      imageData.dimensions,
-                      imageData.path,
-                    )
-                  }
-                  // If some paths weren't images, paste them as text
-                  const nonImageLines = lines.filter(
-                    line => !isImageFilePath(line),
-                  )
-                  if (nonImageLines.length > 0 && onPaste) {
-                    onPaste(nonImageLines.join('\n'))
-                  }
-                  setIsPasting(false)
-                } else if (isTempScreenshot && isMacOS) {
-                  // For temporary screenshot files that no longer exist, try clipboard
-                  checkClipboardForImage()
-                } else {
-                  if (onPaste) {
-                    onPaste(pastedText)
-                  }
-                  setIsPasting(false)
-                }
-              })
-              return { chunks: [], timeoutId: null }
-            }
-
-            // If paste is empty (common when trying to paste images with Cmd+V),
-            // check if clipboard has an image (macOS only)
-            if (isMacOS && onImagePaste && pastedText.length === 0) {
-              checkClipboardForImage()
-              return { chunks: [], timeoutId: null }
-            }
-
-            // Handle regular paste
-            if (onPaste) {
-              onPaste(pastedText)
-            }
-            // Reset isPasting state after paste is complete
-            setIsPasting(false)
+            completeTextPaste(chunks.join(''))
             return { chunks: [], timeoutId: null }
           })
         },
         PASTE_COMPLETION_TIMEOUT_MS,
         setPasteState,
-        onImagePaste,
-        onPaste,
-        setIsPasting,
-        checkClipboardForImage,
-        isMacOS,
+        completeTextPaste,
         pastePendingRef,
       )
     },
-    [checkClipboardForImage, isMacOS, onImagePaste, onPaste],
+    [completeTextPaste],
   )
 
   // Paste detection is now done via the InputEvent's keypress.isPasted flag,
@@ -249,6 +267,11 @@ export function usePasteHandler({
     // Detect paste from the parsed keypress event.
     // The keypress parser sets isPasted=true for content within bracketed paste.
     const isFromPaste = event.keypress.isPasted
+
+    if (bracketedPastePendingRef.current && !isFromPaste) {
+      queuedPostPasteInputsRef.current.push({ input, key })
+      return
+    }
 
     // If this is pasted content, set isPasting state for UI feedback
     if (isFromPaste) {
@@ -280,6 +303,30 @@ export function usePasteHandler({
       checkClipboardForImage()
       // Reset isPasting since there's no text content to process
       setIsPasting(false)
+      return
+    }
+
+    if (isFromPaste && onPaste) {
+      pastePendingRef.current = false
+      bracketedPastePendingRef.current = true
+      queuedPostPasteInputsRef.current = []
+      if (pasteState.timeoutId) {
+        clearTimeout(pasteState.timeoutId)
+      }
+      setPasteState({ chunks: [], timeoutId: null })
+      if (bracketedPasteTimerRef.current) {
+        clearTimeout(bracketedPasteTimerRef.current)
+      }
+      bracketedPasteTimerRef.current = setTimeout(() => {
+        bracketedPasteTimerRef.current = null
+        if (!isMountedRef.current) return
+        completeTextPaste(input)
+        replayPostPasteTimerRef.current = setTimeout(() => {
+          replayPostPasteTimerRef.current = null
+          if (!isMountedRef.current) return
+          replayQueuedPostPasteInputs()
+        }, 0)
+      }, 0)
       return
     }
 
