@@ -3,6 +3,9 @@ import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 // ── Heavy module mocks (must be before any import of the module under test) ──
 
 const mockSetModel = mock(() => {})
+const originalAcpPermissionMode = process.env.ACP_PERMISSION_MODE
+const originalAcpAllowBypass =
+  process.env.CLAUDE_CODE_ACP_ALLOW_BYPASS_PERMISSIONS
 
 mock.module('../toolContext.js', () => ({
   getEmptyToolPermissionContext: mock(() => ({})),
@@ -43,13 +46,46 @@ mock.module('../agentBridgeDeps.js', () => ({
   replayHistoryMessages: mock(async () => {}),
 }))
 
+const mockResolvePermissionMode = mock(
+  (defaultMode?: unknown, source = 'permissions.defaultMode') => {
+    if (defaultMode === undefined) {
+      return 'default'
+    }
+
+    if (typeof defaultMode !== 'string') {
+      throw new Error(`Invalid ${source}: expected a string.`)
+    }
+
+    const normalized = defaultMode.trim().toLowerCase()
+    if (normalized === '') {
+      throw new Error(`Invalid ${source}: expected a non-empty string.`)
+    }
+
+    const aliases = {
+      auto: 'auto',
+      default: 'default',
+      acceptedits: 'acceptEdits',
+      dontask: 'dontAsk',
+      plan: 'plan',
+      bypasspermissions: 'bypassPermissions',
+      bypass: 'bypassPermissions',
+    } as const
+    const mapped = aliases[normalized as keyof typeof aliases]
+    if (!mapped) {
+      throw new Error(`Invalid ${source}: ${defaultMode}.`)
+    }
+    return mapped
+  },
+)
+
 mock.module('../sessionUtils.js', () => ({
-  resolvePermissionMode: mock(() => 'default'),
+  resolvePermissionMode: mockResolvePermissionMode,
   computeSessionFingerprint: mock(() => '{}'),
   sanitizeTitle: mock((s: string) => s),
 }))
 
 const mockGetMainLoopModel = mock(() => 'claude-sonnet-4-6')
+const mockGetSettings = mock(() => ({}))
 const mockDeserializeMessages = mock((msgs: unknown[]) => msgs)
 const mockGetLastSessionLog = mock(async () => null)
 const mockSessionIdExists = mock(() => false)
@@ -122,6 +158,7 @@ mock.module('../runtimeDeps.js', () => ({
   listSessionsImpl: mock(async () => []),
   getMainLoopModel: mockGetMainLoopModel,
   getModelOptions: mock(() => []),
+  getSettings_DEPRECATED: mockGetSettings,
   deserializeMessages: mockDeserializeMessages,
   getLastSessionLog: mockGetLastSessionLog,
   sessionIdExists: mockSessionIdExists,
@@ -172,19 +209,82 @@ function makeConn() {
   } as any
 }
 
+function removeBypassMode(session: any) {
+  session.modes = {
+    ...session.modes,
+    availableModes: session.modes.availableModes.filter(
+      (mode: any) => mode.id !== 'bypassPermissions',
+    ),
+  }
+  session.appState.toolPermissionContext = {
+    ...session.appState.toolPermissionContext,
+    isBypassPermissionsModeAvailable: false,
+  }
+}
+
+function restoreEnv(name: string, value: string | undefined) {
+  if (value === undefined) {
+    delete process.env[name]
+  } else {
+    process.env[name] = value
+  }
+}
+
 // ── Tests ─────────────────────────────────────────────────────────
 
 describe('AcpAgent', () => {
   beforeEach(() => {
+    delete process.env.ACP_PERMISSION_MODE
+    delete process.env.CLAUDE_CODE_ACP_ALLOW_BYPASS_PERMISSIONS
     mockSetModel.mockClear()
     mockGetMainLoopModel.mockClear()
     mockGetDefaultAppState.mockClear()
+    mockGetSettings.mockReset()
+    mockGetSettings.mockImplementation(() => ({}))
+    mockResolvePermissionMode.mockReset()
+    mockResolvePermissionMode.mockImplementation(
+      (defaultMode?: unknown, source = 'permissions.defaultMode') => {
+        if (defaultMode === undefined) {
+          return 'default'
+        }
+        if (typeof defaultMode !== 'string') {
+          throw new Error(`Invalid ${source}: expected a string.`)
+        }
+        const normalized = defaultMode.trim().toLowerCase()
+        if (normalized === '') {
+          throw new Error(`Invalid ${source}: expected a non-empty string.`)
+        }
+        const aliases = {
+          auto: 'auto',
+          default: 'default',
+          acceptedits: 'acceptEdits',
+          dontask: 'dontAsk',
+          plan: 'plan',
+          bypasspermissions: 'bypassPermissions',
+          bypass: 'bypassPermissions',
+        } as const
+        const mapped = aliases[normalized as keyof typeof aliases]
+        if (!mapped) {
+          throw new Error(`Invalid ${source}: ${defaultMode}.`)
+        }
+        return mapped
+      },
+    )
+    ;(forwardSessionUpdates as ReturnType<typeof mock>).mockReset()
+    ;(forwardSessionUpdates as ReturnType<typeof mock>).mockImplementation(
+      async () => ({ stopReason: 'end_turn' as const }),
+    )
     mockQueryEngineMessages = []
     mockRuntimeEnvelopeSequence = 0
   })
 
   afterEach(() => {
     process.chdir(originalCwd)
+    restoreEnv('ACP_PERMISSION_MODE', originalAcpPermissionMode)
+    restoreEnv(
+      'CLAUDE_CODE_ACP_ALLOW_BYPASS_PERMISSIONS',
+      originalAcpAllowBypass,
+    )
   })
 
   describe('initialize', () => {
@@ -282,6 +382,34 @@ describe('AcpAgent', () => {
       const res = await agent.newSession({ cwd: '/tmp' } as any)
       // Should not throw — clientCapabilities stored internally
       expect(res.sessionId).toBeDefined()
+    })
+
+    test('honors permissions.defaultMode from settings', async () => {
+      mockGetSettings.mockReturnValueOnce({
+        permissions: {
+          defaultMode: 'plan',
+        },
+      })
+
+      const agent = new AcpAgent(makeConn())
+      const res = await agent.newSession({ cwd: '/tmp' } as any)
+      const session = agent.sessions.get(res.sessionId)
+
+      expect(res.modes).toBeDefined()
+      expect(res.modes!.currentModeId).toBe('plan')
+      expect(session?.modes.currentModeId).toBe('plan')
+      expect(session?.appState.toolPermissionContext.mode).toBe('plan')
+    })
+
+    test('rejects _meta bypassPermissions without a local ACP bypass gate', async () => {
+      const agent = new AcpAgent(makeConn())
+
+      await expect(
+        agent.newSession({
+          cwd: '/tmp',
+          _meta: { permissionMode: 'bypassPermissions' },
+        } as any),
+      ).rejects.toThrow('requires a local ACP bypass opt-in')
     })
   })
 
@@ -422,27 +550,18 @@ describe('AcpAgent', () => {
       expect(res2.stopReason).toBe('end_turn')
     })
 
-    test('returns end_turn on unexpected error', async () => {
+    test('rethrows unexpected prompt errors', async () => {
       const agent = new AcpAgent(makeConn())
       const { sessionId } = await agent.newSession({ cwd: '/tmp' } as any)
       ;(forwardSessionUpdates as ReturnType<typeof mock>).mockImplementationOnce(async () => {
         throw new Error('unexpected')
       })
-      // Suppress console.error noise from catch block
-      const origError = console.error
-      console.error = (...args: unknown[]) => {
-        if (typeof args[0] === 'string' && args[0].includes('[ACP]')) return
-        origError.apply(console, args)
-      }
-      try {
-        const res = await agent.prompt({
+      await expect(
+        agent.prompt({
           sessionId,
           prompt: [{ type: 'text', text: 'hello' }],
-        } as any)
-        expect(res.stopReason).toBe('end_turn')
-      } finally {
-        console.error = origError
-      }
+        } as any),
+      ).rejects.toThrow('unexpected')
     })
 
     test('returns usage from forwardSessionUpdates', async () => {
@@ -710,21 +829,49 @@ describe('AcpAgent', () => {
       ).rejects.toThrow('Session not found')
     })
 
-    test('availableModes includes bypassPermissions when not root', async () => {
+    test('availableModes excludes bypassPermissions without a local ACP bypass gate', async () => {
       const agent = new AcpAgent(makeConn())
       const { sessionId } = await agent.newSession({ cwd: '/tmp' } as any)
       const session = agent.sessions.get(sessionId)
       const modeIds = session?.modes.availableModes.map((m: any) => m.id)
-      expect(modeIds).toContain('bypassPermissions')
+      expect(modeIds).not.toContain('bypassPermissions')
     })
 
-    test('can switch to bypassPermissions mode', async () => {
+    test('rejects bypassPermissions without a local ACP bypass gate', async () => {
+      const agent = new AcpAgent(makeConn())
+      const { sessionId } = await agent.newSession({ cwd: '/tmp' } as any)
+      await expect(
+        agent.setSessionMode({ sessionId, modeId: 'bypassPermissions' } as any),
+      ).rejects.toThrow('Mode not available')
+
+      const session = agent.sessions.get(sessionId)
+      expect(session?.modes.currentModeId).toBe('default')
+      expect(session?.appState.toolPermissionContext.mode).toBe('default')
+    })
+
+    test('can switch to bypassPermissions mode with a local ACP bypass gate', async () => {
+      process.env.CLAUDE_CODE_ACP_ALLOW_BYPASS_PERMISSIONS = '1'
       const agent = new AcpAgent(makeConn())
       const { sessionId } = await agent.newSession({ cwd: '/tmp' } as any)
       await agent.setSessionMode({ sessionId, modeId: 'bypassPermissions' } as any)
       const session = agent.sessions.get(sessionId)
       expect(session?.modes.currentModeId).toBe('bypassPermissions')
       expect(session?.appState.toolPermissionContext.mode).toBe('bypassPermissions')
+    })
+
+    test('rejects bypassPermissions when the session does not expose it', async () => {
+      process.env.CLAUDE_CODE_ACP_ALLOW_BYPASS_PERMISSIONS = '1'
+      const agent = new AcpAgent(makeConn())
+      const { sessionId } = await agent.newSession({ cwd: '/tmp' } as any)
+      const session = agent.sessions.get(sessionId)
+      removeBypassMode(session)
+
+      await expect(
+        agent.setSessionMode({ sessionId, modeId: 'bypassPermissions' } as any),
+      ).rejects.toThrow('Mode not available')
+
+      expect(session?.modes.currentModeId).toBe('default')
+      expect(session?.appState.toolPermissionContext.mode).toBe('default')
     })
   })
 
@@ -751,6 +898,25 @@ describe('AcpAgent', () => {
           value: 42,
         } as any),
       ).rejects.toThrow('Invalid value')
+    })
+
+    test('rejects unavailable mode config values', async () => {
+      process.env.CLAUDE_CODE_ACP_ALLOW_BYPASS_PERMISSIONS = '1'
+      const agent = new AcpAgent(makeConn())
+      const { sessionId } = await agent.newSession({ cwd: '/tmp' } as any)
+      const session = agent.sessions.get(sessionId)
+      removeBypassMode(session)
+
+      await expect(
+        agent.setSessionConfigOption({
+          sessionId,
+          configId: 'mode',
+          value: 'bypassPermissions',
+        } as any),
+      ).rejects.toThrow('Mode not available')
+
+      expect(session?.modes.currentModeId).toBe('default')
+      expect(session?.appState.toolPermissionContext.mode).toBe('default')
     })
   })
 
@@ -800,6 +966,44 @@ describe('AcpAgent', () => {
       const [r1, r2] = await Promise.all([p1, p2])
       expect(r1.stopReason).toBe('cancelled')
       expect(r2.stopReason).toBe('cancelled')
+    })
+
+    test('queued prompt does not execute after cancel lands during handoff', async () => {
+      const agent = new AcpAgent(makeConn())
+      const { sessionId } = await agent.newSession({ cwd: '/tmp' } as any)
+
+      let resolveFirst!: () => void
+      ;(forwardSessionUpdates as ReturnType<typeof mock>).mockImplementationOnce(
+        () => new Promise<{ stopReason: string }>((resolve) => {
+          resolveFirst = () => resolve({ stopReason: 'end_turn' })
+        }),
+      )
+      ;(forwardSessionUpdates as ReturnType<typeof mock>).mockResolvedValueOnce({
+        stopReason: 'end_turn',
+      })
+
+      const p1 = agent.prompt({
+        sessionId,
+        prompt: [{ type: 'text', text: 'first' }],
+      } as any)
+      const p2 = agent.prompt({
+        sessionId,
+        prompt: [{ type: 'text', text: 'second' }],
+      } as any)
+
+      resolveFirst()
+      await new Promise<void>(resolve => {
+        queueMicrotask(() => {
+          void agent.cancel({ sessionId } as any).then(() => resolve())
+        })
+      })
+
+      const [r1, r2] = await Promise.all([p1, p2])
+      expect(r1.stopReason).toBe('end_turn')
+      expect(r2.stopReason).toBe('cancelled')
+      expect(
+        (forwardSessionUpdates as ReturnType<typeof mock>).mock.calls,
+      ).toHaveLength(1)
     })
   })
 

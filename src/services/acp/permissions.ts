@@ -27,14 +27,6 @@ import { hasPermissionsToUseTool } from '../../utils/permissions/permissions.js'
 import { toolInfoFromToolUse } from './bridge.js'
 import { recordAcpRuntimePermissionDecision } from './permissionRuntimeBroker.js'
 
-const IS_ROOT =
-  typeof process.geteuid === 'function'
-    ? process.geteuid() === 0
-    : typeof process.getuid === 'function'
-      ? process.getuid() === 0
-      : false
-const ALLOW_BYPASS = !IS_ROOT || !!process.env.IS_SANDBOX
-
 type AcpPermissionClassification =
   | 'user_temporary'
   | 'user_permanent'
@@ -73,6 +65,7 @@ export function createAcpCanUseTool(
   clientCapabilities?: ClientCapabilities,
   cwd?: string,
   onModeChange?: (modeId: string) => void,
+  isBypassModeAvailable?: () => boolean,
 ): CanUseToolFn {
   return async (
     tool: ToolType,
@@ -99,6 +92,7 @@ export function createAcpCanUseTool(
         supportsTerminalOutput,
         cwd,
         onModeChange,
+        isBypassModeAvailable,
       )
     }
 
@@ -272,6 +266,7 @@ async function handleExitPlanMode(
   supportsTerminalOutput: boolean,
   cwd?: string,
   onModeChange?: (modeId: string) => void,
+  isBypassModeAvailable?: () => boolean,
 ): Promise<PermissionAllowDecision | PermissionDenyDecision> {
   const options: Array<PermissionOption> = [
     {
@@ -291,7 +286,7 @@ async function handleExitPlanMode(
     },
     { kind: 'reject_once', name: 'No, keep planning', optionId: 'plan' },
   ]
-  if (ALLOW_BYPASS) {
+  if (isBypassModeAvailable?.() === true) {
     options.unshift({
       kind: 'allow_always',
       name: 'Yes, and bypass permissions',

@@ -31,10 +31,14 @@ import type {
 } from '../../runtime/contracts/events.js'
 import {
   handleKernelRuntimeHostEvent,
+  hasCanonicalProjection,
+  getKernelRuntimeTerminalProjectionFromSDKResultMessage,
   KernelRuntimeOutputDeltaDedupe,
   KernelRuntimeSDKMessageDedupe,
+  type KernelRuntimeTerminalProjection,
   type KernelRuntimeTextOutputDelta,
 } from '../../remote/kernelRuntimeHostEvents.js'
+import { promptToQueryInput } from './promptConversion.js'
 import { toDisplayPath, markdownEscape } from './utils.js'
 
 // ── ToolUseCache ──────────────────────────────────────────────────
@@ -58,6 +62,11 @@ export type SessionUsage = {
 }
 
 type StreamedAssistantContentKind = 'image' | 'text' | 'thinking'
+
+type SDKMessageProjection = {
+  message: SDKMessage
+  event: KernelEvent
+}
 // ── Tool info conversion ──────────────────────────────────────────
 
 interface ToolInfo {
@@ -534,20 +543,7 @@ export function toolUpdateFromEditToolResponse(toolResponse: unknown): {
 export function promptToQueryContent(
   prompt: Array<ContentBlock> | undefined,
 ): string {
-  if (!prompt) return ''
-  return prompt
-    .map((block) => {
-      const b = block as Record<string, unknown>
-      if (b.type === 'text') return b.text as string
-      if (b.type === 'resource_link') return `[${b.name ?? ''}](${b.uri as string})`
-      if (b.type === 'resource') {
-        const resource = b.resource as Record<string, unknown> | undefined
-        if (resource && 'text' in resource) return resource.text as string
-      }
-      return ''
-    })
-    .filter(Boolean)
-    .join('\n')
+  return promptToQueryInput(prompt)
 }
 
 // ── Main forwarding function ──────────────────────────────────────
@@ -609,21 +605,24 @@ export async function forwardSessionUpdates(
       if (nextResult.done || abortSignal.aborted) break
       const runtimeEnvelope = nextResult.value
 
-      const messagesToProcess: SDKMessage[] = []
+      const messagesToProcess: SDKMessageProjection[] = []
       {
         const runtimeOutputDeltas: KernelRuntimeTextOutputDelta[] = []
-        const runtimeTerminalEvents: KernelEvent[] = []
+        const runtimeTerminalProjections: KernelRuntimeTerminalProjection[] = []
         handleKernelRuntimeHostEvent(runtimeEnvelope, {
-          onSDKMessage: message => {
-            messagesToProcess.push(message as SDKMessage)
+          onSDKMessage: (message, _envelope, event) => {
+            messagesToProcess.push({
+              message: message as SDKMessage,
+              event,
+            })
           },
           onOutputDelta: delta => {
             if (outputDeltaDedupe.shouldProcess(runtimeEnvelope)) {
               runtimeOutputDeltas.push(delta)
             }
           },
-          onTurnTerminal: (_envelope, event) => {
-            runtimeTerminalEvents.push(event)
+          onTurnTerminal: (_envelope, _event, projection) => {
+            runtimeTerminalProjections.push(projection)
           },
         })
         for (const delta of runtimeOutputDeltas) {
@@ -635,12 +634,12 @@ export async function forwardSessionUpdates(
             },
           })
         }
-        for (const event of runtimeTerminalEvents) {
-          stopReason = stopReasonFromKernelRuntimeTerminalEvent(event)
+        for (const projection of runtimeTerminalProjections) {
+          stopReason = projection.hostStopReason as StopReason
         }
       }
 
-      for (const msg of messagesToProcess) {
+      for (const { message: msg, event: sourceEvent } of messagesToProcess) {
         if (!sdkMessageDedupe.shouldProcess(msg)) {
           continue
         }
@@ -727,52 +726,21 @@ export async function forwardSessionUpdates(
             },
           })
 
-          // Determine stop reason
-          const subtype = msg.subtype as string | undefined
-          const isError = msg.is_error as boolean | undefined
-
-          if (abortSignal.aborted) {
-            stopReason = 'cancelled'
-            break
-          }
-
-          switch (subtype) {
-            case 'success': {
-              const stopReasonStr = msg.stop_reason as string | null
-              if (stopReasonStr === 'max_tokens') {
-                stopReason = 'max_tokens'
-              }
-              if (isError) {
-                // Report error as end_turn
-                stopReason = 'end_turn'
-              }
-              break
-            }
-            case 'error_during_execution': {
-              if ((msg.stop_reason as string | null) === 'max_tokens') {
-                stopReason = 'max_tokens'
-              } else if (isError) {
-                stopReason = 'end_turn'
-              } else {
-                stopReason = 'end_turn'
-              }
-              break
-            }
-            case 'error_max_budget_usd':
-            case 'error_max_turns':
-            case 'error_max_structured_output_retries':
-              if (isError) {
-                stopReason = 'max_turn_requests'
-              } else {
-                stopReason = 'max_turn_requests'
-              }
-              break
+          const sdkTerminalProjection =
+            getKernelRuntimeTerminalProjectionFromSDKResultMessage(msg, {
+              aborted: abortSignal.aborted,
+            })
+          if (sdkTerminalProjection) {
+            stopReason = sdkTerminalProjection.hostStopReason as StopReason
           }
           break
         }
 
         // ── Stream events ──────────────────────────────────────────
         case 'stream_event': {
+          if (hasCanonicalProjection(sourceEvent, 'turn.output_delta')) {
+            break
+          }
           const streamEvent = (msg as unknown as { event?: Record<string, unknown> }).event
           const parentToolUseId =
             msg.parent_tool_use_id as string | null | undefined
@@ -957,52 +925,6 @@ export async function forwardSessionUpdates(
   }
 
   return { stopReason, usage: accumulatedUsage }
-}
-
-function stopReasonFromKernelRuntimeTerminalEvent(
-  event: KernelEvent,
-): StopReason {
-  const payload = isObjectRecord(event.payload) ? event.payload : undefined
-  const runtimeStopReason =
-    typeof payload?.stopReason === 'string'
-      ? payload.stopReason
-      : undefined
-
-  if (runtimeStopReason === 'max_tokens') {
-    return 'max_tokens'
-  }
-  if (
-    runtimeStopReason === 'max_turn_requests' ||
-    runtimeStopReason === 'max_turns' ||
-    runtimeStopReason === 'error_max_turns'
-  ) {
-    return 'max_turn_requests'
-  }
-  if (isRuntimeAbortStopReason(runtimeStopReason)) {
-    return 'cancelled'
-  }
-  if (event.type === 'turn.failed') {
-    return 'end_turn'
-  }
-  return 'end_turn'
-}
-
-function isRuntimeAbortStopReason(value: string | undefined): boolean {
-  if (!value) {
-    return false
-  }
-  const normalized = value.toLowerCase()
-  return (
-    normalized === 'interrupt' ||
-    normalized === 'cancelled' ||
-    normalized === 'canceled' ||
-    normalized === 'abort' ||
-    normalized === 'aborted'
-  )
-}
-
-function isObjectRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
 }
 
 // ── Assistant message conversion ──────────────────────────────────

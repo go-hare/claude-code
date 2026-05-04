@@ -678,6 +678,48 @@ describe('forwardSessionUpdates', () => {
     ])
   })
 
+  test('does not duplicate SDK stream deltas that already have canonical runtime output', async () => {
+    const conn = makeConn()
+    const sdkMessage = {
+      type: 'stream_event',
+      event: {
+        type: 'content_block_delta',
+        delta: { type: 'text_delta', text: 'semantic text' },
+      },
+      parent_tool_use_id: null,
+    } as unknown as SDKMessage
+    const sdkEnvelope = makeRuntimeEnvelope('headless.sdk_message', sdkMessage)
+    const sdkEvent = sdkEnvelope.payload as KernelEvent
+    sdkEvent.metadata = {
+      canonicalProjection: 'turn.output_delta',
+    }
+
+    await forwardSessionUpdates(
+      's1',
+      makeRuntimeStream([
+        makeRuntimeEnvelope('turn.output_delta', { text: 'semantic text' }),
+        sdkEnvelope,
+      ]),
+      conn,
+      new AbortController().signal,
+      {},
+    )
+
+    const chunkCalls = (conn.sessionUpdate as ReturnType<typeof mock>).mock.calls.filter(
+      (call: unknown[]) =>
+        ((call[0] as { update?: { sessionUpdate?: string } }).update?.sessionUpdate) ===
+        'agent_message_chunk',
+    )
+    expect(chunkCalls).toHaveLength(1)
+    expect(chunkCalls[0]?.[0]).toMatchObject({
+      sessionId: 's1',
+      update: {
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: 'semantic text' },
+      },
+    })
+  })
+
   test('maps runtime abort terminal events to cancelled stopReason', async () => {
     const conn = makeConn()
 
@@ -920,6 +962,47 @@ describe('forwardSessionUpdates', () => {
     expect(result.usage).toBeDefined()
     expect(result.usage!.inputTokens).toBe(100)
     expect(result.usage!.outputTokens).toBe(50)
+  })
+
+  test('maps SDK result stop reasons through shared runtime host projection', async () => {
+    const conn = makeConn()
+
+    const result = await forwardSessionUpdates(
+      's1',
+      makeStream([
+        {
+          type: 'result',
+          subtype: 'error_max_turns',
+          is_error: true,
+        } as unknown as SDKMessage,
+      ]),
+      conn,
+      new AbortController().signal,
+      {},
+    )
+
+    expect(result.stopReason).toBe('max_turn_requests')
+  })
+
+  test('maps SDK result max_tokens through shared runtime host projection', async () => {
+    const conn = makeConn()
+
+    const result = await forwardSessionUpdates(
+      's1',
+      makeStream([
+        {
+          type: 'result',
+          subtype: 'success',
+          is_error: false,
+          stop_reason: 'max_tokens',
+        } as unknown as SDKMessage,
+      ]),
+      conn,
+      new AbortController().signal,
+      {},
+    )
+
+    expect(result.stopReason).toBe('max_tokens')
   })
 
   test('sends usage_update with context window from modelUsage', async () => {
