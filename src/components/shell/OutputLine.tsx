@@ -104,9 +104,14 @@ export function OutputLine({
  * all formatting. So we just strip the underline ANSI codes specifically.
  */
 export function stripUnderlineAnsi(content: string): string {
+  const escapeChar = String.fromCharCode(0x1b)
+  const underlineAnsiPattern = new RegExp(
+    `${escapeChar}\\[([0-9]+;)*4(;[0-9]+)*m|${escapeChar}\\[4(;[0-9]+)*m|${escapeChar}\\[([0-9]+;)*4m`,
+    'g',
+  )
+
   return content.replace(
-    // eslint-disable-next-line no-control-regex
-    /\u001b\[([0-9]+;)*4(;[0-9]+)*m|\u001b\[4(;[0-9]+)*m|\u001b\[([0-9]+;)*4m/g,
+    underlineAnsiPattern,
     '',
   )
 }

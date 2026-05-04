@@ -250,8 +250,9 @@ const BRACE_EXPANSION_RE = /\{[^{}\s]*(,|\.\.)[^{}\s]*\}/
  * default IFS does not include CR, so tree-sitter and bash disagree on
  * word boundaries.
  */
-// eslint-disable-next-line no-control-regex
-const CONTROL_CHAR_RE = /[\x00-\x08\x0B-\x1F\x7F]/
+const CONTROL_CHAR_RE = new RegExp(
+  `[${String.fromCharCode(0)}-${String.fromCharCode(8)}${String.fromCharCode(11)}-${String.fromCharCode(31)}${String.fromCharCode(127)}]`,
+)
 
 /**
  * Unicode whitespace beyond ASCII. These render invisibly (or as regular

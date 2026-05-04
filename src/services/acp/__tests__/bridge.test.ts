@@ -1125,6 +1125,7 @@ describe('forwardSessionUpdates', () => {
       void,
       unknown
     > {
+      yield* []
       throw new Error('stream exploded')
     }
     await expect(

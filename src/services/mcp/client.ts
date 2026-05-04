@@ -1426,117 +1426,103 @@ export const connectToServer = memoize(
               }
 
               // Wait for graceful shutdown with rapid escalation (total 500ms to keep CLI responsive)
-              await new Promise<void>(async resolve => {
+              await new Promise<void>(resolve => {
                 let resolved = false
+                let checkInterval: ReturnType<typeof setInterval> | undefined
+                let failsafeTimeout: ReturnType<typeof setTimeout> | undefined
+
+                const finish = () => {
+                  if (resolved) return
+                  resolved = true
+                  if (checkInterval) clearInterval(checkInterval)
+                  if (failsafeTimeout) clearTimeout(failsafeTimeout)
+                  resolve()
+                }
 
                 // Set up a timer to check if process still exists
-                const checkInterval = setInterval(() => {
+                checkInterval = setInterval(() => {
                   try {
                     // process.kill(pid, 0) checks if process exists without killing it
                     process.kill(childPid, 0)
                   } catch {
                     // Process no longer exists
-                    if (!resolved) {
-                      resolved = true
-                      clearInterval(checkInterval)
-                      clearTimeout(failsafeTimeout)
-                      logMCPDebug(name, 'MCP server process exited cleanly')
-                      resolve()
-                    }
+                    logMCPDebug(name, 'MCP server process exited cleanly')
+                    finish()
                   }
                 }, 50)
 
                 // Absolute failsafe: clear interval after 600ms no matter what
-                const failsafeTimeout = setTimeout(() => {
+                failsafeTimeout = setTimeout(() => {
                   if (!resolved) {
-                    resolved = true
-                    clearInterval(checkInterval)
                     logMCPDebug(
                       name,
                       'Cleanup timeout reached, stopping process monitoring',
                     )
-                    resolve()
+                    finish()
                   }
                 }, 600)
 
-                try {
-                  // Wait 100ms for SIGINT to work (usually much faster)
-                  await sleep(100)
-
-                  if (!resolved) {
-                    // Check if process still exists
-                    try {
-                      process.kill(childPid, 0)
-                      // Process still exists, SIGINT failed, try SIGTERM
-                      logMCPDebug(
-                        name,
-                        'SIGINT failed, sending SIGTERM to MCP server process',
-                      )
-                      try {
-                        process.kill(childPid, 'SIGTERM')
-                      } catch (termError) {
-                        logMCPDebug(name, `Error sending SIGTERM: ${termError}`)
-                        resolved = true
-                        clearInterval(checkInterval)
-                        clearTimeout(failsafeTimeout)
-                        resolve()
-                        return
-                      }
-                    } catch {
-                      // Process already exited
-                      resolved = true
-                      clearInterval(checkInterval)
-                      clearTimeout(failsafeTimeout)
-                      resolve()
-                      return
-                    }
-
-                    // Wait 400ms for SIGTERM to work (slower than SIGINT, often used for cleanup)
-                    await sleep(400)
+                void (async () => {
+                  try {
+                    // Wait 100ms for SIGINT to work (usually much faster)
+                    await sleep(100)
 
                     if (!resolved) {
                       // Check if process still exists
                       try {
                         process.kill(childPid, 0)
-                        // Process still exists, SIGTERM failed, force kill with SIGKILL
+                        // Process still exists, SIGINT failed, try SIGTERM
                         logMCPDebug(
                           name,
-                          'SIGTERM failed, sending SIGKILL to MCP server process',
+                          'SIGINT failed, sending SIGTERM to MCP server process',
                         )
                         try {
-                          process.kill(childPid, 'SIGKILL')
-                        } catch (killError) {
-                          logMCPDebug(
-                            name,
-                            `Error sending SIGKILL: ${killError}`,
-                          )
+                          process.kill(childPid, 'SIGTERM')
+                        } catch (termError) {
+                          logMCPDebug(name, `Error sending SIGTERM: ${termError}`)
+                          finish()
+                          return
                         }
                       } catch {
                         // Process already exited
-                        resolved = true
-                        clearInterval(checkInterval)
-                        clearTimeout(failsafeTimeout)
-                        resolve()
+                        finish()
+                        return
+                      }
+
+                      // Wait 400ms for SIGTERM to work (slower than SIGINT, often used for cleanup)
+                      await sleep(400)
+
+                      if (!resolved) {
+                        // Check if process still exists
+                        try {
+                          process.kill(childPid, 0)
+                          // Process still exists, SIGTERM failed, force kill with SIGKILL
+                          logMCPDebug(
+                            name,
+                            'SIGTERM failed, sending SIGKILL to MCP server process',
+                          )
+                          try {
+                            process.kill(childPid, 'SIGKILL')
+                          } catch (killError) {
+                            logMCPDebug(
+                              name,
+                              `Error sending SIGKILL: ${killError}`,
+                            )
+                          }
+                        } catch {
+                          // Process already exited
+                          finish()
+                        }
                       }
                     }
-                  }
 
-                  // Final timeout - always resolve after 500ms max (total cleanup time)
-                  if (!resolved) {
-                    resolved = true
-                    clearInterval(checkInterval)
-                    clearTimeout(failsafeTimeout)
-                    resolve()
+                    // Final timeout - always resolve after 500ms max (total cleanup time)
+                    finish()
+                  } catch {
+                    // Handle any errors in the escalation sequence
+                    finish()
                   }
-                } catch {
-                  // Handle any errors in the escalation sequence
-                  if (!resolved) {
-                    resolved = true
-                    clearInterval(checkInterval)
-                    clearTimeout(failsafeTimeout)
-                    resolve()
-                  }
-                }
+                })()
               })
             }
           } catch (processError) {

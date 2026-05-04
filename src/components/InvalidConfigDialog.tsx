@@ -83,32 +83,37 @@ export async function showInvalidConfigDialog({
     theme: SAFE_ERROR_THEME_NAME,
   }
 
-  await new Promise<void>(async resolve => {
-    const { unmount } = await render(
-      <AppStateProvider>
-        <KeybindingSetup>
-          <InvalidConfigDialog
-            filePath={error.filePath}
-            errorDescription={error.message}
-            onExit={() => {
-              unmount()
-              void resolve()
-              process.exit(1)
-            }}
-            onReset={() => {
-              writeFileSync_DEPRECATED(
-                error.filePath,
-                jsonStringify(error.defaultConfig, null, 2),
-                { flush: false, encoding: 'utf8' },
-              )
-              unmount()
-              void resolve()
-              process.exit(0)
-            }}
-          />
-        </KeybindingSetup>
-      </AppStateProvider>,
-      renderOptions,
-    )
+  let resolveDialog!: () => void
+  const dialogComplete = new Promise<void>(resolve => {
+    resolveDialog = resolve
   })
+
+  const { unmount } = await render(
+    <AppStateProvider>
+      <KeybindingSetup>
+        <InvalidConfigDialog
+          filePath={error.filePath}
+          errorDescription={error.message}
+          onExit={() => {
+            unmount()
+            resolveDialog()
+            process.exit(1)
+          }}
+          onReset={() => {
+            writeFileSync_DEPRECATED(
+              error.filePath,
+              jsonStringify(error.defaultConfig, null, 2),
+              { flush: false, encoding: 'utf8' },
+            )
+            unmount()
+            resolveDialog()
+            process.exit(0)
+          }}
+        />
+      </KeybindingSetup>
+    </AppStateProvider>,
+    renderOptions,
+  )
+
+  await dialogComplete
 }

@@ -421,38 +421,39 @@ export const createAndSaveSnapshot = async (
 
   logForDebugging(`Creating shell snapshot for ${shellType} (${binShell})`)
 
-  return new Promise(async resolve => {
-    try {
-      const configFile = getConfigFile(binShell)
-      logForDebugging(`Looking for shell config file: ${configFile}`)
-      const configFileExists = await pathExists(configFile)
+  try {
+    const configFile = getConfigFile(binShell)
+    logForDebugging(`Looking for shell config file: ${configFile}`)
+    const configFileExists = await pathExists(configFile)
 
-      if (!configFileExists) {
-        logForDebugging(
-          `Shell config file not found: ${configFile}, creating snapshot with Claude Code defaults only`,
-        )
-      }
-
-      // Create unique snapshot path with timestamp and random ID
-      const timestamp = Date.now()
-      const randomId = Math.random().toString(36).substring(2, 8)
-      const snapshotsDir = join(getClaudeConfigHomeDir(), 'shell-snapshots')
-      logForDebugging(`Snapshots directory: ${snapshotsDir}`)
-      const shellSnapshotPath = join(
-        snapshotsDir,
-        `snapshot-${shellType}-${timestamp}-${randomId}.sh`,
+    if (!configFileExists) {
+      logForDebugging(
+        `Shell config file not found: ${configFile}, creating snapshot with Claude Code defaults only`,
       )
+    }
 
-      // Ensure snapshots directory exists
-      await mkdir(snapshotsDir, { recursive: true })
+    // Create unique snapshot path with timestamp and random ID
+    const timestamp = Date.now()
+    const randomId = Math.random().toString(36).substring(2, 8)
+    const snapshotsDir = join(getClaudeConfigHomeDir(), 'shell-snapshots')
+    logForDebugging(`Snapshots directory: ${snapshotsDir}`)
+    const shellSnapshotPath = join(
+      snapshotsDir,
+      `snapshot-${shellType}-${timestamp}-${randomId}.sh`,
+    )
 
-      const snapshotScript = await getSnapshotScript(
-        binShell,
-        shellSnapshotPath,
-        configFileExists,
-      )
-      logForDebugging(`Creating snapshot at: ${shellSnapshotPath}`)
-      logForDebugging(`Execution timeout: ${SNAPSHOT_CREATION_TIMEOUT}ms`)
+    // Ensure snapshots directory exists
+    await mkdir(snapshotsDir, { recursive: true })
+
+    const snapshotScript = await getSnapshotScript(
+      binShell,
+      shellSnapshotPath,
+      configFileExists,
+    )
+    logForDebugging(`Creating snapshot at: ${shellSnapshotPath}`)
+    logForDebugging(`Execution timeout: ${SNAPSHOT_CREATION_TIMEOUT}ms`)
+
+    return await new Promise<string | undefined>(resolve => {
       execFile(
         binShell,
         ['-c', '-l', snapshotScript],
@@ -569,14 +570,14 @@ export const createAndSaveSnapshot = async (
           }
         },
       )
-    } catch (error) {
-      logForDebugging(`Unexpected error during snapshot creation: ${error}`)
-      if (error instanceof Error) {
-        logForDebugging(`Error stack trace: ${error.stack}`)
-      }
-      logError(error)
-      logEvent('tengu_shell_snapshot_error', {})
-      resolve(undefined)
+    })
+  } catch (error) {
+    logForDebugging(`Unexpected error during snapshot creation: ${error}`)
+    if (error instanceof Error) {
+      logForDebugging(`Error stack trace: ${error.stack}`)
     }
-  })
+    logError(error)
+    logEvent('tengu_shell_snapshot_error', {})
+    return undefined
+  }
 }
