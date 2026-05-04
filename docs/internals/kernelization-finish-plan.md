@@ -40,6 +40,71 @@
 1. public API / compatibility matrix 的发布治理
 2. legacy transport / 历史 lint 存量的工程治理
 
+## 2026-05-04 最终复核
+
+按“内核完成”标准重新验收后，当前结论保持不变，并进一步收紧为：
+
+> 内部 kernel 已完成。剩余工作不是补内核语义，而是 release / public API /
+> legacy projection 的治理边界。
+
+本次复核确认：
+
+1. turn lifecycle 只有一条 canonical owner：
+   `SessionRuntime.submitRuntimeTurn(...)` + `RuntimeConversation` +
+   `RuntimeTurnController`。
+2. host 只做 adapter / projection：CLI、headless、direct-connect、ACP 不再持有
+   terminal turn、permission、capability 或 event source of truth。
+3. context categories 已拆为 `modelVisible`、`hostVisible`、`operatorDebug`，
+   host/debug-only metadata 不进入 model-visible context。
+4. capability plane 已覆盖 runtime / host / mode / tool / agent 继承链，agent
+   `exact_parent` 不能越过 parent capability。
+5. coordinator lifecycle 已收进 runtime-owned task / agent / capability 语义面，
+   host 只投影 lifecycle / task notification。
+6. ACP / direct-connect / headless projection 已通过真实或近真实 transport smoke
+   验证，没有发现重复事件、丢事件或 terminal 顺序错乱。
+
+验证记录：
+
+- `bun run test:all` 通过：`4498 pass / 2 skip / 0 fail`。
+- 两个 skipped 用例是 gated live smoke：built CLI smoke 与 ACP live smoke；本轮
+  已使用本地 OpenAI-compatible endpoint 单独执行通过。
+- `scripts/kernel-deep-smoke.ts` 已覆盖 source、built Bun 与 built Node。
+
+public semver surface 已在本轮冻结：
+
+- 唯一源码级 public surface：`src/kernel/index.ts`。
+- 唯一 package-level semver entry：`@go-hare/hare-code/kernel` / `./kernel`。
+- 唯一 export manifest：
+  `src/kernel/__tests__/publicSurfaceManifest.ts`。
+- `package.json#exports` 白名单锁定为 `./kernel` 与 `./package.json`，避免
+  `./runtime`、leaf `./kernel/*` 或其它 internal path 被顺手公开。
+- `surface.test`、`packageEntry.test` 与 `kernel-package-smoke` 共用 manifest，
+  source、entrypoint 与 packed package 不再各自维护一份 public export truth。
+
+后续如果继续推进，应只从下面两类里选：
+
+legacy SDK / `stream-json` projection helper 的低风险 consolidation 也已完成：
+
+- `projectRuntimeEnvelopeToLegacyRuntimeEventStreamJsonMessage(...)` 负责
+  runtime-event-only stream-json 投影。
+- `projectRuntimeEnvelopeToLegacySDKStreamJsonMessages(...)` 负责
+  SDK-message-only stream-json 投影。
+- `projectRuntimeEnvelopeToLegacyStreamJsonMessages(...)` 保持 public 兼容语义，
+  但内部复用上述命名 helper。
+- headless verbose streaming 与 runtime event output 不再手写
+  `includeRuntimeEvent` / `includeSDKMessage` 布尔组合。
+
+后续只剩：
+
+release-gated live smoke 已在 2026-05-04 执行通过：
+
+1. built CLI gated smoke：built Bun / built Node headless `stream-json` turn 通过。
+2. ACP live smoke：built ACP stdio transport 到 OpenAI-compatible endpoint 通过。
+3. source deep smoke：source headless live turn 通过。
+4. built deep smoke：source、built Bun、built Node live turn 全部通过。
+
+如果后续进入正式 release，只需要在 release commit 上复跑同一组 gated smoke。
+
 ## 当前位置
 
 当前已经完成：

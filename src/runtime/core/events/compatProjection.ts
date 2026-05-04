@@ -14,6 +14,8 @@ export type SDKResultTurnOutcome = {
   stopReason: string | null
 }
 
+export type SDKBackedRuntimeEventType = 'turn.output_delta'
+
 export type LegacyStreamJsonProjectionOptions = {
   sessionId?: string
   includeRuntimeEvent?: boolean
@@ -47,6 +49,63 @@ export function sdkMessageToRuntimeEvent({
 
 export const createHeadlessSDKMessageRuntimeEvent = sdkMessageToRuntimeEvent
 
+export function createTurnOutputDeltaRuntimeEventFromSDKMessage({
+  conversationId,
+  turnId,
+  message,
+}: {
+  conversationId: string
+  turnId?: string
+  message: SDKMessage
+}): KernelEvent | undefined {
+  const text = getTextOutputDeltaFromSDKMessage(message)
+  if (!text) {
+    return undefined
+  }
+
+  return {
+    conversationId,
+    turnId,
+    type: 'turn.output_delta',
+    replayable: true,
+    payload: {
+      text,
+      source: 'sdk_stream_event',
+    },
+    metadata: {
+      compatibilitySource: 'headless.sdk_message',
+    },
+  }
+}
+
+export function getCanonicalProjectionForSDKMessage(
+  message: SDKMessage,
+): SDKBackedRuntimeEventType | undefined {
+  return getTextOutputDeltaFromSDKMessage(message)
+    ? 'turn.output_delta'
+    : undefined
+}
+
+export function getTextOutputDeltaFromSDKMessage(
+  message: SDKMessage,
+): string | undefined {
+  const record = message as Record<string, unknown>
+  if (record.type !== 'stream_event') {
+    return undefined
+  }
+
+  const event = record.event as Record<string, unknown> | undefined
+  if (event?.type !== 'content_block_delta') {
+    return undefined
+  }
+
+  const delta = event.delta as Record<string, unknown> | undefined
+  if (delta?.type === 'text_delta' && typeof delta.text === 'string') {
+    return delta.text.length > 0 ? delta.text : undefined
+  }
+  return undefined
+}
+
 export function runtimeEnvelopeToSDKMessage(
   envelope: KernelRuntimeEnvelopeBase,
 ): SDKMessage | undefined {
@@ -63,7 +122,16 @@ export const projectRuntimeEnvelopeToLegacySDKMessage =
 
 export function getSDKResultTurnOutcome(
   message: SDKMessage,
+  options: { abortReason?: string | null } = {},
 ): SDKResultTurnOutcome {
+  if (options.abortReason) {
+    return {
+      eventType: 'turn.failed',
+      state: 'failed',
+      stopReason: options.abortReason,
+    }
+  }
+
   const failed = isErrorSDKResultMessage(message)
   return {
     eventType: failed ? 'turn.failed' : 'turn.completed',
@@ -94,6 +162,23 @@ export function stopReasonFromSDKResultMessage(
   }
 }
 
+export function getRuntimeAbortStopReason(
+  signal: AbortSignal | undefined,
+): string | null {
+  if (!signal?.aborted) {
+    return null
+  }
+
+  const reason = signal.reason
+  if (typeof reason === 'string' && reason.length > 0) {
+    return reason
+  }
+  if (reason instanceof Error && reason.message.length > 0) {
+    return reason.message
+  }
+  return 'aborted'
+}
+
 export function sdkMessageToStreamJsonMessages(
   message: SDKMessage,
 ): StdoutMessage[] {
@@ -103,6 +188,29 @@ export function sdkMessageToStreamJsonMessages(
 export const projectSDKMessageToLegacyStreamJsonMessages =
   sdkMessageToStreamJsonMessages
 
+export function runtimeEnvelopeToLegacyRuntimeEventStreamJsonMessage(
+  envelope: KernelRuntimeEnvelopeBase,
+  options: Pick<LegacyStreamJsonProjectionOptions, 'sessionId'> = {},
+): StdoutMessage {
+  return toKernelRuntimeEventMessage(
+    envelope,
+    options.sessionId ?? envelope.conversationId ?? '',
+  ) as unknown as StdoutMessage
+}
+
+export const projectRuntimeEnvelopeToLegacyRuntimeEventStreamJsonMessage =
+  runtimeEnvelopeToLegacyRuntimeEventStreamJsonMessage
+
+export function runtimeEnvelopeToLegacySDKStreamJsonMessages(
+  envelope: KernelRuntimeEnvelopeBase,
+): StdoutMessage[] {
+  const sdkMessage = runtimeEnvelopeToSDKMessage(envelope)
+  return sdkMessage ? sdkMessageToStreamJsonMessages(sdkMessage) : []
+}
+
+export const projectRuntimeEnvelopeToLegacySDKStreamJsonMessages =
+  runtimeEnvelopeToLegacySDKStreamJsonMessages
+
 export function runtimeEnvelopeToStreamJsonMessages(
   envelope: KernelRuntimeEnvelopeBase,
   options: LegacyStreamJsonProjectionOptions = {},
@@ -110,18 +218,14 @@ export function runtimeEnvelopeToStreamJsonMessages(
   const messages: StdoutMessage[] = []
   if (options.includeRuntimeEvent) {
     messages.push(
-      toKernelRuntimeEventMessage(
-        envelope,
-        options.sessionId ?? envelope.conversationId ?? '',
-      ) as unknown as StdoutMessage,
+      runtimeEnvelopeToLegacyRuntimeEventStreamJsonMessage(envelope, {
+        sessionId: options.sessionId,
+      }),
     )
   }
 
   if (options.includeSDKMessage !== false) {
-    const sdkMessage = runtimeEnvelopeToSDKMessage(envelope)
-    if (sdkMessage) {
-      messages.push(...sdkMessageToStreamJsonMessages(sdkMessage))
-    }
+    messages.push(...runtimeEnvelopeToLegacySDKStreamJsonMessages(envelope))
   }
   return messages
 }

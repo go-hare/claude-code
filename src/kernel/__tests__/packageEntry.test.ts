@@ -4,134 +4,13 @@ import { join } from 'path'
 
 import * as kernel from '../index.js'
 import * as runtimeEvents from '../runtimeEvents.js'
+import {
+  EXPECTED_KERNEL_PUBLIC_EXPORTS,
+  KERNEL_CAPABILITY_API_EXPORTS,
+  KERNEL_RUNTIME_EVENT_TAXONOMY_EXPORTS,
+} from './publicSurfaceManifest.js'
 
 const repoRoot = join(import.meta.dir, '../../..')
-const RUNTIME_EVENT_TAXONOMY_EXPORTS = [
-  'KERNEL_RUNTIME_EVENT_TAXONOMY',
-  'KERNEL_RUNTIME_EVENT_TYPES',
-  'getKernelRuntimeEventCategory',
-  'getKernelRuntimeEventTaxonomyEntry',
-  'getKernelRuntimeEventType',
-  'isKernelRuntimeEventEnvelope',
-  'isKernelRuntimeEventOfType',
-  'isKernelTurnTerminalEvent',
-  'isKnownKernelRuntimeEventType',
-] as const
-const CAPABILITY_API_EXPORTS = [
-  'KERNEL_CAPABILITY_FAMILIES',
-  'filterKernelCapabilities',
-  'getKernelCapabilityFamily',
-  'groupKernelCapabilities',
-  'isKernelCapabilityReady',
-  'isKernelCapabilityUnavailable',
-  'reloadKernelRuntimeCapabilities',
-  'resolveKernelRuntimeCapabilities',
-  'toKernelCapabilityView',
-  'toKernelCapabilityViews',
-] as const
-const EXPECTED_KERNEL_EXPORTS = [
-  'KERNEL_RUNTIME_COMMAND_SCHEMA_VERSION',
-  ...RUNTIME_EVENT_TAXONOMY_EXPORTS,
-  ...CAPABILITY_API_EXPORTS,
-  'DirectConnectError',
-  'applyDirectConnectSessionState',
-  'assembleServerHost',
-  'connectDefaultKernelHeadlessMcp',
-  'connectDirectHostSession',
-  'connectResponseSchema',
-  'collectKernelRuntimeEventEnvelopes',
-  'consumeKernelRuntimeEventMessage',
-  'createDefaultKernelHeadlessEnvironment',
-  'createDefaultKernelRuntimeWireRouter',
-  'createHeadlessSDKMessageRuntimeEvent',
-  'createDirectConnectSession',
-  'createKernelCompanionRuntime',
-  'createKernelContextManager',
-  'createKernelHeadlessController',
-  'createKernelHeadlessInputQueue',
-  'createKernelHeadlessProviderEnv',
-  'createKernelHeadlessSession',
-  'createKernelHeadlessStore',
-  'createKernelKairosRuntime',
-  'createKernelMemoryManager',
-  'createKernelPermissionBroker',
-  'createKernelRuntimeEventFacade',
-  'createKernelRuntimeInProcessWireTransport',
-  'createKernelRuntimeStdioWireTransport',
-  'createKernelRuntimeWireClient',
-  'createKernelRuntime',
-  'createKernelSessionManager',
-  'createKernelSession',
-  'emitKernelHeadlessRuntimeMessage',
-  'getKernelCommandExecutionResult',
-  'getKernelAgentRunCancelResult',
-  'getKernelAgentSpawnResult',
-  'getKernelHookMutationResult',
-  'getKernelHookRegistrySnapshot',
-  'getKernelHookRunResult',
-  'getKernelMcpLifecycleResult',
-  'getKernelMcpSnapshot',
-  'getKernelPermissionDecision',
-  'getKernelPermissionRequest',
-  'getKernelPluginMutationResult',
-  'getKernelPluginSnapshot',
-  'getKernelSkillPromptContextResult',
-  'getKernelSkillSnapshot',
-  'getKernelTaskMutationResult',
-  'getDirectConnectErrorMessage',
-  'getKernelEventFromEnvelope',
-  'getKernelRuntimeEnvelopeFromMessage',
-  'getKernelToolCallResult',
-  'getKernelTurnOutputText',
-  'getKernelTurnTerminalSnapshot',
-  'getSDKMessageFromRuntimeEnvelope',
-  'getSDKResultTurnOutcome',
-  'isKernelCommandsExecutedEvent',
-  'isKernelAgentsRunCancelledEvent',
-  'isKernelAgentsSpawnedEvent',
-  'isKernelHooksRanEvent',
-  'isKernelHooksRegisteredEvent',
-  'isKernelHooksReloadedEvent',
-  'isKernelMcpAuthenticatedEvent',
-  'isKernelMcpConnectedEvent',
-  'isKernelMcpEnabledChangedEvent',
-  'isKernelMcpReloadedEvent',
-  'isKernelRuntimeEnvelope',
-  'isKernelPermissionRequestedEvent',
-  'isKernelPermissionResolvedEvent',
-  'isKernelPluginsEnabledChangedEvent',
-  'isKernelPluginsInstalledEvent',
-  'isKernelPluginsReloadedEvent',
-  'isKernelPluginsUninstalledEvent',
-  'isKernelPluginsUpdatedEvent',
-  'isKernelSkillsContextResolvedEvent',
-  'isKernelSkillsReloadedEvent',
-  'isKernelTasksAssignedEvent',
-  'isKernelTasksCreatedEvent',
-  'isKernelTasksUpdatedEvent',
-  'isKernelToolsCalledEvent',
-  'KernelPermissionBrokerDisposedError',
-  'KernelPermissionDecisionError',
-  'KernelRuntimeOutputDeltaDedupe',
-  'KernelRuntimeRequestError',
-  'KernelRuntimeSDKMessageDedupe',
-  'KernelRuntimeEventReplayError',
-  'normalizeKernelHeadlessEvent',
-  'prepareKernelHeadlessStartup',
-  'runBridgeHeadless',
-  'runConnectHeadless',
-  'runDaemonWorker',
-  'runKernelHeadless',
-  'runKernelHeadlessLaunch',
-  'runKernelHeadlessClient',
-  'runKernelRuntimeWireProtocol',
-  'startKernelServer',
-  'startServer',
-  'toKernelRuntimeEventMessage',
-  'projectRuntimeEnvelopeToLegacySDKMessage',
-  'projectRuntimeEnvelopeToLegacyStreamJsonMessages',
-  'projectSDKMessageToLegacyStreamJsonMessages',
-] as const
 
 const packageEntry = await import('../../entrypoints/kernel.js')
 const packageJson = JSON.parse(
@@ -152,6 +31,13 @@ describe('kernel package entry', () => {
   test('declares the package-level ./kernel export', () => {
     expect(packageJson.exports).toBeDefined()
     expect(packageJson.exports?.['./kernel']).toBeDefined()
+  })
+
+  test('keeps package exports limited to the frozen public entrypoints', () => {
+    expect(Object.keys(packageJson.exports ?? {}).sort()).toEqual([
+      './kernel',
+      './package.json',
+    ])
   })
 
   test('publishes a standalone declaration file for the ./kernel surface', async () => {
@@ -209,6 +95,8 @@ describe('kernel package entry', () => {
     expect(declaration).toContain('onEvent(handler: (event: KernelRuntimeSkillEvent) => void)')
     expect(declaration).toContain('onEvent(handler: (event: KernelRuntimePluginEvent) => void)')
     expect(declaration).toContain('emitKernelHeadlessRuntimeMessage(')
+    expect(declaration).toContain('handleKernelRuntimeHostEvent(')
+    expect(declaration).toContain('getKernelRuntimeLifecycleProjection(')
     expect(declaration).toContain('projectRuntimeEnvelopeToLegacyStreamJsonMessages(')
     expect(declaration).toContain('KernelLegacySDKMessage')
     expect(declaration).toContain(
@@ -269,6 +157,8 @@ describe('kernel package entry', () => {
     expect(declaration).toContain('isKernelTasksCreatedEvent(')
     expect(declaration).toContain('isKernelTasksUpdatedEvent(')
     expect(declaration).toContain('isKernelTasksAssignedEvent(')
+    expect(declaration).toContain('isKernelTasksNotificationEvent(')
+    expect(declaration).toContain('isKernelCoordinatorLifecycleEvent(')
     expect(declaration).toContain('getKernelMcpSnapshot(')
     expect(declaration).toContain('getKernelMcpLifecycleResult(')
     expect(declaration).toContain('getKernelPluginSnapshot(')
@@ -504,7 +394,7 @@ describe('kernel package entry', () => {
 
   test('re-exports the stable kernel surface through src/entrypoints/kernel.ts', () => {
     expect(Object.keys(packageEntry).sort()).toEqual(
-      [...EXPECTED_KERNEL_EXPORTS].sort(),
+      [...EXPECTED_KERNEL_PUBLIC_EXPORTS].sort(),
     )
     expect(
       Object.is(packageEntry.runKernelHeadless, kernel.runKernelHeadless),
@@ -581,7 +471,7 @@ describe('kernel package entry', () => {
         kernel.getKernelEventFromEnvelope,
       ),
     ).toBe(true)
-    for (const exportName of RUNTIME_EVENT_TAXONOMY_EXPORTS) {
+    for (const exportName of KERNEL_RUNTIME_EVENT_TAXONOMY_EXPORTS) {
       expect(packageEntry[exportName]).toBe(kernel[exportName])
       expect(packageEntry[exportName]).toBe(runtimeEvents[exportName])
     }
@@ -590,7 +480,7 @@ describe('kernel package entry', () => {
       unknown
     >
     const kernelRecord = kernel as unknown as Record<string, unknown>
-    for (const exportName of CAPABILITY_API_EXPORTS) {
+    for (const exportName of KERNEL_CAPABILITY_API_EXPORTS) {
       expect(packageEntryRecord[exportName]).toBe(kernelRecord[exportName])
       if (exportName === 'KERNEL_CAPABILITY_FAMILIES') {
         expect(Array.isArray(packageEntryRecord[exportName])).toBe(true)

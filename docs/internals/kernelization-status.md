@@ -35,6 +35,59 @@ transport 只作为兼容投影保留，不再作为内部 source of truth。
 
 > `runtime.sessions.resume()` 现在已经返回 live `KernelConversation`、允许继续运行 turn，并会把 transcript 历史消息、todo snapshot、nested memory snapshot、task snapshot、attribution snapshot、file history snapshot、content replacement 记录，以及 context collapse commit / snapshot 一并 hydrate 进 resumed conversation 的 replayable live event state（当前事件类型为 `conversation.transcript_message` / `conversation.todo_snapshot` / `conversation.nested_memory_snapshot` / `conversation.task_snapshot` / `conversation.attribution_snapshot` / `conversation.file_history_snapshot` / `conversation.content_replacement` / `conversation.context_collapse_commit` / `conversation.context_collapse_snapshot`）；`getTranscript()` 仍保留原始 transcript 读取入口。与此同时，headless/runtime turn 也已开始在每轮执行前恢复 nested memory dedupe state，避免 resumed session 在后续 turn 里重复注入已加载的 `CLAUDE.md` / nested memory 附件；task storage 中唯一 open owned task context 也会重新挂回 `activeTaskExecutionContext`。剩余若继续追平的，是更深的 richer tool context / execution context，而不是这些已持久化历史状态、TodoWrite 连续性、nested memory dedupe、task-list snapshot 与 open-task context 的恢复缺口。
 
+### 2026-05-04 内核完成标准复核
+
+按“内核是否拿回语义主权”复核，当前内部 kernel blocker 已清零。
+
+- Turn owner 已收口到一条 canonical lifecycle：`SessionRuntime.submitRuntimeTurn(...)`
+  是 runtime turn 入口，`RuntimeConversation` / `RuntimeTurnController` 维护
+  turn identity、active execution、abort/finalize 与 replayable terminal state；
+  `query.ts`、`QueryEngine`、headless、ACP 与 host launcher 只保留入口适配或
+  compatibility projection。
+- Context assembly 已拆出硬边界：`modelVisible`、`hostVisible`、
+  `operatorDebug` 分离，queued command、task reminder、skill discovery 与
+  operator/debug metadata 不再被当成同一类 prompt 拼接物；host/debug-only
+  attachment 不进入 model-visible context。
+- Event plane 已统一到 runtime envelope / runtime event schema：ACP
+  `SessionUpdate`、direct-connect host message、headless `stream-json` 与 legacy
+  `SDKMessage` 都是 projection，不再和 canonical runtime events 平级持有真相。
+- Capability plane 已形成统一继承链：`runtime supports`、`host grants`、
+  `mode permits`、`tool requires` 与 `agent inherits` 通过 capability plane /
+  tool policy / permission broker 串联；agent 的 `exact_parent` 继承会被 parent
+  capability clamp，不能绕过父执行面的权限边界。
+- Coordinator lifecycle 已纳入同一 runtime/capability 语义面：coordinator、
+  task、agent run 与 linked task metadata 走 runtime-owned registry /
+  capability plane，headless/host 只负责投影 task notification 与 lifecycle
+  event。
+- 真实 transport smoke 已补齐：direct-connect 使用真实 HTTP + WebSocket
+  transport；ACP live stdio 与 built headless CLI 已用本地 OpenAI-compatible
+  endpoint 单独跑通；`scripts/kernel-deep-smoke.ts` 已覆盖 source、built Bun 与
+  built Node。
+- 全量回归结果：`bun run test:all` 通过，`4498 pass / 2 skip / 0 fail`。两个
+  skip 是 gated live smoke（built CLI smoke 与 ACP live smoke），已在本轮用真实
+  endpoint 单独执行过。
+
+public semver surface 已冻结到 `src/kernel/index.ts` 与 package-level `./kernel`：
+`src/kernel/__tests__/publicSurfaceManifest.ts` 是唯一 export manifest，
+`surface.test`、`packageEntry.test` 与 `kernel-package-smoke` 共用同一份快照，
+并且 package `exports` 被锁定为 `./kernel` 与 `./package.json`。剩余事项不再是
+“内核未完成”的 blocker。legacy SDK / `stream-json` projection helper 也已完成
+低风险 consolidation：runtime-event-only 与 SDK-message-only 两类 stream-json
+投影组合已收口为命名 helper，调用方不再散落手写布尔 option 组合。最后只剩
+发布前按需复跑 optional live smoke，并在后续 public API 扩面时避免把
+`src/runtime` internals 误暴露成稳定 contract。
+
+本轮 release-gated smoke 已执行并通过：
+
+- `RUN_BUILT_CLI_SMOKE=1 bun test tests/integration/kernel-built-cli-smoke.test.ts`
+  通过，覆盖 built Bun / built Node CLI 的 headless `stream-json` turn。
+- `RUN_ACP_LIVE_SMOKE=1 bun test tests/integration/kernel-acp-live-smoke.test.ts`
+  通过，覆盖 built ACP stdio transport 到 OpenAI-compatible endpoint。
+- `bun run scripts/kernel-deep-smoke.ts --timeout-ms 90000` 通过，覆盖 source
+  headless live turn。
+- `bun run scripts/kernel-deep-smoke.ts --built --timeout-ms 90000` 通过，覆盖
+  source、built Bun 与 built Node live turn。
+
 结合 2026-04-23 本轮收口进展，更准确的补充口径是：
 
 > headless 的依赖方向已经完成第一轮纠偏：`HeadlessRuntime` 不再直接回落到 `src/cli/print.ts`，CLI 仍然是第一宿主，但 headless 可复用执行实现已经开始向 `src/runtime/capabilities/execution/internal/*` 下沉。

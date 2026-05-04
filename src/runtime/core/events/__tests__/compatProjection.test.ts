@@ -3,10 +3,16 @@ import { describe, expect, test } from 'bun:test'
 import type { SDKMessage } from '../../../../entrypoints/agentSdkTypes.js'
 import {
   createHeadlessSDKMessageRuntimeEvent,
+  createTurnOutputDeltaRuntimeEventFromSDKMessage,
   dedupeSDKMessage,
+  getCanonicalProjectionForSDKMessage,
+  getRuntimeAbortStopReason,
   getSDKMessageFromRuntimeEnvelope,
   getSDKResultTurnOutcome,
+  getTextOutputDeltaFromSDKMessage,
   projectRuntimeEnvelopeToLegacySDKMessage,
+  projectRuntimeEnvelopeToLegacyRuntimeEventStreamJsonMessage,
+  projectRuntimeEnvelopeToLegacySDKStreamJsonMessages,
   projectRuntimeEnvelopeToLegacyStreamJsonMessages,
   projectSDKMessageToLegacyStreamJsonMessages,
 } from '../compatProjection.js'
@@ -82,6 +88,21 @@ describe('compatProjection', () => {
     expect(
       projectSDKMessageToLegacyStreamJsonMessages(sdkMessage) as unknown[],
     ).toEqual([sdkMessage])
+    expect(
+      projectRuntimeEnvelopeToLegacyRuntimeEventStreamJsonMessage(envelope, {
+        sessionId: 'session-1',
+      }) as unknown,
+    ).toEqual({
+      type: 'kernel_runtime_event',
+      envelope,
+      uuid: 'runtime-message-1',
+      session_id: 'session-1',
+    })
+    expect(
+      projectRuntimeEnvelopeToLegacySDKStreamJsonMessages(
+        envelope,
+      ) as unknown[],
+    ).toEqual([sdkMessage])
   })
 
   test('maps SDK result messages to runtime terminal outcomes', () => {
@@ -109,6 +130,60 @@ describe('compatProjection', () => {
       state: 'failed',
       stopReason: 'max_turn_requests',
     })
+
+    expect(
+      getSDKResultTurnOutcome({
+        type: 'result',
+        subtype: 'success',
+        is_error: false,
+      } as SDKMessage, { abortReason: 'interrupt' }),
+    ).toEqual({
+      eventType: 'turn.failed',
+      state: 'failed',
+      stopReason: 'interrupt',
+    })
+  })
+
+  test('projects SDK stream text deltas into canonical runtime output events', () => {
+    const sdkMessage = {
+      type: 'stream_event',
+      event: {
+        type: 'content_block_delta',
+        delta: { type: 'text_delta', text: 'hello' },
+      },
+    } as unknown as SDKMessage
+
+    expect(getTextOutputDeltaFromSDKMessage(sdkMessage)).toBe('hello')
+    expect(getCanonicalProjectionForSDKMessage(sdkMessage)).toBe(
+      'turn.output_delta',
+    )
+    expect(
+      createTurnOutputDeltaRuntimeEventFromSDKMessage({
+        conversationId: 'conversation-1',
+        turnId: 'turn-1',
+        message: sdkMessage,
+      }),
+    ).toEqual({
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      type: 'turn.output_delta',
+      replayable: true,
+      payload: {
+        text: 'hello',
+        source: 'sdk_stream_event',
+      },
+      metadata: {
+        compatibilitySource: 'headless.sdk_message',
+      },
+    })
+  })
+
+  test('normalizes abort signals into runtime stop reasons', () => {
+    const controller = new AbortController()
+    expect(getRuntimeAbortStopReason(controller.signal)).toBeNull()
+
+    controller.abort('interrupt')
+    expect(getRuntimeAbortStopReason(controller.signal)).toBe('interrupt')
   })
 
   test('ignores malformed runtime SDK payloads without stream-json noise', () => {

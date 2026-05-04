@@ -8,7 +8,7 @@ import type { RuntimeEventBus } from '../../../core/events/RuntimeEventBus.js'
 import type { StructuredIO } from './io/structuredIO.js'
 import {
   createHeadlessSDKMessageRuntimeEvent,
-  projectRuntimeEnvelopeToLegacyStreamJsonMessages,
+  projectRuntimeEnvelopeToLegacySDKStreamJsonMessages,
   projectSDKMessageToLegacyStreamJsonMessages,
 } from '../../../core/events/compatProjection.js'
 
@@ -97,9 +97,7 @@ export function createHeadlessStreamCollector(
         }
       } else if (options.outputFormat === 'stream-json' && options.verbose) {
         const legacyMessages = runtimeEnvelope
-          ? projectRuntimeEnvelopeToLegacyStreamJsonMessages(runtimeEnvelope, {
-              includeRuntimeEvent: false,
-            })
+          ? projectRuntimeEnvelopeToLegacySDKStreamJsonMessages(runtimeEnvelope)
           : projectSDKMessageToLegacyStreamJsonMessages(message)
         for (const legacyMessage of legacyMessages) {
           await structuredIO.write(legacyMessage)
