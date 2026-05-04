@@ -6,12 +6,12 @@
  * This file is retained for internal transitional compatibility with existing
  * SDKMessage-shaped execution paths while those paths are migrated.
  *
- * This file re-exports the public SDK API from:
+ * This file re-exports the legacy SDK-shaped type set from:
  * - sdk/coreTypes.ts - Common serializable types (messages, configs)
  * - sdk/runtimeTypes.ts - Non-serializable types (callbacks, interfaces)
  *
- * SDK builders who need control protocol types should import from
- * sdk/controlTypes.ts directly.
+ * Internal bridge code that still needs control protocol types should import
+ * from sdk/controlTypes.ts directly.
  */
 
 import type {
@@ -19,7 +19,7 @@ import type {
   ToolAnnotations,
 } from '@modelcontextprotocol/sdk/types.js'
 
-// Control protocol types for SDK builders (bridge subpath consumers)
+// Control protocol types for legacy bridge consumers
 /** @alpha */
 export type {
   SDKControlRequest,
@@ -32,7 +32,7 @@ export * from './sdk/runtimeTypes.js'
 
 // Re-export settings types (generated from settings JSON schema)
 export type { Settings } from './sdk/settingsTypes.generated.js'
-// Re-export tool types (all marked @internal until SDK API stabilizes)
+// Re-export tool types (all marked @internal until legacy bridge stabilizes)
 export * from './sdk/toolTypes.js'
 
 // ============================================================================

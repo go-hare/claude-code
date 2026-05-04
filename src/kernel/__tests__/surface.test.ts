@@ -227,6 +227,9 @@ describe('kernel index surface', () => {
         runtimeEvents.isKnownKernelRuntimeEventType,
       ),
     ).toBe(true)
+    expect(kernel.KERNEL_RUNTIME_EVENT_TYPES).not.toContain(
+      'headless.sdk_message',
+    )
     expect(
       Object.is(
         kernel.createKernelPermissionBroker,

@@ -102,6 +102,7 @@ describe('kernel package entry', () => {
     expect(declaration).not.toContain('projectSDKMessageToLegacyStreamJsonMessages(')
     expect(declaration).not.toContain('emitKernelHeadlessRuntimeMessage(')
     expect(declaration).not.toContain('handleKernelRuntimeHostEvent(')
+    expect(declaration).not.toContain("'headless.sdk_message'")
     expect(declaration).toContain(
       'capabilityResolver?: KernelRuntimeWireCapabilityResolver',
     )

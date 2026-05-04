@@ -221,12 +221,6 @@ export const KERNEL_RUNTIME_EVENT_TAXONOMY = [
   },
   { type: 'companion.event', category: 'extension', scope: 'runtime' },
   { type: 'kairos.event', category: 'extension', scope: 'runtime' },
-  {
-    type: 'headless.sdk_message',
-    category: 'compatibility',
-    scope: 'turn',
-    compatibility: true,
-  },
 ] as const satisfies readonly KernelRuntimeEventTaxonomyEntry[]
 
 export type KernelRuntimeEventType =

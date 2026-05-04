@@ -1,4 +1,4 @@
-// SDK Core Types - Common serializable types used by both SDK consumers and SDK builders.
+// Legacy SDK-shaped serializable types used by compatibility transports.
 //
 // Types are generated from Zod schemas in coreSchemas.ts.
 // To modify types:
@@ -8,7 +8,7 @@
 // Schemas are available in coreSchemas.ts for runtime validation but are not
 // part of the public API.
 
-// Re-export sandbox types for SDK consumers
+// Re-export sandbox types for legacy transport consumers
 export type {
   SandboxFilesystemConfig,
   SandboxIgnoreViolations,

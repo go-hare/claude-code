@@ -1,10 +1,10 @@
 /**
- * SDK Control Schemas - Zod schemas for the control protocol.
+ * Legacy control schemas - Zod schemas for the compatibility protocol.
  *
- * These schemas define the control protocol between SDK implementations and the CLI.
- * Used by SDK builders (e.g., Python SDK) to communicate with the CLI process.
+ * These schemas define the compatibility protocol between typed bridge clients
+ * and the CLI process.
  *
- * SDK consumers should use coreSchemas.ts instead.
+ * New hosts should use the package `./kernel` entry and wire protocol instead.
  */
 
 import { z } from 'zod/v4'

@@ -51,6 +51,9 @@ transport 只作为兼容投影保留，不再作为内部 source of truth。
 - Event plane 已统一到 runtime envelope / runtime event schema：ACP
   `SessionUpdate`、direct-connect host message、headless `stream-json` 与 legacy
   `SDKMessage` 都是 projection，不再和 canonical runtime events 平级持有真相。
+- Public event taxonomy 已收成 canonical-only：`headless.sdk_message` 仍可作为
+  内部 compatibility envelope 被 facade/host bridge 吞吐，但不再进入
+  `KERNEL_RUNTIME_EVENT_TYPES` / `KernelRuntimeEventType`。
 - ACP bridge 已进一步收成 runtime-event-first projection：`turn.output_delta`
   与 `turn.completed` / `turn.failed` 直接由 `KernelEvent` 投影成
   `SessionUpdate` / stopReason；`headless.sdk_message` 只作为复杂 content
@@ -189,7 +192,7 @@ public API 扩面时避免把 `src/runtime` internals 误暴露成稳定 contrac
 - interrupted-turn auto resume 当前也已升级为 public headless run option，并保留
   `CLAUDE_CODE_RESUME_INTERRUPTED_TURN` env fallback；是否自动续跑被打断 turn
   不再是纯内部私有开关。
-- public agents/tasks mutate 第一刀与 agent executor lifecycle 第一层均已进入 runtime contract、wire codec/router/client、in-process / stdio transport client、SDK façade 与 package declaration：`spawn_agent`、`create_task`、`update_task`、`assign_task`、`list_agent_runs`、`get_agent_run`、`get_agent_output`、`cancel_agent_run` 已走同一套 runtime-owned registry。默认 registry 也已接上 process-backed agent executor；仍未开放的是 coordinator 专用 invoke schema 与 in-process `AgentTool` / `ToolUseContext` 级复用。
+- public agents/tasks mutate 第一刀与 agent executor lifecycle 第一层均已进入 runtime contract、wire codec/router/client、in-process / stdio transport client、typed client façade 与 package declaration：`spawn_agent`、`create_task`、`update_task`、`assign_task`、`list_agent_runs`、`get_agent_run`、`get_agent_output`、`cancel_agent_run` 已走同一套 runtime-owned registry。默认 registry 也已接上 process-backed agent executor；仍未开放的是 coordinator 专用 invoke schema 与 in-process `AgentTool` / `ToolUseContext` 级复用。
 - `KernelRuntime.coordinator` 也已不再只有 `assignTask(...)` /
   `spawnWorker(...)` 两个分散 helper：当前 `invoke(...)` 会在同一条 runtime-owned
   链路里串起必要的 task create / assign、worker spawn，以及 task execution

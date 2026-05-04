@@ -4,7 +4,7 @@
 
 本文整理新 `claude-code` 内核要开放的公共接口与语言无关运行协议。
 
-目标不是只适配桌面端。目标是把 CLI 背后的 runtime 能力整体从 CLI host 里抽出来，经由 `@go-hare/hare-code/kernel` 与常驻 runtime wire protocol 暴露给任意 host：CLI、desktop、daemon、remote、worker、Python/Go SDK、未来机器人宿主都走同一套能力面。
+目标不是只适配桌面端。目标是把 CLI 背后的 runtime 能力整体从 CLI host 里抽出来，经由 `@go-hare/hare-code/kernel` 与常驻 runtime wire protocol 暴露给任意 host：CLI、desktop、daemon、remote、worker、Python/Go typed client、未来机器人宿主都走同一套能力面。
 
 边界一句话：
 
@@ -100,7 +100,7 @@ kernel public export 为准。
 
 状态：`Implemented`
 
-当前落地点分两层：内部 kernel ownership 收口，以及第一批 public SDK / wire
+当前落地点分两层：内部 kernel ownership 收口，以及第一批 public kernel API / wire
 contract。详细清单见 `docs/internals/kernelization-status.md` 中的“接口文档对应的状态快照”；这里仅保留会影响 contract 判断的摘要：
 
 - headless / interactive CLI 的 `commands`、`tools`、`agents` 装配，已经进入 runtime-owned materializer / refresh bundle，CLI host 不再是唯一装配 owner。
@@ -355,7 +355,7 @@ import {
 capability、commands、tools、MCP、hooks、skills、plugins、agents、tasks、
 permission 这些第一层 host-facing manager；其中 extension manager 仍是
 以 boundary-first 方式开放：commands/tools 已补上 `execute_command` /
-`call_tool` wire contract、SDK façade、optional executor hook 与默认 executor；
+`call_tool` wire contract、typed client façade、optional executor hook 与默认 executor；
 默认 command executor 能执行 non-interactive local command 和 prompt command
 projection；默认 tool executor 能通过非交互 `ToolUseContext` 执行 builtin tool
 validation、permission mode、progress 与 result；MCP 已补上
@@ -756,7 +756,7 @@ export type KernelRuntimeCapabilities = {
 | `core` | `runtime`、`events` | runtime 生命周期与 event bus。 |
 | `execution` | `conversation`、`turn`、`execution`、`memory`、`sessions` | conversation / turn 执行、记忆和会话能力。 |
 | `model` | `provider` | model provider / auth 之前的模型源能力。 |
-| `extension` | `plugins`、`skills`、`mcp`、`commands`、`tools`、`hooks`、`agents`、`tasks` | CLI 扩展系统能力；当前已开放 descriptor / reload / lifecycle / invoke 的第一层 public SDK contract，commands/tools 已有默认 executor，MCP auth interactive、hook runner 与 marketplace/options 仍通过 runtime service / host hook 收口。 |
+| `extension` | `plugins`、`skills`、`mcp`、`commands`、`tools`、`hooks`、`agents`、`tasks` | CLI 扩展系统能力；当前已开放 descriptor / reload / lifecycle / invoke 的第一层 public kernel contract，commands/tools 已有默认 executor，MCP auth interactive、hook runner 与 marketplace/options 仍通过 runtime service / host hook 收口。 |
 | `security` | `permissions`、`auth` | permission broker、auth 依赖和安全决策能力。 |
 | `host` | `server`、`bridge`、`daemon`、`background` | server / bridge / daemon / background host 能力。 |
 | `autonomy` | `companion`、`kairos` | companion / Kairos 等主动能力；`kairos` 当前是 optional capability。 |
@@ -830,7 +830,7 @@ export type KernelCapabilityDescriptor = {
   invoke manager 已完成。
 - `KernelRuntime.commands` / `KernelRuntime.tools` 的 catalog + invoke
   contract：`list_commands` / `list_tools` / `execute_command` / `call_tool`
-  wire command、in-process / stdio client method、SDK façade `list(...)` /
+  wire command、in-process / stdio client method、typed client façade `list(...)` /
   `get(...)` / `execute(...)` / `call(...)`、command/tool descriptor filter、
   `commands.executed` / `tools.called` event 与 package declaration 已落地。
   默认 router 通过 optional catalog executor hook 调用，并在未注入 custom
@@ -841,10 +841,10 @@ export type KernelCapabilityDescriptor = {
   `processSlashCommand(...)` 或完整 `ToolUseContext` 直接变成 public API。
 - `KernelRuntime.mcp` 的 readonly / status / reload manager：
   `list_mcp_servers` / `list_mcp_tools` / `list_mcp_resources` / `reload_mcp`
-  wire command、server/resource/tool binding snapshot 与 SDK façade 已落地。
+  wire command、server/resource/tool binding snapshot 与 typed client façade 已落地。
 - `KernelRuntime.mcp` 的 lifecycle contract：`connect_mcp` /
   `authenticate_mcp` / `set_mcp_enabled` wire command、in-process / stdio
-  client method、SDK façade `connect(...)` / `authenticate(...)` /
+  client method、typed client façade `connect(...)` / `authenticate(...)` /
   `clearAuth(...)` / `setEnabled(...)` / `enable(...)` / `disable(...)` 与
   `mcp.connected` / `mcp.authenticated` / `mcp.enabled_changed` event 已落地。
   默认 registry 已能按配置尝试 reconnect 与持久化 enable/disable；完整 OAuth
@@ -948,7 +948,7 @@ export type KernelCapabilityDescriptor = {
 
 当前落地点：
 
-- public SDK 已开放 catalog 与 execute contract。
+- public kernel API 已开放 catalog 与 execute contract。
 - `src/runtime/contracts/command.ts` 定义 `RuntimeCommandDescriptor`、
   `RuntimeCommandGraphEntry`、`RuntimeCommandExecuteRequest` 与
   `RuntimeCommandExecutionResult`。
@@ -984,7 +984,7 @@ export type KernelCommandRegistry = {
 
 要求：
 
-- command metadata、execute request/result 与 SDK façade 已进入 public API；
+- command metadata、execute request/result 与 typed client façade 已进入 public API；
   不能直接公开现有 `Command` union 或 `processSlashCommand(...)`。
 - 默认 executor 已在 runtime capability 层内建；后续补更完整参数 schema 和
   plugin / MCP / interactive UI 命令矩阵时，仍不能让 host 绕回 CLI 私有实现。
@@ -1004,7 +1004,7 @@ export type KernelCommandRegistry = {
 
 当前落地点：
 
-- public SDK 已开放 agent registry / task-list manager，并补上
+- public kernel API 已开放 agent registry / task-list manager，并补上
   `KernelRuntime.agents.spawn(...)`、`KernelRuntime.tasks.create(...)` /
   `update(...)` / `assign(...)` 这一组 runtime-owned invoke / mutate contract。
   task mutation 默认落到现有 task-list 存储；agent spawn 返回 stable
@@ -1183,7 +1183,7 @@ export type KernelHookEventName =
 
 要求：
 
-- 当前 public SDK 已开放 hook catalog 与第一层 run / register contract。
+- 当前 public kernel API 已开放 hook catalog 与第一层 run / register contract。
   `KernelRuntime.hooks.list(...)` / `reload(...)` / `run(...)` /
   `register(...)` 分别走 `list_hooks` / `reload_hooks` / `run_hook` /
   `register_hook` wire command。
@@ -1226,7 +1226,7 @@ export type KernelPluginManager = {
 
 要求：
 
-- 当前 public SDK 已开放 skill catalog + prompt context resolve，以及 plugin
+- 当前 public kernel API 已开放 skill catalog + prompt context resolve，以及 plugin
   status catalog + enable / disable / install / uninstall / update lifecycle mutation。
 - `src/runtime/contracts/skill.ts` 与 `src/runtime/contracts/plugin.ts` 定义
   descriptor / snapshot / mutation result；`KernelRuntime.skills.list(...)` /
@@ -1292,7 +1292,7 @@ export type KernelTaskManager = {
 
 要求：
 
-- 当前 public SDK 已落地 `KernelRuntime.agents.spawn(...)` 与
+- 当前 public kernel API 已落地 `KernelRuntime.agents.spawn(...)` 与
   `KernelRuntime.agents.runs/status/output/result/cancel(...)`，以及
   `KernelRuntime.tasks.create/update/assign(...)` 的 wire contract；task mutation
   必须复用现有 task storage / hooks / metadata 语义，agent spawn 默认经
@@ -1480,7 +1480,6 @@ export type KernelRuntimeEventEnvelope =
 | host | `host.connected`、`host.reconnected`、`host.disconnected` | runtime | yes | `host` 或 `hostId`、`policy?`、`reason?`、`abortedTurnIds?`、`sinceEventId?`、`replayedEvents?` |
 | conversation | `conversation.ready`、`conversation.recovered`、`conversation.disposed`、`conversation.snapshot_failed` | conversation | ready/recovered/disposed yes；snapshot_failed no | `KernelConversationSnapshot` 字段；disposed 额外 `reason`；snapshot_failed 至少 `message` |
 | turn | `turn.started`、`turn.abort_requested`、`turn.output_delta`、`turn.completed`、`turn.failed` | turn | yes by default | `KernelTurnSnapshot` 字段；`turn.output_delta` 是 renderer-neutral delta payload，当前 host 可消费 `text` 等序列化字段 |
-| headless internal bridge | `headless.sdk_message` | turn | yes | SDKMessage payload；只作为内部 transitional projection，不是 public host contract，也不是新的 semantic source of truth |
 | permission | `permission.requested`、`permission.resolved` | conversation/turn | yes | `permissionRequestId`、`toolName`、`action`、`risk`、`decision?`、`decidedBy?`、`reason?` |
 | capability | `capabilities.required`、`capabilities.reloaded` | runtime/conversation | yes | `capabilities`、`descriptors`、`scope?` |
 | extension | `commands.executed`、`tools.called`、`mcp.reloaded`、`mcp.connected`、`mcp.authenticated`、`mcp.enabled_changed`、`hooks.reloaded`、`hooks.ran`、`hooks.registered`、`skills.reloaded`、`skills.context_resolved`、`plugins.reloaded`、`plugins.enabled_changed`、`plugins.installed`、`plugins.uninstalled`、`plugins.updated`、`agents.reloaded`、`agents.spawned`、`agents.run.cancelled`、`tasks.created`、`tasks.updated`、`tasks.assigned` | runtime | yes | per-family command result / tool result / MCP lifecycle / hook result / skill context / plugin mutation / agent or task mutation payload |
@@ -1493,8 +1492,10 @@ export type KernelRuntimeEventEnvelope =
 - host-published event 建议使用 host 自有前缀，例如
   `desktop.focus_changed`、`robot.sensor_frame`，不得伪装成 runtime-owned
   `turn.*` / `permission.*` 事件。
-- `headless.sdk_message` 是 compatibility domain；新 host 不应围绕它设计
-  primary workflow，应优先消费 `turn.*`、`permission.*` 和 capability events。
+- `headless.sdk_message` 是内部 compatibility event，不进入
+  `KERNEL_RUNTIME_EVENT_TYPES` / `KernelRuntimeEventType` 的 public taxonomy；
+  新 host 不应围绕它设计 primary workflow，应优先消费 `turn.*`、
+  `permission.*` 和 capability events。
 
 ### 17.2 Event ordering 与 replay
 

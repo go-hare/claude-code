@@ -157,6 +157,12 @@ describe('createKernelRuntime', () => {
       runtimeEvents.isKnownKernelRuntimeEventType('turn.output_delta'),
     ).toBe(true)
     expect(
+      runtimeEvents.isKnownKernelRuntimeEventType('headless.sdk_message'),
+    ).toBe(false)
+    expect(
+      runtimeEvents.getKernelRuntimeEventCategory('headless.sdk_message'),
+    ).toBe('compatibility')
+    expect(
       runtimeEvents.isKernelRuntimeEventOfType(
         outputEnvelope,
         'turn.output_delta',
@@ -2462,7 +2468,7 @@ describe('createKernelRuntime', () => {
       await runtime.start()
       const spawn = await runtime.agents.spawn({
         agentType: 'reviewer',
-        prompt: 'check public sdk execution',
+        prompt: 'check public kernel execution',
       })
       expect(spawn).toMatchObject({
         status: 'async_launched',
@@ -2489,13 +2495,13 @@ describe('createKernelRuntime', () => {
         expect(output).toMatchObject({
           runId,
           available: true,
-          output: expect.stringContaining('prompt:check public sdk execution'),
+          output: expect.stringContaining('prompt:check public kernel execution'),
         }),
       )
       await runtime.agents.result(runId).then(result =>
         expect(result).toEqual({
           ok: true,
-          prompt: 'check public sdk execution',
+          prompt: 'check public kernel execution',
         }),
       )
     } finally {
@@ -2536,7 +2542,7 @@ describe('createKernelRuntime', () => {
       await runtime.start()
       const spawn = await runtime.agents.spawn({
         agentType: 'reviewer',
-        prompt: 'cancel public sdk execution',
+        prompt: 'cancel public kernel execution',
       })
       const runId = spawn.runId!
       await waitForAsync(async () => {

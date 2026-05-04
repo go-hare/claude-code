@@ -212,7 +212,6 @@ export type KernelRuntimeEventType =
   | 'team.cleanup_started'
   | 'team.cleanup_completed'
   | 'team.cleanup_failed'
-  | 'headless.sdk_message'
 
 export type KernelEventType = KernelRuntimeEventType | (string & {})
 
