@@ -250,7 +250,7 @@ import {
   startKernelServer,             // 服务器启动
   runKernelHeadless,             // Headless 执行
   // ... 250+ 类型 + 50+ 函数
-} from '@go-hare/hare-code/kernel'
+} from 'claude-code/kernel'
 ```
 
 ## 当前能力
@@ -270,8 +270,8 @@ import {
 ### npm 安装
 
 ```bash
-npm install -g @go-hare/hare-code
-hare
+npm install -g claude-code
+claude
 ```
 
 ### 源码安装
@@ -282,8 +282,8 @@ cd hare-code
 bun install
 bun run build
 npm pack
-npm install -g .\go-hare-hare-code-<version>.tgz
-hare
+npm install -g .\claude-code-<version>.tgz
+claude
 ```
 
 说明：
@@ -331,7 +331,7 @@ import {
   createDefaultKernelHeadlessEnvironment,
   createKernelHeadlessSession,
   runKernelHeadless,
-} from '@go-hare/hare-code/kernel'
+} from 'claude-code/kernel'
 
 const env = createDefaultKernelHeadlessEnvironment({ ... })
 const session = createKernelHeadlessSession(env)
@@ -349,7 +349,7 @@ import {
   createKernelRuntimeWireClient,
   createKernelRuntimeInProcessWireTransport,
   createDefaultKernelRuntimeWireRouter,
-} from '@go-hare/hare-code/kernel'
+} from 'claude-code/kernel'
 
 const router = createDefaultKernelRuntimeWireRouter({ ... })
 const transport = createKernelRuntimeInProcessWireTransport({ router })

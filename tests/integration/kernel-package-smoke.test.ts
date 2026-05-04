@@ -43,7 +43,7 @@ describe('kernel package smoke', () => {
   })
 
   test('declares the kernel runtime executable bin', () => {
-    expect(packageJson.bin?.['hare-kernel-runtime']).toBe(
+    expect(packageJson.bin?.['claude-kernel-runtime']).toBe(
       'dist/kernel-runtime.js',
     )
   })
@@ -104,7 +104,7 @@ describe('kernel package smoke', () => {
             [
               '--input-type=module',
               '-e',
-              `import('@go-hare/hare-code/kernel').then(mod => process.stdout.write(JSON.stringify(Object.keys(mod).sort()))).catch(err => { console.error(err); process.exit(1) })`,
+              `import('claude-code/kernel').then(mod => process.stdout.write(JSON.stringify(Object.keys(mod).sort()))).catch(err => { console.error(err); process.exit(1) })`,
             ],
             {
               cwd: consumerDir,
@@ -117,8 +117,8 @@ describe('kernel package smoke', () => {
 
         const binName =
           process.platform === 'win32'
-            ? 'hare-kernel-runtime.cmd'
-            : 'hare-kernel-runtime'
+            ? 'claude-kernel-runtime.cmd'
+            : 'claude-kernel-runtime'
         const binPath = join(consumerDir, 'node_modules', '.bin', binName)
         expect(existsSync(binPath)).toBe(true)
 
@@ -150,7 +150,7 @@ describe('kernel package smoke', () => {
             '-e',
             `
               import { Readable, Writable } from 'node:stream'
-              import { runKernelRuntimeWireProtocol } from '@go-hare/hare-code/kernel'
+              import { runKernelRuntimeWireProtocol } from 'claude-code/kernel'
 
               const chunks = []
               const output = new Writable({

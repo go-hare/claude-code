@@ -80,7 +80,7 @@ flowchart LR
 
 - `src/kernel/index.ts`
 - `src/entrypoints/kernel.ts`
-- package export: `@go-hare/hare-code/kernel`
+- package export: `claude-code/kernel`
 
 当前 kernel 主要分为：
 
@@ -94,7 +94,7 @@ flowchart LR
 其中：
 
 - `src/kernel/index.ts` 是 **唯一源码级公开 kernel surface**
-- `@go-hare/hare-code/kernel` 是 **唯一 package-level 公开 kernel surface**
+- `claude-code/kernel` 是 **唯一 package-level 公开 kernel surface**
 - `src/kernel/*` leaf 模块是 **host-internal surface**
   - 它们服务当前宿主接线
   - 不纳入对外 semver 承诺
@@ -228,7 +228,7 @@ server 和 execution/headless 已经开始共享：
 
 当前可以对外长期承诺的只有：
 
-- `@go-hare/hare-code/kernel`
+- `claude-code/kernel`
 - `src/kernel/index.ts` 对应的 root surface
 
 当前 root surface 的稳定导出集合由测试锁定，包括：

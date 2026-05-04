@@ -250,7 +250,7 @@ import {
   startKernelServer,             // Server startup
   runKernelHeadless,             // Headless execution
   // ... 250+ types + 50+ functions
-} from '@go-hare/hare-code/kernel'
+} from 'claude-code/kernel'
 ```
 
 ## Current Capabilities
@@ -270,8 +270,8 @@ import {
 ### npm
 
 ```bash
-npm install -g @go-hare/hare-code
-hare
+npm install -g claude-code
+claude
 ```
 
 ### Install from Source
@@ -282,8 +282,8 @@ cd hare-code
 bun install
 bun run build
 npm pack
-npm install -g .\go-hare-hare-code-<version>.tgz
-hare
+npm install -g .\claude-code-<version>.tgz
+claude
 ```
 
 Notes:
@@ -330,7 +330,7 @@ Minimal examples:
 import {
   createDefaultKernelHeadlessEnvironment,
   createKernelHeadlessSession,
-} from '@go-hare/hare-code/kernel'
+} from 'claude-code/kernel'
 
 const env = createDefaultKernelHeadlessEnvironment({ ... })
 const session = createKernelHeadlessSession(env)
@@ -348,7 +348,7 @@ import {
   createKernelRuntimeWireClient,
   createKernelRuntimeInProcessWireTransport,
   createDefaultKernelRuntimeWireRouter,
-} from '@go-hare/hare-code/kernel'
+} from 'claude-code/kernel'
 
 const router = createDefaultKernelRuntimeWireRouter({ ... })
 const transport = createKernelRuntimeInProcessWireTransport({ router })

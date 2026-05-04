@@ -4,7 +4,7 @@
 
 本文整理新 `claude-code` 内核要开放的公共接口与语言无关运行协议。
 
-目标不是只适配桌面端。目标是把 CLI 背后的 runtime 能力整体从 CLI host 里抽出来，经由 `@go-hare/hare-code/kernel` 与常驻 runtime wire protocol 暴露给任意 host：CLI、desktop、daemon、remote、worker、Python/Go typed client、未来机器人宿主都走同一套能力面。
+目标不是只适配桌面端。目标是把 CLI 背后的 runtime 能力整体从 CLI host 里抽出来，经由 `claude-code/kernel` 与常驻 runtime wire protocol 暴露给任意 host：CLI、desktop、daemon、remote、worker、Python/Go typed client、未来机器人宿主都走同一套能力面。
 
 边界一句话：
 
@@ -23,7 +23,7 @@
 
 实现可以按风险拆分、按能力分批落地，但接口蓝图不能按 MVP 缩小目标。任何阶段性实现都必须回答它最终如何进入完整 contract：
 
-- `@go-hare/hare-code/kernel` 的进程内 API。
+- `claude-code/kernel` 的进程内 API。
 - `KernelRuntimeWireProtocol` 的语言无关协议。
 - `KernelEvent` 的统一语义事件面。
 - `KernelRuntimeCapabilities` 的完整能力解析、加载、reload 与错误可观察性。
@@ -40,7 +40,7 @@
 flowchart LR
   A["`src/main.tsx`"] --> B["正式 kernel public headless launch/executor 入口"]
   B --> C["`runKernelHeadless(...)` / runtime-owned headless execution"]
-  C --> D["`@go-hare/hare-code/kernel`"]
+  C --> D["`claude-code/kernel`"]
 
   D --> E["`createKernelRuntime()` / `KernelRuntime`"]
   E --> F["`KernelConversation` / `runTurn()` / `waitForTurn()`"]
@@ -55,7 +55,7 @@ flowchart LR
 图里的判断边界是：
 
 - `CLI headless` 是当前产品执行基线，重点是把一次非交互请求跑成结果。
-- `@go-hare/hare-code/kernel` 与 `KernelRuntimeWireProtocol` 是 public contract 的正式承载面。
+- `claude-code/kernel` 与 `KernelRuntimeWireProtocol` 是 public contract 的正式承载面。
 - interactive REPL / Ink UI / keybindings / desktop 私有 glue 属于 host-private layer，不是 embedding 最小 contract。
 
 下文如果需要简写，会用 `runKernelHeadlessLaunch(...)` 指代这条正式的
@@ -72,12 +72,12 @@ kernel public export 为准。
 
 状态：`Normative` `Implemented`
 
-- JS/TS 进程内公共入口是 `@go-hare/hare-code/kernel`。
+- JS/TS 进程内公共入口是 `claude-code/kernel`。
 - 其它语言 host 的公共入口是常驻 `KernelRuntime` 进程暴露的 wire protocol；Python/Go/机器人 SDK 只是这个协议的 typed client。
 - CLI 不再是这些能力的唯一 owner，而是 public kernel 的第一个 host。
 - 新增给外部 host 用的能力必须从 `claude-code/src/kernel/index.ts` 导出，并进入 package `./kernel` surface。
 - 外部 host 不直接 import `claude-code/src/runtime/*`、`src/bootstrap/*`、`src/screens/*`、`src/commands/*`、`src/utils/plugins/*`、`src/skills/*` 等内部源码路径。
-- desktop worker 仍然建议保留，用来隔离进程级全局状态、stdout patch 和多会话并发；但 worker 内部也只 import `@go-hare/hare-code/kernel`。
+- desktop worker 仍然建议保留，用来隔离进程级全局状态、stdout patch 和多会话并发；但 worker 内部也只 import `claude-code/kernel`。
 - desktop worker 对 Electron Main 暴露的控制面不能写成桌面私有协议；它必须是 `KernelRuntimeWireProtocol` 的一个本地传输实现。
 - 不把旧 SDK facade 扩成新的 public API：
   `createHeadlessChatSession()`、`session.stream()`、
@@ -123,7 +123,7 @@ contract。详细清单见 `docs/internals/kernelization-status.md` 中的“接
   transcript shape；resume replay 已不再只是内部 router 私有状态。
 - legacy output compatibility projection 已降级为内部 transitional bridge：
   runtime envelope <-> SDKMessage / stream-json projection 继续服务当前 CLI
-  执行链迁移，但不再作为 `@go-hare/hare-code/kernel` 的 public adapter。
+  执行链迁移，但不再作为 `claude-code/kernel` 的 public adapter。
 - interrupted-turn auto resume 也不再只是
   `CLAUDE_CODE_RESUME_INTERRUPTED_TURN` 环境变量私有开关；当前 public
   headless run options 已可显式表达该策略，同时继续保留 env fallback 兼容。
@@ -157,7 +157,7 @@ contract。详细清单见 `docs/internals/kernelization-status.md` 中的“接
 因此，后续所有“CLI 和开放接口功能一致”的讨论，默认比较对象应是：
 
 1. `claude-code/src/main.tsx` -> 正式 kernel public headless launch/executor 入口 -> `runKernelHeadless(...)`
-2. `@go-hare/hare-code/kernel` 的 public surface + `KernelRuntimeWireProtocol`
+2. `claude-code/kernel` 的 public surface + `KernelRuntimeWireProtocol`
 
 而不是：
 
@@ -289,7 +289,7 @@ contract。详细清单见 `docs/internals/kernelization-status.md` 中的“接
 
 公共入口分三层：
 
-1. `@go-hare/hare-code/kernel`：JS/TS host 的进程内 API。
+1. `claude-code/kernel`：JS/TS host 的进程内 API。
 2. `KernelRuntimeWireProtocol`：非 JS host、desktop main/worker、机器人 host 共用的语言无关协议。
 3. 各语言 SDK：Python/Go/Rust 等只做 wire protocol 的 typed client，不重新实现 CLI runtime 能力。
 
@@ -306,15 +306,15 @@ import {
   normalizeKernelHeadlessEvent,
   resolveKernelRuntimeCapabilities,
   reloadKernelRuntimeCapabilities,
-} from '@go-hare/hare-code/kernel'
+} from 'claude-code/kernel'
 ```
 
 约束：
 
 - `src/kernel/index.ts` 是源码层唯一 public 导出口。
-- `@go-hare/hare-code/kernel` 是 package 级 semver surface。
+- `claude-code/kernel` 是 package 级 semver surface。
 - `src/kernel/*` 叶子模块可以存在，但外部 host 只依赖 package entry。
-- runtime 内部 seam 可以继续演进；host contract 由 `@go-hare/hare-code/kernel` 承担。
+- runtime 内部 seam 可以继续演进；host contract 由 `claude-code/kernel` 承担。
 - `KernelRuntimeWireProtocol` 的 schema 与 `KernelRuntime` / `KernelEvent` 同步演进；新增能力必须同时考虑 package API 与 wire protocol 可序列化形态。
 
 ## 4. 要开放的 CLI 能力范围
@@ -348,7 +348,7 @@ import {
 已新增：`claude-code/src/kernel/runtime.ts`
 
 这是 public runtime API 的第一层 in-process façade；当前内部 kernel 完整性不依赖
-该入口，但它已经从 `@go-hare/hare-code/kernel` 导出。当前 façade 已继续补上
+该入口，但它已经从 `claude-code/kernel` 导出。当前 façade 已继续补上
 `transportConfig.kind = 'stdio'` 的进程 transport 便利入口，以及
 `KernelTurn` object、`KernelConversation.waitForTurn(...)` /
 `runTurnAndWait(...)` 的 terminal turn 等待 API。当前 `KernelRuntime` 上已有
@@ -448,7 +448,7 @@ export type KernelTurn = {
 - `claude-code/src/kernel/wireProtocol.ts`
 - `claude-code/src/entrypoints/kernel-runtime.ts` 或等价 runner
 
-必须从 `@go-hare/hare-code/kernel` 导出协议类型，并提供一个可启动的常驻 runtime runner。
+必须从 `claude-code/kernel` 导出协议类型，并提供一个可启动的常驻 runtime runner。
 
 `KernelRuntimeWireProtocol` 是语言无关 contract，不是桌面端私有协议。它服务于：
 
@@ -621,7 +621,7 @@ export type KernelRuntimeErrorPayload = {
 - conversation-local state 不得通过 process-global singleton 暴露给 host；必须经 runtime-owned session state 或显式 provider seam 访问。
 - 同一 runtime 可以管理多个 conversation，但同一 conversation 同一时间只能有一个 active turn。
 - 不同 conversation 的 stdout/stderr、tool progress、permission request、hook result、companion reaction、Kairos event 必须带 `conversationId` 或明确标记为 runtime-level event。
-- worker/process 级隔离用于处理 stdout patch、bootstrap singleton 和 native/global side effect；但 worker 内 API 仍只能依赖 `@go-hare/hare-code/kernel`。
+- worker/process 级隔离用于处理 stdout patch、bootstrap singleton 和 native/global side effect；但 worker 内 API 仍只能依赖 `claude-code/kernel`。
 - `dispose_conversation` 后必须停止该 conversation 的 tool execution、MCP subscriptions、hook callbacks、task updates 和 pending side request；不得影响其它 conversation。
 - 当前 wire transport wrapper 已维护 client-local live subscription scope：
   host 订阅某个 conversation 后，`in-process` / `stdio` live event fan-out
@@ -663,7 +663,7 @@ export type KernelRuntimeErrorPayload = {
 - `claude-code/src/kernel/headlessProvider.ts`
 - `claude-code/src/kernel/events.ts`
 
-必须从 `@go-hare/hare-code/kernel` 导出。
+必须从 `claude-code/kernel` 导出。
 
 ```ts
 export type KernelHeadlessController = {
@@ -944,7 +944,7 @@ export type KernelCapabilityDescriptor = {
 
 建议文件：`claude-code/src/kernel/commands.ts`
 
-必须从 `@go-hare/hare-code/kernel` 导出。
+必须从 `claude-code/kernel` 导出。
 
 当前落地点：
 
@@ -1000,7 +1000,7 @@ export type KernelCommandRegistry = {
 - `claude-code/src/kernel/permissions.ts`
 - `claude-code/src/kernel/mcp.ts`
 
-必须从 `@go-hare/hare-code/kernel` 导出。
+必须从 `claude-code/kernel` 导出。
 
 当前落地点：
 
@@ -1160,7 +1160,7 @@ export type KernelPermissionDecision = {
 
 建议文件：`claude-code/src/kernel/hooks.ts`
 
-必须从 `@go-hare/hare-code/kernel` 导出。
+必须从 `claude-code/kernel` 导出。
 
 ```ts
 export type KernelHookRegistry = {
@@ -1207,7 +1207,7 @@ export type KernelHookEventName =
 - `claude-code/src/kernel/skills.ts`
 - `claude-code/src/kernel/plugins.ts`
 
-必须从 `@go-hare/hare-code/kernel` 导出。
+必须从 `claude-code/kernel` 导出。
 
 ```ts
 export type KernelSkillCatalog = {
@@ -1257,7 +1257,7 @@ export type KernelPluginManager = {
 - `claude-code/src/kernel/agents.ts`
 - `claude-code/src/kernel/tasks.ts`
 
-必须从 `@go-hare/hare-code/kernel` 导出。
+必须从 `claude-code/kernel` 导出。
 
 ```ts
 export type KernelAgentRegistry = {
@@ -1308,7 +1308,7 @@ export type KernelTaskManager = {
 
 建议文件：`claude-code/src/kernel/companion.ts`
 
-必须从 `@go-hare/hare-code/kernel` 导出。
+必须从 `claude-code/kernel` 导出。
 
 ```ts
 export type KernelCompanionRuntime = {
@@ -1339,7 +1339,7 @@ export type KernelCompanionRuntime = {
 
 建议文件：`claude-code/src/kernel/kairos.ts`
 
-必须从 `@go-hare/hare-code/kernel` 导出。
+必须从 `claude-code/kernel` 导出。
 
 ```ts
 export type KernelKairosRuntime = {
@@ -1377,7 +1377,7 @@ export type KernelKairosRuntime = {
 - `claude-code/src/kernel/context.ts`
 - `claude-code/src/kernel/sessions.ts`
 
-必须从 `@go-hare/hare-code/kernel` 导出。
+必须从 `claude-code/kernel` 导出。
 
 ```ts
 export type KernelMemoryManager = {
@@ -1533,7 +1533,7 @@ export type KernelRuntimeEventEnvelope =
   可在 terminal event 后生成文本输出。RCS bridge normalize 与 WS outbound /
   worker SSE path 已把
   `kernel_runtime_event.envelope` 作为 first-class 字段保真传递。
-  `@go-hare/hare-code/kernel` 已开放
+  `claude-code/kernel` 已开放
   `createKernelRuntimeEventFacade(...)`、`toKernelRuntimeEventMessage(...)`、
   `getKernelRuntimeEnvelopeFromMessage(...)` 与
   `consumeKernelRuntimeEventMessage(...)`，host 可以把这些 compatibility
@@ -1732,7 +1732,7 @@ Future 但尚未落地为代码：
   - 新增常驻 runtime runner，承载 wire protocol，可供其它语言 SDK 与本地 worker 启动。
   - 当前已有 source-level stdin/stdout NDJSON runner，并由
     `tests/integration/kernel-runtime-wire-smoke.test.ts` 覆盖；`package.json`
-    已新增 `hare-kernel-runtime` bin，package smoke 覆盖 npm pack/install 后
+    已新增 `claude-kernel-runtime` bin，package smoke 覆盖 npm pack/install 后
     的 bin ping。
 
 ### hare-code-desktop
@@ -1740,7 +1740,7 @@ Future 但尚未落地为代码：
 - `hare-code-desktop/electron/kernel-runtime-manager.cjs`
   - conversation -> worker 的注册和调度。
 - `hare-code-desktop/electron/kernel-worker-wrapper.cjs`
-  - worker 启停、stdout/IPC 处理；worker runner 只 import `@go-hare/hare-code/kernel`。
+  - worker 启停、stdout/IPC 处理；worker runner 只 import `claude-code/kernel`。
 - `hare-code-desktop/electron/kernel-protocol.cjs`
   - Electron Main 到 worker 的本地传输封装，schema 必须复用 `KernelRuntimeWireProtocol`。
 - `hare-code-desktop/electron/kernel-event-mapper.cjs`
@@ -1800,17 +1800,17 @@ Future 但尚未落地为代码：
   source-level `kernel-runtime` runner 已覆盖 stdin/stdout smoke；package
   root 已导出 wire runner / default router / command schema version，package
   bin 已覆盖。
-- package-level：构建后 smoke `import('@go-hare/hare-code/kernel')`，确认新增导出真实可用；package-only worker smoke 也已覆盖只 import `@go-hare/hare-code/kernel` 后调用 `runKernelRuntimeWireProtocol(...)` 的最小 runner 场景。
+- package-level：构建后 smoke `import('claude-code/kernel')`，确认新增导出真实可用；package-only worker smoke 也已覆盖只 import `claude-code/kernel` 后调用 `runKernelRuntimeWireProtocol(...)` 的最小 runner 场景。
 - runner-level：常驻 `kernel-runtime` runner 可启动、响应 `init_runtime` / `ping`，并能通过协议创建 conversation；真实 NDJSON 进程 smoke 已覆盖 `resume_session(resumeSessionAt)` 后继续跑 process-backed headless executor，并保持 `headless.sdk_message` / `turn.output_delta` / `turn.completed`。
 - CLI parity：CLI 使用 public kernel capability 后，原有 commands/tools/hooks/skills/plugins/MCP/agents/pet/Kairos 行为不回退。
-- host isolation：desktop/worker 测试只能依赖 `@go-hare/hare-code/kernel`，不能 import `claude-code/src/*`。
+- host isolation：desktop/worker 测试只能依赖 `claude-code/kernel`，不能 import `claude-code/src/*`。
 - surface guard：每新增一个 public export，必须同步更新 `src/kernel/__tests__/surface.test.ts`、`src/kernel/__tests__/packageEntry.test.ts`、`tests/integration/kernel-package-smoke.test.ts` 的导出集合。
 - concurrency：多 conversation、并发 `run_turn`、duplicate `abort_turn`、host reconnect / process-level event replay recovery / conversation snapshot recovery / active execution durable resume 必须有 contract 测试；router-level event replay gap、host reconnect/disconnect、长 turn executor abort streaming、process-backed executor runner smoke、event journal after restart smoke、conversation snapshot after hard kill smoke、durable execution resume after hard kill、cross-transport host conversation smoke 与 cross-transport multi-conversation targeted abort smoke 已有 contract 测试。
 - security：permission timeout、deny、policy conflict、secret redaction、MCP/plugin trust 降级必须有 contract 测试；REPL / bridge compatibility adapter 必须覆盖 host allow / deny 元数据不丢失。
 
 ### hare-code-desktop
 
-- worker wrapper 测试只能依赖 `@go-hare/hare-code/kernel`。
+- worker wrapper 测试只能依赖 `claude-code/kernel`。
 - `kernel-protocol.cjs` 测试只能验证 `KernelRuntimeWireProtocol` 的传输封装，不定义桌面私有 schema。
 - `ConversationRuntimeRegistry` 生命周期测试。
 - `TurnStreamRegistry` ring buffer / reconnect 测试。
@@ -1838,7 +1838,7 @@ Future 但尚未落地为代码：
    真实 agent/coordinator executor 与 coordinator invocation 深化仍按完整
    contract 继续补齐。
 5. companion、Kairos、memory/context/sessions 已进入 `KernelRuntime` surface，并补齐 runtime/wire 调用路径；剩余工作只应是行为深化或宿主对齐，不再是“是否开放”。
-6. 增加 package-level smoke，确保 `@go-hare/hare-code/kernel` 可导入新增接口；当前已补 package-only worker smoke，验证 worker 只依赖包入口即可启动 wire runner。
+6. 增加 package-level smoke，确保 `claude-code/kernel` 可导入新增接口；当前已补 package-only worker smoke，验证 worker 只依赖包入口即可启动 wire runner。
 7. 增加 runner/wire smoke，确保常驻 runtime 可被 Python/Go/机器人 host 通过协议使用；当前已覆盖 `resume_session` + process-backed output 的真实 NDJSON 回归。
-8. 桌面端实现 worker wrapper，worker 代码只 import `@go-hare/hare-code/kernel`，对 main 暴露 `KernelRuntimeWireProtocol`。
+8. 桌面端实现 worker wrapper，worker 代码只 import `claude-code/kernel`，对 main 暴露 `KernelRuntimeWireProtocol`。
 9. 桌面端替换旧 SDK session 路径，保留 SSE/reconnect 的外层行为。

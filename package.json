@@ -1,5 +1,5 @@
 {
-  "name": "@go-hare/hare-code",
+  "name": "claude-code",
   "version": "1.7.3",
   "description": "Reverse-engineered Anthropic Claude Code CLI — interactive AI coding assistant in the terminal",
   "type": "module",
@@ -25,10 +25,9 @@
     "bun": ">=1.2.0"
   },
   "bin": {
-    "hare": "dist/cli-node.js",
-    "hare-bun": "dist/cli-bun.js",
-    "hare-kernel-runtime": "dist/kernel-runtime.js",
-    "claude-code-last": "dist/cli-node.js"
+    "claude": "dist/cli-node.js",
+    "claude-bun": "dist/cli-bun.js",
+    "claude-kernel-runtime": "dist/kernel-runtime.js"
   },
   "exports": {
     "./kernel": {

@@ -391,7 +391,12 @@ describe('kernel package entry', () => {
   })
 
   test('declares the package-level kernel runtime bin', () => {
-    expect(packageJson.bin?.['hare-kernel-runtime']).toBe(
+    expect(Object.keys(packageJson.bin ?? {}).sort()).toEqual([
+      'claude',
+      'claude-bun',
+      'claude-kernel-runtime',
+    ])
+    expect(packageJson.bin?.['claude-kernel-runtime']).toBe(
       'dist/kernel-runtime.js',
     )
   })

@@ -295,7 +295,7 @@ function resolveDefaultCliCommand(): AgentProcessCommand {
   }
 
   return {
-    command: 'hare',
+    command: 'claude',
     args: DEFAULT_AGENT_ARGS,
   }
 }

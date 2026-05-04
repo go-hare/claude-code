@@ -16,7 +16,7 @@ It demonstrates:
 - running a single headless kernel session through `src/kernel`
 
 For published-package consumers, prefer importing the same surface through
-`@go-hare/hare-code/kernel`.
+`claude-code/kernel`.
 
 ### Run
 
@@ -46,7 +46,7 @@ It demonstrates:
 - running a single headless request over the direct-connect channel
 
 For published-package consumers, prefer importing the same surface through
-`@go-hare/hare-code/kernel`.
+`claude-code/kernel`.
 
 ### Run
 

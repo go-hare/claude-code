@@ -1,5 +1,5 @@
 /**
- * `hare rollback [target]` — roll back to a previous Claude Code version.
+ * `claude rollback [target]` — roll back to a previous Claude Code version.
  *
  * ANT-only command (USER_TYPE === "ant").
  *
@@ -32,15 +32,15 @@ export async function rollback(
 
   if (!target) {
     console.error(
-      'Usage: hare rollback [target]\n\n' +
+      'Usage: claude rollback [target]\n\n' +
         'Options:\n' +
         '  -l, --list     List recent published versions\n' +
         '  --dry-run      Show what would be installed\n' +
         '  --safe         Roll back to server-pinned safe version\n\n' +
         'Examples:\n' +
-        '  hare rollback 2.1.880\n' +
-        '  hare rollback --list\n' +
-        '  hare rollback --safe',
+        '  claude rollback 2.1.880\n' +
+        '  claude rollback --list\n' +
+        '  claude rollback --safe',
     )
     process.exitCode = 1
     return

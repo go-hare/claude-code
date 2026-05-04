@@ -63,17 +63,17 @@ packages/acp-link/
 
 ```bash
 # 直接运行（在 monorepo 中）
-# 注意：普通 Claude CLI 不支持 ACP，需要用 hare-bun --acp 启动 ACP agent
-bun packages/acp-link/src/cli/bin.ts hare-bun -- --acp
+# 注意：普通 Claude CLI 不支持 ACP，需要用 claude-bun --acp 启动 ACP agent
+bun packages/acp-link/src/cli/bin.ts claude-bun -- --acp
 
 # 指定端口和主机
-acp-link --port 9000 --host 0.0.0.0 hare-bun -- --acp
+acp-link --port 9000 --host 0.0.0.0 claude-bun -- --acp
 
 # 启用 HTTPS（自签名证书）
-acp-link --https hare-bun -- --acp
+acp-link --https claude-bun -- --acp
 
 # 调试模式
-acp-link --debug hare-bun -- --acp
+acp-link --debug claude-bun -- --acp
 ```
 
 ### CLI 参考
@@ -94,7 +94,7 @@ FLAGS
     -v  --version   Print version information and exit
 
 ARGUMENTS
-  command...  Agent command followed by its arguments (e.g. "hare-bun -- --acp")
+  command...  Agent command followed by its arguments (e.g. "claude-bun -- --acp")
 ```
 
 ## 四、认证
@@ -108,13 +108,13 @@ ws://localhost:9315/ws?token=<your-token>
 配置固定 token：
 
 ```bash
-ACP_AUTH_TOKEN=my-fixed-token acp-link hare-bun -- --acp
+ACP_AUTH_TOKEN=my-fixed-token acp-link claude-bun -- --acp
 ```
 
 禁用认证（不推荐，仅用于开发）：
 
 ```bash
-acp-link --no-auth hare-bun -- --acp
+acp-link --no-auth claude-bun -- --acp
 ```
 
 ## 五、RCS 集成
@@ -127,7 +127,7 @@ acp-link 支持将 ACP agent 注册到 Remote Control Server，通过 Web UI 远
 # 通过环境变量配置 RCS 连接
 ACP_RCS_URL=http://localhost:3000 \
 ACP_RCS_TOKEN=sk-rcs-your-key \
-acp-link hare-bun -- --acp
+acp-link claude-bun -- --acp
 ```
 
 ### 注册流程（两步）
@@ -174,7 +174,7 @@ acp-link                          RCS
 示例：
 
 ```bash
-ACP_PERMISSION_MODE=auto acp-link hare-bun -- --acp
+ACP_PERMISSION_MODE=auto acp-link claude-bun -- --acp
 ```
 
 ## 七、权限管道（2026-04-18 改进）

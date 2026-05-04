@@ -12,7 +12,7 @@
 
 当前判断：
 
-- `@go-hare/hare-code/kernel` root surface 已经可以作为 public 入口冻结点。
+- `claude-code/kernel` root surface 已经可以作为 public 入口冻结点。
 - `src/kernel/*` leaf modules 仍是 host-internal surface。
 - `src/runtime/*` 已经开始承载真实能力，但还缺完整 runtime semantics。
 - 下一步应先补内部语义骨架，再扩大 public contract。
@@ -74,7 +74,7 @@
   负责推进同一个 `permissionRequestId`。旧 prompt UI、stdio
   `control_request`、bridge/direct-connect/remote/SSH response 仍保留为
   compatibility transport，不再自持独立 source of truth。
-- Package-level permission facade 已进入 `@go-hare/hare-code/kernel`：
+- Package-level permission facade 已进入 `claude-code/kernel`：
   `createKernelPermissionBroker(...)`、`KernelPermissionBroker`、
   `KernelPermissionBrokerOptions` 与 stable permission errors 让外部 host
   可以直接创建 runtime permission broker、提交 host decision、接收
@@ -90,7 +90,7 @@
   `control_*` message，但 runtime envelope 会走独立 `onRuntimeEvent`
   callback / debug trace，不再落入旧 UI message adapter 或被当未知
   SDKMessage 丢弃。
-- Package-level event facade 已进入 `@go-hare/hare-code/kernel`：
+- Package-level event facade 已进入 `claude-code/kernel`：
   `createKernelRuntimeEventFacade(...)`、`getKernelRuntimeEnvelopeFromMessage(...)`、
   `toKernelRuntimeEventMessage(...)`、`consumeKernelRuntimeEventMessage(...)`、
   `isKernelRuntimeEnvelope(...)` 与 `getKernelEventFromEnvelope(...)` 把
@@ -180,10 +180,10 @@
   并把 SDK stdout message 归一化为 `headless.sdk_message`、
   `turn.output_delta` 与 terminal turn event；`kernel-runtime` 可通过
   `HARE_KERNEL_RUNTIME_HEADLESS_EXECUTOR=process` 打开这条路径。
-  `@go-hare/hare-code/kernel` 已导出 `runKernelRuntimeWireProtocol()`、
+  `claude-code/kernel` 已导出 `runKernelRuntimeWireProtocol()`、
   `createDefaultKernelRuntimeWireRouter()` 与
   `KERNEL_RUNTIME_COMMAND_SCHEMA_VERSION`，`package.json` 已新增
-  `hare-kernel-runtime` bin 指向 `dist/kernel-runtime.js`。
+  `claude-kernel-runtime` bin 指向 `dist/kernel-runtime.js`。
   `connect_host` replay 已收缩为 runtime-scoped events，conversation replay
   统一经 `subscribe_events`；`in-process` / `stdio` transport wrapper 已维护
   client-local live subscription scope，订阅某个 conversation 后不会继续收到
@@ -443,7 +443,7 @@ flowchart TB
 
 ### 5.4 不做
 
-- 不改 `@go-hare/hare-code/kernel` public export。
+- 不改 `claude-code/kernel` public export。
 - 不接 desktop worker。
 - 不改 direct-connect 外部协议。
 
@@ -763,7 +763,7 @@ flowchart TB
   `createDefaultKernelRuntimeWireRouter()`。
 - `src/entrypoints/kernel-runtime.ts` 支持 stdin/stdout NDJSON runner；
   `build.ts` 已生成可执行 `dist/kernel-runtime.js`，`package.json` 已新增
-  `hare-kernel-runtime` bin。
+  `claude-kernel-runtime` bin。
 - `subscribe_events` 复用 `RuntimeEventBus.replay()`，能按
   `conversationId / turnId / sinceEventId` 返回 replay envelope。
 - `subscribe_events` 已覆盖 missing cursor 与 expired cursor：missing 返回
@@ -868,9 +868,9 @@ flowchart TB
   terminal completion、abort signal 与 executor failure mapping。
 - malformed command returns schema mismatch：router-level 已覆盖。
 - package import exposes wire runner：package smoke 已覆盖
-  `@go-hare/hare-code/kernel` 的新增导出。
+  `claude-code/kernel` 的新增导出。
 - packaged runtime bin works：package smoke 已覆盖 npm pack/install 后的
-  `hare-kernel-runtime` ping。
+  `claude-kernel-runtime` ping。
 - `bun run typecheck`：当前通过。
 
 ## 12. Integration Lane：统一收口
