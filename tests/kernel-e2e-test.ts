@@ -8,15 +8,65 @@
  * Usage:
  *   bun run tests/kernel-e2e-test.ts
  *
- * API config (from user):
- *   ENDPOINT: http://127.0.0.1:8317/v1
- *   MODEL:    gpt-5.4
- *   KEY:      sk-eREAVwYl4GfefujXy
+ * API config:
+ *   KERNEL_E2E_BASE_URL / KERNEL_DEEP_TEST_BASE_URL / OPENAI_BASE_URL
+ *   KERNEL_E2E_MODEL / KERNEL_DEEP_TEST_MODEL / OPENAI_MODEL
+ *   KERNEL_E2E_API_KEY / KERNEL_DEEP_TEST_API_KEY / OPENAI_API_KEY
  */
 
-const API_URL = 'http://127.0.0.1:8317/v1/chat/completions'
-const API_KEY = 'sk-eREAVwYl4GfefujXy'
-const MODEL = 'gpt-5.4'
+type ApiConfig = {
+  apiKey: string
+  apiUrl: string
+  baseUrl: string
+  model: string
+}
+
+function getFirstEnv(names: string[]): string | undefined {
+  for (const name of names) {
+    const value = process.env[name]?.trim()
+    if (value) {
+      return value
+    }
+  }
+  return undefined
+}
+
+function normalizeBaseUrl(baseUrl: string): string {
+  return baseUrl.replace(/\/+$/, '')
+}
+
+function getApiConfig(): ApiConfig | null {
+  const baseUrl = getFirstEnv([
+    'KERNEL_E2E_BASE_URL',
+    'KERNEL_DEEP_TEST_BASE_URL',
+    'OPENAI_BASE_URL',
+  ])
+  const apiKey = getFirstEnv([
+    'KERNEL_E2E_API_KEY',
+    'KERNEL_DEEP_TEST_API_KEY',
+    'OPENAI_API_KEY',
+  ])
+  const model = getFirstEnv([
+    'KERNEL_E2E_MODEL',
+    'KERNEL_DEEP_TEST_MODEL',
+    'OPENAI_MODEL',
+  ])
+
+  if (!baseUrl || !apiKey || !model) {
+    return null
+  }
+
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl)
+  return {
+    apiKey,
+    apiUrl: `${normalizedBaseUrl}/chat/completions`,
+    baseUrl: normalizedBaseUrl,
+    model,
+  }
+}
+
+const API_CONFIG = getApiConfig()
+const API_ENABLED = API_CONFIG !== null
 
 // ---------------------------------------------------------------------------
 // Test framework
@@ -85,14 +135,20 @@ function report(): void {
 // ---------------------------------------------------------------------------
 
 async function chat(messages: Array<{ role: string; content: string }>): Promise<string> {
-  const resp = await fetch(API_URL, {
+  if (!API_CONFIG) {
+    throw new Error(
+      'API config is missing. Set BASE_URL, MODEL, and API_KEY via KERNEL_E2E_*, KERNEL_DEEP_TEST_*, or OPENAI_* env vars.',
+    )
+  }
+
+  const resp = await fetch(API_CONFIG.apiUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${API_KEY}`,
+      Authorization: `Bearer ${API_CONFIG.apiKey}`,
     },
     body: JSON.stringify({
-      model: MODEL,
+      model: API_CONFIG.model,
       messages,
       max_tokens: 2048,
       temperature: 0,
@@ -1343,10 +1399,12 @@ Describe how the companion system enriches the user experience and how it intera
 // ---------------------------------------------------------------------------
 
 async function main() {
+  const apiLabel = API_CONFIG?.baseUrl ?? 'disabled (env not configured)'
+  const modelLabel = API_CONFIG?.model ?? 'disabled'
   console.log('╔══════════════════════════════════════════════════════════════╗')
   console.log('║        KERNEL E2E DEEP TEST SUITE                            ║')
-  console.log('║        API: http://127.0.0.1:8317/v1                        ║')
-  console.log('║        Model: gpt-5.4                                        ║')
+  console.log(`║        API: ${apiLabel.padEnd(49)}║`)
+  console.log(`║        Model: ${modelLabel.padEnd(47)}║`)
   console.log('╚══════════════════════════════════════════════════════════════╝\n')
 
   // Phase 1: Structural validation (no API needed)
@@ -1381,13 +1439,18 @@ async function main() {
   await test('Companion rehatch + seed namespace', 'companion-ns', testCompanionRehatchAndNamespacing)
 
   // Phase 6: API-driven tests (requires the LLM endpoint)
-  console.log('\n── Phase 6: API-driven Tests ──')
-  console.log('Connecting to API...')
-  await test('API basic connectivity', 'api-basic', testApiBasicCompletion)
-  await test('API agent spawn orchestration', 'api-agent', testApiAgentSpawnLogic)
-  await test('API task planning + dependencies', 'api-task', testApiTaskPlanning)
-  await test('API kairos proactive reasoning', 'api-kairos', testApiKairosProactiveReasoning)
-  await test('API companion/pet system', 'api-companion', testApiCompanionPetInteraction)
+  if (API_ENABLED) {
+    console.log('\n── Phase 6: API-driven Tests ──')
+    console.log(`Connecting to API at ${API_CONFIG.baseUrl}...`)
+    await test('API basic connectivity', 'api-basic', testApiBasicCompletion)
+    await test('API agent spawn orchestration', 'api-agent', testApiAgentSpawnLogic)
+    await test('API task planning + dependencies', 'api-task', testApiTaskPlanning)
+    await test('API kairos proactive reasoning', 'api-kairos', testApiKairosProactiveReasoning)
+    await test('API companion/pet system', 'api-companion', testApiCompanionPetInteraction)
+  } else {
+    console.log('\n── Phase 6: API-driven Tests ──')
+    console.log('Skipping API-driven tests: API env vars are not configured.')
+  }
 
   // Report
   report()

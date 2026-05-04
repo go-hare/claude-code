@@ -50,7 +50,7 @@ export const DEFAULT_BUILD_FEATURES = [
     'ACP',                         // ACP 代理协议，支持外部 agent 接入
     'WORKFLOW_SCRIPTS',            // 工作流脚本（.claude/workflows/ 中的 YAML/MD）
     'HISTORY_SNIP',                // 历史消息裁剪，压缩上下文窗口
-    'CONTEXT_COLLAPSE',            // 上下文折叠，自动压缩旧消息
+    // 'CONTEXT_COLLAPSE',         // 已禁用：实现会干扰 auto compact，原版已关闭
     'MONITOR_TOOL',                // Monitor 工具，流式监控后台进程输出
     'FORK_SUBAGENT',               // Fork 子代理，在隔离上下文中并行执行任务
     'UDS_INBOX',                   // Unix Domain Socket 收件箱，跨会话消息传递

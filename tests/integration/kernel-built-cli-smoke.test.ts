@@ -96,11 +96,21 @@ function createServer() {
   return { requests, server };
 }
 
-async function run(kind, cmd, args, prompt) {
+function createChildEnv(overrides) {
+  const env = {
+    ...process.env,
+    ...overrides,
+    NODE_ENV: "production",
+  };
+  delete env.BUN_TEST;
+  return env;
+}
+
+async function run(kind, cmd, args, prompt, env) {
   return await new Promise(resolve => {
     const child = spawn(cmd, args, {
       cwd: process.cwd(),
-      env: process.env,
+      env,
       stdio: ["pipe", "pipe", "pipe"],
     });
 
@@ -147,8 +157,7 @@ async function run(kind, cmd, args, prompt) {
   const { port } = server.address();
 
   try {
-    const sharedEnv = {
-      ...process.env,
+    const sharedEnv = createChildEnv({
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
       CLAUDE_CODE_USE_OPENAI: "1",
       NO_COLOR: "1",
@@ -158,8 +167,7 @@ async function run(kind, cmd, args, prompt) {
       OPENAI_DEFAULT_OPUS_MODEL: "gpt-5.4",
       OPENAI_DEFAULT_SONNET_MODEL: "gpt-5.4",
       OPENAI_MODEL: "gpt-5.4",
-    };
-    Object.assign(process.env, sharedEnv);
+    });
 
     const bunResult = await run(
       "built-bun-stdin",
@@ -179,6 +187,7 @@ async function run(kind, cmd, args, prompt) {
         "gpt-5.4",
       ],
       promptText,
+      sharedEnv,
     );
 
     const nodeResult = await run(
@@ -199,6 +208,7 @@ async function run(kind, cmd, args, prompt) {
         "gpt-5.4",
       ],
       promptText,
+      sharedEnv,
     );
 
     process.stdout.write(
@@ -234,12 +244,20 @@ describe('kernel built CLI smoke', () => {
       execFileSync('bun', ['run', 'build.ts'], {
         cwd: repoRoot,
         encoding: 'utf8',
+        env: {
+          ...process.env,
+          NODE_ENV: 'production',
+        },
       })
 
       const report = JSON.parse(
         execFileSync('node', ['-e', buildSmokeRunnerScript()], {
           cwd: repoRoot,
           encoding: 'utf8',
+          env: {
+            ...process.env,
+            NODE_ENV: 'production',
+          },
           timeout: 120_000,
         }),
       ) as HarnessReport

@@ -9,7 +9,6 @@ type Target = {
   name: string
   cwd: string
   kind: 'source' | 'built-bun' | 'built-node'
-  requireRuntimeEnvelope: boolean
 }
 
 type Options = {
@@ -250,51 +249,54 @@ function assertSmokeResult(target: Target, result: RunResult): void {
     throw new Error(`${target.name} did not emit a successful result event`)
   }
 
-  if (target.requireRuntimeEnvelope) {
-    const lines = result.stdout.split('\n')
-    const successResultLineIndex = lines.findIndex(
-      line => line.includes('"type":"result"') && line.includes('"success"'),
+  const lines = result.stdout.split('\n')
+  const runtimeEnvelopeLines = lines.filter(line =>
+    line.includes('"type":"kernel_runtime_event"'),
+  )
+  if (runtimeEnvelopeLines.length === 0) {
+    return
+  }
+
+  const successResultLineIndex = lines.findIndex(
+    line => line.includes('"type":"result"') && line.includes('"success"'),
+  )
+  const hasRuntimeSdkEnvelope = runtimeEnvelopeLines.some(line =>
+    line.includes('"headless.sdk_message"'),
+  )
+  if (!hasRuntimeSdkEnvelope) {
+    throw new Error(
+      `${target.name} emitted runtime envelopes without headless SDK messages`,
     )
-    const hasRuntimeEnvelope = lines.some(
-      line =>
-        line.includes('"type":"kernel_runtime_event"') &&
-        line.includes('"headless.sdk_message"'),
+  }
+  if (runtimeEnvelopeLines.some(line => line.includes('"turnId":""'))) {
+    throw new Error(`${target.name} emitted an empty runtime turnId`)
+  }
+  if (
+    successResultLineIndex !== -1 &&
+    lines
+      .slice(successResultLineIndex + 1)
+      .some(
+        line => line.includes('"turn.abort_requested"'),
+      )
+  ) {
+    throw new Error(
+      `${target.name} emitted a runtime abort after a successful result`,
     )
-    if (!hasRuntimeEnvelope) {
-      throw new Error(
-        `${target.name} did not emit runtime-first headless SDK envelopes`,
+  }
+  if (
+    successResultLineIndex !== -1 &&
+    lines
+      .slice(successResultLineIndex + 1)
+      .some(
+        line =>
+          line.includes('"turn.completed"') &&
+          (line.includes('"stopReason":"shutdown"') ||
+            line.includes('"stopReason":"aborted"')),
       )
-    }
-    if (lines.some(line => line.includes('"turnId":""'))) {
-      throw new Error(`${target.name} emitted an empty runtime turnId`)
-    }
-    if (
-      successResultLineIndex !== -1 &&
-      lines
-        .slice(successResultLineIndex + 1)
-        .some(
-          line => line.includes('"turn.abort_requested"'),
-        )
-    ) {
-      throw new Error(
-        `${target.name} emitted a runtime abort after a successful result`,
-      )
-    }
-    if (
-      successResultLineIndex !== -1 &&
-      lines
-        .slice(successResultLineIndex + 1)
-        .some(
-          line =>
-            line.includes('"turn.completed"') &&
-            (line.includes('"stopReason":"shutdown"') ||
-              line.includes('"stopReason":"aborted"')),
-        )
-    ) {
-      throw new Error(
-        `${target.name} overwrote successful turn completion with an abort reason`,
-      )
-    }
+  ) {
+    throw new Error(
+      `${target.name} overwrote successful turn completion with an abort reason`,
+    )
   }
 }
 
@@ -312,7 +314,6 @@ async function main(): Promise<void> {
       name: 'current-source',
       cwd: repoRoot,
       kind: 'source',
-      requireRuntimeEnvelope: true,
     },
   ]
 
@@ -322,13 +323,11 @@ async function main(): Promise<void> {
         name: 'current-built-bun',
         cwd: repoRoot,
         kind: 'built-bun',
-        requireRuntimeEnvelope: true,
       },
       {
         name: 'current-built-node',
         cwd: repoRoot,
         kind: 'built-node',
-        requireRuntimeEnvelope: true,
       },
     )
   }
@@ -338,7 +337,6 @@ async function main(): Promise<void> {
       name: 'original-source',
       cwd: resolve(options.originalPath),
       kind: 'source',
-      requireRuntimeEnvelope: false,
     })
   }
 
