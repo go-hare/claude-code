@@ -39,28 +39,6 @@ export type KernelThinkingConfig = Record<string, unknown>
 
 export type KernelHeadlessInput = string | AsyncIterable<string>
 
-export type KernelLegacySDKMessage = {
-  type: string
-  [key: string]: unknown
-}
-
-export type KernelLegacyStdoutMessage = {
-  type: string
-  [key: string]: unknown
-}
-
-export type KernelLegacyStreamJsonProjectionOptions = {
-  sessionId?: string
-  includeRuntimeEvent?: boolean
-  includeSDKMessage?: boolean
-}
-
-export type KernelSDKResultTurnOutcome = {
-  eventType: 'turn.completed' | 'turn.failed'
-  state: 'completed' | 'failed'
-  stopReason: string | null
-}
-
 export type KernelRuntimeHostStopReason =
   | 'end_turn'
   | 'max_tokens'
@@ -109,53 +87,6 @@ export type KernelRuntimeCoordinatorLifecycleProjection = {
 export type KernelRuntimeLifecycleProjection =
   | KernelRuntimeTaskNotificationProjection
   | KernelRuntimeCoordinatorLifecycleProjection
-
-export type KernelRuntimeHostEventCallbacks = {
-  onRuntimeEvent?: KernelRuntimeEventHandler
-  onRuntimeHeartbeat?: (
-    envelope: KernelRuntimeEnvelopeBase,
-    event: KernelEvent,
-  ) => void
-  onOutputDelta?: (
-    delta: KernelRuntimeTextOutputDelta,
-    envelope: KernelRuntimeEnvelopeBase,
-    event: KernelEvent,
-  ) => void
-  onSDKMessage?: (
-    message: KernelLegacySDKMessage,
-    envelope: KernelRuntimeEnvelopeBase,
-    event: KernelEvent,
-  ) => void
-  onTurnTerminal?: (
-    envelope: KernelRuntimeEnvelopeBase,
-    event: KernelEvent,
-    projection: KernelRuntimeTerminalProjection,
-  ) => void
-  onLifecycle?: (
-    projection: KernelRuntimeLifecycleProjection,
-    envelope: KernelRuntimeEnvelopeBase,
-    event: KernelEvent,
-  ) => void
-}
-
-export type KernelHeadlessRuntimeMessageEmissionOptions = {
-  message: KernelLegacyStdoutMessage
-  output: {
-    enqueue(message: KernelLegacyStdoutMessage): void
-  }
-  drainSdkEvents: () => KernelLegacyStdoutMessage[]
-  hasBackgroundTasks: () => boolean
-  heldBackResult: KernelLegacyStdoutMessage | null
-  heldBackAssistantMessages?: KernelLegacyStdoutMessage[]
-  terminalResultEmitted?: boolean
-}
-
-export type KernelHeadlessRuntimeMessageEmissionResult = {
-  heldBackResult: KernelLegacyStdoutMessage | null
-  heldBackAssistantMessages: KernelLegacyStdoutMessage[]
-  lastResultIsError?: boolean
-  terminalResultEmitted?: boolean
-}
 
 export type KernelRuntimeEnvelopeKind = 'ack' | 'event' | 'error' | 'pong'
 
@@ -791,21 +722,6 @@ export declare function getKernelTurnTerminalSnapshot(
   envelope: KernelRuntimeEnvelopeBase,
 ): KernelTurnSnapshot | undefined
 
-export declare function createHeadlessSDKMessageRuntimeEvent(options: {
-  conversationId: string
-  turnId?: string
-  message: KernelLegacySDKMessage
-  metadata?: Record<string, unknown>
-}): KernelEvent
-
-export declare function getSDKMessageFromRuntimeEnvelope(
-  envelope: KernelRuntimeEnvelopeBase,
-): KernelLegacySDKMessage | undefined
-
-export declare function getSDKResultTurnOutcome(
-  message: KernelLegacySDKMessage,
-): KernelSDKResultTurnOutcome
-
 export declare function getCanonicalProjectionFromKernelEvent(
   event: KernelEvent,
 ): string | undefined
@@ -832,11 +748,6 @@ export declare function getKernelRuntimeTerminalProjection(
   event: KernelEvent,
 ): KernelRuntimeTerminalProjection
 
-export declare function getKernelRuntimeTerminalProjectionFromSDKResultMessage(
-  message: KernelLegacySDKMessage,
-  options?: { aborted?: boolean },
-): KernelRuntimeTerminalProjection | undefined
-
 export declare function getKernelRuntimeLifecycleProjection(
   event: KernelEvent,
 ): KernelRuntimeLifecycleProjection | undefined
@@ -849,43 +760,15 @@ export declare function getKernelRuntimeCoordinatorLifecycleProjection(
   event: KernelEvent,
 ): KernelRuntimeCoordinatorLifecycleProjection | undefined
 
-export declare function handleKernelRuntimeHostEvent(
-  envelope: KernelRuntimeEnvelopeBase,
-  callbacks: KernelRuntimeHostEventCallbacks,
-): void
-
 export declare function isKernelRuntimeHostTurnTerminalEvent(
   event: KernelEvent,
 ): boolean
-
-export declare function projectRuntimeEnvelopeToLegacySDKMessage(
-  envelope: KernelRuntimeEnvelopeBase,
-): KernelLegacySDKMessage | undefined
-
-export declare function projectRuntimeEnvelopeToLegacyStreamJsonMessages(
-  envelope: KernelRuntimeEnvelopeBase,
-  options?: KernelLegacyStreamJsonProjectionOptions,
-): KernelLegacyStdoutMessage[]
-
-export declare function projectSDKMessageToLegacyStreamJsonMessages(
-  message: KernelLegacySDKMessage,
-): KernelLegacyStdoutMessage[]
-
-export declare class KernelRuntimeSDKMessageDedupe {
-  constructor(maxSize?: number)
-  shouldProcess(message: KernelLegacySDKMessage): boolean
-  clear(): void
-}
 
 export declare class KernelRuntimeOutputDeltaDedupe {
   constructor(maxSize?: number)
   shouldProcess(envelope: KernelRuntimeEnvelopeBase): boolean
   clear(): void
 }
-
-export declare function emitKernelHeadlessRuntimeMessage(
-  options: KernelHeadlessRuntimeMessageEmissionOptions,
-): KernelHeadlessRuntimeMessageEmissionResult
 
 export type KernelRuntimeEventMessage = {
   type: 'kernel_runtime_event'

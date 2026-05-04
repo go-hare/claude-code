@@ -71,11 +71,12 @@ public semver surface 已冻结到 `src/kernel/index.ts` 与 package-level `./ke
 `src/kernel/__tests__/publicSurfaceManifest.ts` 是唯一 export manifest，
 `surface.test`、`packageEntry.test` 与 `kernel-package-smoke` 共用同一份快照，
 并且 package `exports` 被锁定为 `./kernel` 与 `./package.json`。剩余事项不再是
-“内核未完成”的 blocker。legacy SDK / `stream-json` projection helper 也已完成
-低风险 consolidation：runtime-event-only 与 SDK-message-only 两类 stream-json
-投影组合已收口为命名 helper，调用方不再散落手写布尔 option 组合。最后只剩
-发布前按需复跑 optional live smoke，并在后续 public API 扩面时避免把
-`src/runtime` internals 误暴露成稳定 contract。
+“内核未完成”的 blocker。2026-05-04 后续复核进一步收紧 public surface：
+SDKMessage / legacy stream-json projection helper 不再从 root `./kernel` 导出，
+只保留为 runtime 内部 transitional bridge。新宿主只应消费
+`KernelRuntimeEnvelope` / `KernelEvent` / wire contract，不再把 Agent SDK 当作
+第二条 public 接口线。最后只剩发布前按需复跑 optional live smoke，并在后续
+public API 扩面时避免把 `src/runtime` internals 误暴露成稳定 contract。
 
 本轮 release-gated smoke 已执行并通过：
 
@@ -119,7 +120,7 @@ public semver surface 已冻结到 `src/kernel/index.ts` 与 package-level `./ke
 - MCP runtime ownership 已分别进入 `RuntimeHeadlessMcpService` 与 `RuntimeInteractiveMcpService`：前者承接 SDK seed、dynamic server、connect / reconnect / status；后者承接 config load、pending reconciliation、stale cleanup、two-phase connect、manual reconnect、enable / disable、automatic reconnect、channel handler 注册 / 卸载与 `tools/prompts/resources list_changed` refresh。React hook 侧只保留 UI adapter callback。
 - hook / plugin 初装配已新增 runtime service adapter：`RuntimeHookService` 负责 plugin hook reload / count / cache lifecycle，`RuntimePluginService` 负责 interactive REPL 初始 plugin commands / agents / hooks / MCP / LSP materialization。`useManagePlugins(...)` 进一步退回 notification / telemetry adapter。
 - startup 期的 MCP prefetch 与 startup hook warmup 已收进 runtime startup service / kernel public headless launch path；`main.tsx` 只保留 host 条件与 warning renderer。相关本地 OpenAI-compatible endpoint deep smoke 也已通过，说明 host startup 装配链路已能复用真实 provider endpoint。
-- `SessionRuntime.submitRuntimeTurn(...)` 已成为 runtime-first 执行出口，统一输出 `turn.started`、`headless.sdk_message`、`turn.completed` / `turn.failed` runtime envelope；`RuntimeExecutionSession` 不再声明 `submitMessage(...)`，`QueryEngine.ts` 不再 re-export `ask`。`submitMessage(...)` 与 `ask(...)` 只保留 deprecated SDK-compatible projection shim。
+- `SessionRuntime.submitRuntimeTurn(...)` 已成为 runtime-first 执行出口，统一输出 `turn.started`、`headless.sdk_message`、`turn.completed` / `turn.failed` runtime envelope；`RuntimeExecutionSession` 不再声明 `submitMessage(...)`，`QueryEngine.ts` 不再 re-export `ask`。`submitMessage(...)` 与 `ask(...)` 只保留内部 transitional projection shim，不进入 public kernel surface。
 - headless stream 输出已改成 runtime-first publisher：`createHeadlessRuntimeStreamPublisher(...)` 先写入 `RuntimeEventBus`，legacy `stream-json` stdout 再作为兼容写出。ACP prompt path 也已直接消费 `QueryEngine.submitRuntimeTurn(...)` 的 runtime envelope，避免 ACP 再回到 SDK-message 投影作为执行主流。
 - public event taxonomy 已按当前代码边界进入 package root：`KernelEvent` 仍是 generic semantic event，`KernelRuntimeEnvelopeBase` 承载 `ack / event / error / pong`；`KERNEL_RUNTIME_EVENT_TAXONOMY`、`KernelRuntimeEventType`、`getKernelRuntimeEventCategory(...)`、`isKernelRuntimeEventOfType(...)` 与 `isKernelTurnTerminalEvent(...)` 已可对外使用。payload-specific discriminated union 仍属于 future。
 - `collectKernelRuntimeEventEnvelopes(...)` 与 `runtime.publishHostEvent(...)`
@@ -177,9 +178,9 @@ public semver surface 已冻结到 `src/kernel/index.ts` 与 package-level `./ke
   `attributionSnapshots`、`fileHistorySnapshots`、`contentReplacements`、
   `contextCollapseCommits`、`contextCollapseSnapshot` 已进入 public transcript
   shape；session continuation 的 replayable state 不再只是 router 私有类型。
-- `compatProjection` / `headlessStreamEmission` 这一层现在也已有 public kernel
-  adapter：runtime envelope <-> legacy SDK / stream-json projection，以及
-  terminal holdback / suppress helper 已可经由 `src/kernel` 稳定导出。
+- `compatProjection` / `headlessStreamEmission` 这一层已降级为 runtime 内部
+  transitional bridge：runtime envelope <-> SDKMessage / legacy stream-json
+  projection 只服务当前执行链迁移，不再经由 root `src/kernel` 稳定导出。
 - interrupted-turn auto resume 当前也已升级为 public headless run option，并保留
   `CLAUDE_CODE_RESUME_INTERRUPTED_TURN` env fallback；是否自动续跑被打断 turn
   不再是纯内部私有开关。

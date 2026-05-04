@@ -36,6 +36,9 @@ export {
 } from '../runtime/core/events/KernelRuntimeHostProjection.js'
 import { emitHeadlessRuntimeMessage } from '../runtime/capabilities/execution/internal/headlessStreamEmission.js'
 
+// Host-internal transitional bridge. Root `./kernel` intentionally does not
+// re-export SDKMessage / legacy stream-json adapters; new hosts should consume
+// KernelRuntimeEnvelope / KernelEvent contracts instead.
 export type KernelLegacySDKMessage = SDKMessage
 export type KernelLegacyStdoutMessage = StdoutMessage
 export type KernelLegacyStreamJsonProjectionOptions =

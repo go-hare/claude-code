@@ -204,7 +204,7 @@
   `submitRuntimeTurn(...)` 产出 `turn.started`、`headless.sdk_message`、
   `turn.completed` / `turn.failed` envelope；`askRuntime(...)` 消费 runtime
   envelope 并在 one-shot lifecycle 里显式收尾，`ask(...)` /
-  `submitMessage(...)` 只保留为 deprecated SDK-compatible projection。
+  `submitMessage(...)` 只保留为内部 transitional projection。
 - headless stream publisher 已 runtime-first：
   `createHeadlessRuntimeStreamPublisher(...)` 先写 `RuntimeEventBus`，legacy
   `stream-json` stdout 后写；测试覆盖 legacy write 发生时 runtime replay
@@ -251,7 +251,7 @@ Lane B 当前兼容边界：
   direct-connect / SSH hooks 会把不携带 SDK payload 的纯文本 delta 交给 REPL
   runtime output buffer，用 streaming text 预览并在 `turn.completed` /
   `turn.failed` 时落成 assistant message；携带 SDK payload 的 output delta
-  仍由 `headless.sdk_message` / legacy SDK path 渲染，避免重复。
+  仍由内部 `headless.sdk_message` bridge 渲染，避免重复。
 - direct-connect print host 也已消费 runtime events：
   `runConnectHeadlessRuntime(...)` 现在用同一 host event helper 处理
   `headless.sdk_message` result fallback 与纯 semantic `turn.output_delta`

@@ -1054,7 +1054,7 @@ describe('createKernelRuntime', () => {
     }
   })
 
-  test('exposes SDK-friendly capability list, group, filter, and reload APIs', async () => {
+  test('exposes kernel-friendly capability list, group, filter, and reload APIs', async () => {
     const reloadScopes: KernelCapabilityReloadScope[] = []
     let descriptors = [
       createCapabilityDescriptor('runtime', 'ready', [], false),
@@ -1262,7 +1262,7 @@ describe('createKernelRuntime', () => {
     }
   })
 
-  test('exposes command, tool, MCP, extension, agent, and task catalogs through the SDK facade', async () => {
+  test('exposes command, tool, MCP, extension, agent, and task catalogs through the kernel facade', async () => {
     const requiredCapabilities: string[] = []
     let mcpReloads = 0
     let hookReloads = 0
@@ -2080,7 +2080,7 @@ describe('createKernelRuntime', () => {
     }
   })
 
-  test('exposes agent spawn and task mutation helpers through the SDK facade', async () => {
+  test('exposes agent spawn and task mutation helpers through the kernel facade', async () => {
     const requiredCapabilities: string[] = []
     const events: string[] = []
     const runtime = await createKernelRuntime({
@@ -2423,7 +2423,7 @@ describe('createKernelRuntime', () => {
     }
   })
 
-  test('runs default agent registry executions through the SDK run lifecycle', async () => {
+  test('runs default agent registry executions through the kernel run lifecycle', async () => {
     const agentRegistry = createDefaultKernelRuntimeAgentRegistry(
       '/tmp/kernel-runtime-agent-executor-test',
       {

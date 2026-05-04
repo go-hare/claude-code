@@ -83,14 +83,14 @@ public semver surface 已在本轮冻结：
 
 后续如果继续推进，应只从下面两类里选：
 
-legacy SDK / `stream-json` projection helper 的低风险 consolidation 也已完成：
+SDKMessage / legacy `stream-json` projection helper 的 public surface 降级也已完成：
 
 - `projectRuntimeEnvelopeToLegacyRuntimeEventStreamJsonMessage(...)` 负责
-  runtime-event-only stream-json 投影。
+  runtime-event-only stream-json 内部投影。
 - `projectRuntimeEnvelopeToLegacySDKStreamJsonMessages(...)` 负责
-  SDK-message-only stream-json 投影。
-- `projectRuntimeEnvelopeToLegacyStreamJsonMessages(...)` 保持 public 兼容语义，
-  但内部复用上述命名 helper。
+  SDK-message-only stream-json 内部投影。
+- root `./kernel` 不再导出 `SDKMessage` / legacy stream-json projection helper；
+  这些 helper 只作为 runtime 内部 transitional bridge 保留。
 - headless verbose streaming 与 runtime event output 不再手写
   `includeRuntimeEvent` / `includeSDKMessage` 布尔组合。
 

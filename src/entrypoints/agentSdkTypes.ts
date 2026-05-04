@@ -1,5 +1,10 @@
 /**
- * Main entrypoint for Claude Code Agent SDK types.
+ * Legacy entrypoint for Claude Code Agent SDK types.
+ *
+ * This is not the kernel public API. New hosts should import the package
+ * `./kernel` entry and consume KernelRuntimeEnvelope / KernelEvent contracts.
+ * This file is retained for internal transitional compatibility with existing
+ * SDKMessage-shaped execution paths while those paths are migrated.
  *
  * This file re-exports the public SDK API from:
  * - sdk/coreTypes.ts - Common serializable types (messages, configs)

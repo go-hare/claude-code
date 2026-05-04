@@ -98,26 +98,8 @@ describe('kernel index surface', () => {
     ).toBe(true)
     expect(
       Object.is(
-        kernel.projectRuntimeEnvelopeToLegacyStreamJsonMessages,
-        outputProjection.projectRuntimeEnvelopeToLegacyStreamJsonMessages,
-      ),
-    ).toBe(true)
-    expect(
-      Object.is(
-        kernel.handleKernelRuntimeHostEvent,
-        outputProjection.handleKernelRuntimeHostEvent,
-      ),
-    ).toBe(true)
-    expect(
-      Object.is(
         kernel.getKernelRuntimeLifecycleProjection,
         outputProjection.getKernelRuntimeLifecycleProjection,
-      ),
-    ).toBe(true)
-    expect(
-      Object.is(
-        kernel.emitKernelHeadlessRuntimeMessage,
-        outputProjection.emitKernelHeadlessRuntimeMessage,
       ),
     ).toBe(true)
 

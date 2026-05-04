@@ -105,27 +105,17 @@ export { createKernelContextManager } from './context.js'
 export { createKernelKairosRuntime } from './kairos.js'
 export { createKernelMemoryManager } from './memory.js'
 export {
-  createHeadlessSDKMessageRuntimeEvent,
-  emitKernelHeadlessRuntimeMessage,
   getCanonicalProjectionFromKernelEvent,
   getCompatibilityProjectionFromKernelEvent,
   getKernelRuntimeCoordinatorLifecycleProjection,
   getKernelRuntimeLifecycleProjection,
   getKernelRuntimeTaskNotificationProjection,
   getKernelRuntimeTerminalProjection,
-  getKernelRuntimeTerminalProjectionFromSDKResultMessage,
-  getSDKMessageFromRuntimeEnvelope,
-  getSDKResultTurnOutcome,
   getTextOutputDeltaFromKernelRuntimeEnvelope,
-  handleKernelRuntimeHostEvent,
   hasCanonicalProjection,
   hasCompatibilityProjection,
   isKernelRuntimeHostTurnTerminalEvent,
   KernelRuntimeOutputDeltaDedupe,
-  KernelRuntimeSDKMessageDedupe,
-  projectRuntimeEnvelopeToLegacySDKMessage,
-  projectRuntimeEnvelopeToLegacyStreamJsonMessages,
-  projectSDKMessageToLegacyStreamJsonMessages,
 } from './outputProjection.js'
 export { createKernelSessionManager } from './sessions.js'
 export {
@@ -208,14 +198,6 @@ export type {
   KernelContextManagerOptions,
   KernelContextSnapshot,
 } from './context.js'
-export type {
-  KernelHeadlessRuntimeMessageEmissionOptions,
-  KernelHeadlessRuntimeMessageEmissionResult,
-  KernelLegacySDKMessage,
-  KernelLegacyStdoutMessage,
-  KernelLegacyStreamJsonProjectionOptions,
-  KernelSDKResultTurnOutcome,
-} from './outputProjection.js'
 export type {
   KernelKairosAutonomyCommand,
   KernelKairosEvent,

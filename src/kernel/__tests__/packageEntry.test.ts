@@ -94,11 +94,14 @@ describe('kernel package entry', () => {
     expect(declaration).toContain('onEvent(handler: (event: KernelRuntimeMcpEvent) => void)')
     expect(declaration).toContain('onEvent(handler: (event: KernelRuntimeSkillEvent) => void)')
     expect(declaration).toContain('onEvent(handler: (event: KernelRuntimePluginEvent) => void)')
-    expect(declaration).toContain('emitKernelHeadlessRuntimeMessage(')
-    expect(declaration).toContain('handleKernelRuntimeHostEvent(')
     expect(declaration).toContain('getKernelRuntimeLifecycleProjection(')
-    expect(declaration).toContain('projectRuntimeEnvelopeToLegacyStreamJsonMessages(')
-    expect(declaration).toContain('KernelLegacySDKMessage')
+    expect(declaration).not.toContain('KernelLegacySDKMessage')
+    expect(declaration).not.toContain('getSDKMessageFromRuntimeEnvelope(')
+    expect(declaration).not.toContain('projectRuntimeEnvelopeToLegacySDKMessage(')
+    expect(declaration).not.toContain('projectRuntimeEnvelopeToLegacyStreamJsonMessages(')
+    expect(declaration).not.toContain('projectSDKMessageToLegacyStreamJsonMessages(')
+    expect(declaration).not.toContain('emitKernelHeadlessRuntimeMessage(')
+    expect(declaration).not.toContain('handleKernelRuntimeHostEvent(')
     expect(declaration).toContain(
       'capabilityResolver?: KernelRuntimeWireCapabilityResolver',
     )

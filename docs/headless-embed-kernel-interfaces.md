@@ -82,9 +82,9 @@ kernel public export 为准。
 - 不把旧 SDK facade 扩成新的 public API：
   `createHeadlessChatSession()`、`session.stream()`、
   `electron/vendor/hare-code-sdk.js` 这套旧 facade 不作为新开放面恢复；
-  但现有 SDK message / `stream-json` adapter 保留为 CLI、pipe、remote、
-  ACP 的最终兼容投影，内部 runtime owner 链路不再以 SDK message 为事实源，
-  任何迁移都不能导致 CLI 行为衰减。
+  现有 SDK message / `stream-json` adapter 只作为 runtime 内部 transitional
+  bridge 保留，不进入 root `./kernel` public surface。新宿主必须消费
+  `KernelRuntimeEnvelope` / `KernelEvent` / wire contract。
 - 任何对外接口都按完整 runtime contract 设计；不以“先能跑一个 headless turn”为接口边界。
 
 为减少“目标 contract”“当前落地”“desktop 对齐约束”混在一起的阅读负担，本章按以下顺序展开：
@@ -118,11 +118,9 @@ contract。详细清单见 `docs/internals/kernelization-status.md` 中的“接
   `attributionSnapshots`、`fileHistorySnapshots`、`contentReplacements`、
   `contextCollapseCommits`、`contextCollapseSnapshot` 现在都进入 public
   transcript shape；resume replay 已不再只是内部 router 私有状态。
-- legacy output compatibility projection 现在也已有正式 kernel adapter：
-  runtime envelope <-> legacy SDK / stream-json projection，以及 terminal
-  result holdback / suppress helper 已进入 `@go-hare/hare-code/kernel`
-  surface，host 不再需要 import `compatProjection` /
-  `headlessStreamEmission` 内部路径。
+- legacy output compatibility projection 已降级为内部 transitional bridge：
+  runtime envelope <-> SDKMessage / stream-json projection 继续服务当前 CLI
+  执行链迁移，但不再作为 `@go-hare/hare-code/kernel` 的 public adapter。
 - interrupted-turn auto resume 也不再只是
   `CLAUDE_CODE_RESUME_INTERRUPTED_TURN` 环境变量私有开关；当前 public
   headless run options 已可显式表达该策略，同时继续保留 env fallback 兼容。
@@ -217,7 +215,7 @@ contract。详细清单见 `docs/internals/kernelization-status.md` 中的“接
 | attachments | headless runtime 可消费 input / attachments | `run_turn.attachments` 已有 | 基础具备 |
 | MCP / tools / hooks / skills / plugins | CLI headless 启动前装配完整运行环境 | wire surface 已有 list / call / reload / connect / mutate | 命令面完整 |
 | agents / tasks / teams / Kairos / companion / memory | CLI / runtime 已具备能力域 | wire surface 已有对应命令 | 命令面完整，但激活与装配条件不够清楚 |
-| output / events | output format、partial messages、replay user messages、runtime envelopes | public headless launch `runOptions` 已暴露 `verbose` / `outputFormat` / `replayUserMessages` / `includePartialMessages`；typed events 与 legacy SDK / stream-json projection 已有回归 | desktop-required output knobs 已齐；future 是 CLI terminal 展示策略的长期兼容，不是缺事件或缺 knob |
+| output / events | output format、partial messages、replay user messages、runtime envelopes | public headless launch `runOptions` 已暴露 `verbose` / `outputFormat` / `replayUserMessages` / `includePartialMessages`；typed runtime events 已有回归；SDK / stream-json projection 只保留为 internal bridge | desktop-required output knobs 已齐；future 是 CLI terminal 展示策略的长期兼容，不是缺事件或缺 knob |
 | startup orchestration | startup hooks、prefetch、session persistence、auth status、effort、advisor、fast mode | 已进入正式 kernel public headless launch path | 不再是缺口 |
 | interactive / TUI | `launchRepl()`、banner、deep link、terminal UX | public interface 无 | 不应进入 embedding 最小契约 |
 
@@ -1479,7 +1477,7 @@ export type KernelRuntimeEventEnvelope =
 | host | `host.connected`、`host.reconnected`、`host.disconnected` | runtime | yes | `host` 或 `hostId`、`policy?`、`reason?`、`abortedTurnIds?`、`sinceEventId?`、`replayedEvents?` |
 | conversation | `conversation.ready`、`conversation.recovered`、`conversation.disposed`、`conversation.snapshot_failed` | conversation | ready/recovered/disposed yes；snapshot_failed no | `KernelConversationSnapshot` 字段；disposed 额外 `reason`；snapshot_failed 至少 `message` |
 | turn | `turn.started`、`turn.abort_requested`、`turn.output_delta`、`turn.completed`、`turn.failed` | turn | yes by default | `KernelTurnSnapshot` 字段；`turn.output_delta` 是 renderer-neutral delta payload，当前 host 可消费 `text` 等序列化字段 |
-| headless compatibility | `headless.sdk_message` | turn | yes | legacy SDK message payload；只作为 compatibility projection，不是新的 semantic source of truth |
+| headless internal bridge | `headless.sdk_message` | turn | yes | SDKMessage payload；只作为内部 transitional projection，不是 public host contract，也不是新的 semantic source of truth |
 | permission | `permission.requested`、`permission.resolved` | conversation/turn | yes | `permissionRequestId`、`toolName`、`action`、`risk`、`decision?`、`decidedBy?`、`reason?` |
 | capability | `capabilities.required`、`capabilities.reloaded` | runtime/conversation | yes | `capabilities`、`descriptors`、`scope?` |
 | extension | `commands.executed`、`tools.called`、`mcp.reloaded`、`mcp.connected`、`mcp.authenticated`、`mcp.enabled_changed`、`hooks.reloaded`、`hooks.ran`、`hooks.registered`、`skills.reloaded`、`skills.context_resolved`、`plugins.reloaded`、`plugins.enabled_changed`、`plugins.installed`、`plugins.uninstalled`、`plugins.updated`、`agents.reloaded`、`agents.spawned`、`agents.run.cancelled`、`tasks.created`、`tasks.updated`、`tasks.assigned` | runtime | yes | per-family command result / tool result / MCP lifecycle / hook result / skill context / plugin mutation / agent or task mutation payload |
