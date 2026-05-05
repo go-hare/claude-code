@@ -10,6 +10,7 @@ const allAgentDisallowedTools = new Set<string>();
 const asyncAgentAllowedTools = new Set<string>();
 const customAgentDisallowedTools = new Set<string>();
 const inProcessTeammateAllowedTools = new Set<string>();
+const queuedCompatibilityMessages: any[][] = [];
 let transcriptPersistenceDisabled = false;
 let snapshotError: Error | undefined;
 const snapshotWrites: Array<{ taskId: string; content: string }> = [];
@@ -156,6 +157,12 @@ mock.module("src/utils/task/sdkProgress.js", () => ({
   emitTaskProgress: noop,
 }));
 
+mock.module("src/utils/sdkEventQueue.js", () => ({
+  enqueueSdkCompatibilityMessages: (messages: any[]) => {
+    queuedCompatibilityMessages.push(messages);
+  },
+}));
+
 mock.module("src/utils/tokens.js", () => ({
   getTokenCountFromUsage: () => 0,
 }));
@@ -187,6 +194,7 @@ mock.module("src/tools/AgentTool/AgentTool.tsx", () => ({
 
 const {
   countToolUses,
+  emitLiveSubagentToolUseStart,
   getLastToolUseName,
   resolveAgentTools,
   writeAgentOutputSnapshotIfPersistenceDisabled,
@@ -200,6 +208,7 @@ afterEach(() => {
   transcriptPersistenceDisabled = false;
   snapshotError = undefined;
   snapshotWrites.length = 0;
+  queuedCompatibilityMessages.length = 0;
 });
 
 function makeAssistantMessage(content: any[]): any {
@@ -284,6 +293,53 @@ describe("getLastToolUseName", () => {
   test("handles message with null content", () => {
     const msg = { type: "assistant", message: { content: null } } as any;
     expect(getLastToolUseName(msg)).toBeUndefined();
+  });
+});
+
+describe("emitLiveSubagentToolUseStart", () => {
+  test("enqueues nested tool_use stream starts with parent linkage", () => {
+    emitLiveSubagentToolUseStart({
+      type: "stream_event",
+      uuid: "tool-stream-1",
+      event: {
+        type: "content_block_start",
+        content_block: {
+          type: "tool_use",
+          id: "toolu_child_1",
+          name: "Bash",
+          input: { command: "pwd" },
+        },
+      },
+    } as any, "toolu_parent");
+
+    expect(queuedCompatibilityMessages).toHaveLength(1);
+    expect(queuedCompatibilityMessages[0]).toHaveLength(1);
+    expect(queuedCompatibilityMessages[0][0]).toMatchObject({
+      type: "stream_event",
+      uuid: "tool-stream-1",
+      parent_tool_use_id: "toolu_parent",
+      event: {
+        type: "content_block_start",
+        content_block: {
+          type: "tool_use",
+          id: "toolu_child_1",
+          name: "Bash",
+          input: { command: "pwd" },
+        },
+      },
+    });
+  });
+
+  test("ignores non-tool-use stream events", () => {
+    emitLiveSubagentToolUseStart({
+      type: "stream_event",
+      event: {
+        type: "content_block_delta",
+        delta: { type: "text_delta", text: "hi" },
+      },
+    } as any, "toolu_parent");
+
+    expect(queuedCompatibilityMessages).toEqual([]);
   });
 });
 

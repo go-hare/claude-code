@@ -97,7 +97,10 @@ import {
 } from 'src/utils/telemetry/perfettoTracing.js'
 import type { ContentReplacementState } from 'src/utils/toolResultStorage.js'
 import { createAgentId } from 'src/utils/uuid.js'
-import { resolveAgentTools } from './agentToolUtils.js'
+import {
+  emitLiveSubagentToolUseStart,
+  resolveAgentTools,
+} from './agentToolUtils.js'
 import { type AgentDefinition, isBuiltInAgent } from './loadAgentsDir.js'
 
 export function getSpawnedAgentToolPermissionContext(
@@ -841,6 +844,9 @@ export async function* runAgent({
       maxTurns: maxTurns ?? agentDefinition.maxTurns,
     })) {
       onQueryProgress?.()
+      if (message.type === 'stream_event') {
+        emitLiveSubagentToolUseStart(message, toolUseContext.toolUseId)
+      }
       // Forward subagent API request starts to parent's metrics display
       // so TTFT/OTPS update during subagent execution.
       if (

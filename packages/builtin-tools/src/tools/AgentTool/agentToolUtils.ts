@@ -1,6 +1,7 @@
 import { feature } from 'bun:bundle'
 import { z } from 'zod/v4'
-import { clearInvokedSkillsForAgent } from 'src/bootstrap/state.js'
+import { clearInvokedSkillsForAgent, getSessionId } from 'src/bootstrap/state.js'
+import type { SDKMessage } from 'src/entrypoints/agentSdkTypes.js'
 import {
   createRuntimeAgentToolCapabilityPlane,
   filterToolsByRuntimeAgentCapabilityPlane,
@@ -41,6 +42,7 @@ import type {
   AssistantMessage,
   ContentItem,
   Message as MessageType,
+  StreamEvent,
   UserMessage,
 } from 'src/types/message.js'
 import { isAgentSwarmsEnabled } from 'src/utils/agentSwarmsEnabled.js'
@@ -402,6 +404,37 @@ export function emitLiveSubagentSdkMessages(
     default:
       return
   }
+}
+
+export function emitLiveSubagentToolUseStart(
+  message: StreamEvent,
+  parentToolUseId: string | undefined,
+): void {
+  if (!parentToolUseId) {
+    return
+  }
+
+  const event = message.event as Record<string, unknown> | undefined
+  const contentBlock = event?.content_block as
+    | Record<string, unknown>
+    | undefined
+  if (
+    event?.type !== 'content_block_start' ||
+    contentBlock?.type !== 'tool_use'
+  ) {
+    return
+  }
+
+  const compatibilityMessage: SDKMessage = {
+    type: 'stream_event',
+    event: message.event,
+    parent_tool_use_id: parentToolUseId,
+    session_id: getSessionId(),
+  }
+  if (message.uuid) {
+    compatibilityMessage.uuid = message.uuid
+  }
+  enqueueSdkCompatibilityMessages([compatibilityMessage])
 }
 
 export function emitTaskProgress(
