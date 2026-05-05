@@ -222,9 +222,16 @@ describe('QueryTurnEventAdapter', () => {
     })
 
     expect(queryEvents.map(event => event.type)).toEqual([
+      'turn.delta',
       'headless.sdk_message',
     ])
     expect(queryEvents[0]).toMatchObject({
+      payload: {
+        kind: 'assistant_message',
+        text: 'local output',
+      },
+    })
+    expect(queryEvents[1]).toMatchObject({
       payload: {
         type: 'assistant',
         uuid: 'local-1',
@@ -422,9 +429,16 @@ describe('QueryTurnEventAdapter', () => {
     })
 
     expect(queryEvents.map(event => event.type)).toEqual([
+      'turn.delta',
       'headless.sdk_message',
     ])
     expect(queryEvents[0]).toMatchObject({
+      payload: {
+        kind: 'assistant_message',
+        text: 'assistant output',
+      },
+    })
+    expect(queryEvents[1]).toMatchObject({
       payload: {
         type: 'assistant',
         uuid: '00000000-0000-4000-8000-000000000010',
@@ -458,6 +472,107 @@ describe('QueryTurnEventAdapter', () => {
         message: {
           content: [{ type: 'text', text: 'user input' }],
         },
+      },
+    })
+  })
+
+  test('projects tool-use stream starts as semantic turn progress', () => {
+    const adapter = createAdapter()
+
+    const events = adapter.projectQueryMessage({
+      type: 'stream_event',
+      event: {
+        type: 'content_block_start',
+        content_block: {
+          type: 'tool_use',
+          id: 'toolu_stream_1',
+          name: 'Read',
+          input: { path: 'README.md' },
+        },
+      },
+      parent_tool_use_id: 'toolu_parent',
+      uuid: 'tool-stream-1',
+    })
+
+    expect(events.map(event => event.type)).toEqual([
+      'turn.progress',
+      'headless.sdk_message',
+    ])
+    expect(events[0]).toMatchObject({
+      payload: {
+        kind: 'tool_use_start',
+        toolUseId: 'toolu_stream_1',
+        parentToolUseId: 'toolu_parent',
+        toolName: 'Read',
+        toolInput: { path: 'README.md' },
+      },
+    })
+  })
+
+  test('projects assistant tool-use blocks as semantic turn progress', () => {
+    const adapter = createAdapter()
+
+    const events = adapter.projectQueryMessage({
+      type: 'assistant',
+      message: {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'running tool' },
+          {
+            type: 'tool_use',
+            id: 'toolu_assistant_1',
+            name: 'Bash',
+            input: { command: 'pwd' },
+          },
+        ],
+      },
+      uuid: 'assistant-tool-1',
+    } as unknown as Parameters<typeof adapter.projectQueryMessage>[0])
+
+    expect(events.map(event => event.type)).toContain('turn.delta')
+    expect(events.map(event => event.type)).toContain('turn.progress')
+    expect(
+      events.filter(event => event.type === 'headless.sdk_message').length,
+    ).toBeGreaterThan(0)
+    expect(events.find(event => event.type === 'turn.progress')).toMatchObject({
+      payload: {
+        kind: 'tool_use_start',
+        toolUseId: 'toolu_assistant_1',
+        toolName: 'Bash',
+        toolInput: { command: 'pwd' },
+      },
+    })
+  })
+
+  test('projects user tool results as semantic turn progress', () => {
+    const adapter = createAdapter()
+
+    const events = adapter.projectQueryMessage({
+      type: 'user',
+      message: {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'toolu_result_1',
+            content: 'done',
+            is_error: false,
+          },
+        ],
+      },
+      uuid: 'user-tool-result-1',
+    } as unknown as Parameters<typeof adapter.projectQueryMessage>[0])
+
+    expect(events.map(event => event.type)).toEqual([
+      'turn.progress',
+      'headless.sdk_message',
+    ])
+    expect(events[0]).toMatchObject({
+      payload: {
+        kind: 'tool_use_done',
+        toolUseId: 'toolu_result_1',
+        content: 'done',
+        isError: false,
       },
     })
   })

@@ -6,6 +6,7 @@ import {
 import type { KernelEvent } from '../../../contracts/events.js'
 import {
   createHeadlessSDKMessageRuntimeEvent,
+  projectSemanticRuntimeEventsFromSDKMessage,
   createTurnOutputDeltaRuntimeEventFromSDKMessage,
   getCanonicalProjectionForSDKMessage,
 } from '../../../core/events/compatProjection.js'
@@ -78,6 +79,13 @@ export function createQueryTurnEventAdapter(
     if (outputDeltaEvent) {
       events.push(outputDeltaEvent)
     }
+    events.push(
+      ...projectSemanticRuntimeEventsFromSDKMessage({
+        conversationId: options.conversationId,
+        turnId: options.turnId,
+        message,
+      }),
+    )
 
     const canonicalProjection =
       getCanonicalProjectionForSDKMessage(message)

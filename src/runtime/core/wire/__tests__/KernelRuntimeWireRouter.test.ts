@@ -1149,6 +1149,135 @@ describe('KernelRuntimeWireRouter', () => {
     })
   })
 
+  test('projects nested SDK tool events from a process-backed headless executor', async () => {
+    const fakeHeadlessScript = `
+      let input = "";
+      process.stdin.setEncoding("utf8");
+      process.stdin.on("data", chunk => {
+        input += chunk;
+      });
+      process.stdin.on("end", () => {
+        const text = input.trim() || "README.md";
+        console.log(JSON.stringify({
+          type: "assistant",
+          uuid: "assistant-tool-1",
+          session_id: "session-1",
+          parent_tool_use_id: "toolu_parent_agent",
+          message: {
+            role: "assistant",
+            content: [{
+              type: "tool_use",
+              id: "toolu_child_read",
+              name: "Read",
+              input: { path: text },
+            }],
+          },
+        }));
+        console.log(JSON.stringify({
+          type: "user",
+          uuid: "user-tool-result-1",
+          session_id: "session-1",
+          parent_tool_use_id: "toolu_parent_agent",
+          message: {
+            role: "user",
+            content: [{
+              type: "tool_result",
+              tool_use_id: "toolu_child_read",
+              content: "done",
+              is_error: false,
+            }],
+          },
+        }));
+        console.log(JSON.stringify({
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          result: "ok",
+          session_id: "session-1",
+        }));
+      });
+    `
+    const nodeCommand = existsSync('/usr/local/bin/node')
+      ? '/usr/local/bin/node'
+      : 'node'
+    const { router, observed } = createRouter({
+      runTurnExecutor: createKernelRuntimeHeadlessProcessExecutor({
+        command: nodeCommand,
+        args: ['-e', fakeHeadlessScript],
+        cwd: process.cwd(),
+        killTimeoutMs: 1000,
+      }),
+    })
+
+    await router.handleCommand({
+      schemaVersion: KERNEL_RUNTIME_COMMAND_SCHEMA_VERSION,
+      type: 'create_conversation',
+      requestId: 'create-1',
+      conversationId: 'conversation-1',
+      workspacePath: '/tmp/workspace',
+    })
+    await router.handleCommand({
+      schemaVersion: KERNEL_RUNTIME_COMMAND_SCHEMA_VERSION,
+      type: 'run_turn',
+      requestId: 'run-1',
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      prompt: 'README.md',
+    })
+
+    const toolUseStart = await waitForObserved(observed, envelope => {
+      return (
+        (envelope as { payload?: { type?: string } }).payload?.type ===
+          'turn.progress' &&
+        (envelope as {
+          payload?: { payload?: { kind?: string; toolUseId?: string } }
+        }).payload?.payload?.kind === 'tool_use_start' &&
+        (envelope as {
+          payload?: { payload?: { toolUseId?: string } }
+        }).payload?.payload?.toolUseId === 'toolu_child_read'
+      )
+    })
+    const toolUseDone = await waitForObserved(observed, envelope => {
+      return (
+        (envelope as { payload?: { type?: string } }).payload?.type ===
+          'turn.progress' &&
+        (envelope as {
+          payload?: { payload?: { kind?: string; toolUseId?: string } }
+        }).payload?.payload?.kind === 'tool_use_done' &&
+        (envelope as {
+          payload?: { payload?: { toolUseId?: string } }
+        }).payload?.payload?.toolUseId === 'toolu_child_read'
+      )
+    })
+
+    expect(toolUseStart).toMatchObject({
+      payload: {
+        type: 'turn.progress',
+        payload: {
+          kind: 'tool_use_start',
+          toolUseId: 'toolu_child_read',
+          parentToolUseId: 'toolu_parent_agent',
+          toolName: 'Read',
+          toolInput: {
+            path: 'README.md',
+          },
+        },
+      },
+    })
+    expect(toolUseDone).toMatchObject({
+      payload: {
+        type: 'turn.progress',
+        payload: {
+          kind: 'tool_use_done',
+          toolUseId: 'toolu_child_read',
+          parentToolUseId: 'toolu_parent_agent',
+          content: 'done',
+          isError: false,
+        },
+      },
+    })
+  })
+
   test('passes resumed session identifiers through the process-backed executor', async () => {
     const fakeHeadlessScript = `
       const resumeIndex = process.argv.findIndex(arg => arg === "--resume");

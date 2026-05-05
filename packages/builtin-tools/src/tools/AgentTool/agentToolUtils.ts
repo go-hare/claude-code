@@ -37,7 +37,12 @@ import {
   updateProgressFromMessage,
 } from 'src/tasks/LocalAgentTask/LocalAgentTask.js'
 import { asAgentId } from 'src/types/ids.js'
-import type { Message as MessageType, ContentItem } from 'src/types/message.js'
+import type {
+  AssistantMessage,
+  ContentItem,
+  Message as MessageType,
+  UserMessage,
+} from 'src/types/message.js'
 import { isAgentSwarmsEnabled } from 'src/utils/agentSwarmsEnabled.js'
 import { logForDebugging } from 'src/utils/debug.js'
 import { isInProtectedNamespace } from 'src/utils/envUtils.js'
@@ -48,8 +53,13 @@ import {
   extractTextContent,
   getLastAssistantMessage,
 } from 'src/utils/messages.js'
+import {
+  projectAssistantMessageToSDKMessages,
+  projectUserMessageToSDKMessages,
+} from 'src/utils/queryHelpers.js'
 import type { PermissionMode } from 'src/utils/permissions/PermissionMode.js'
 import { permissionRuleValueFromString } from 'src/utils/permissions/permissionRuleParser.js'
+import { enqueueSdkCompatibilityMessages } from 'src/utils/sdkEventQueue.js'
 import { isTranscriptPersistenceDisabled } from 'src/utils/sessionStorage.js'
 import { writeTaskOutputSnapshot } from 'src/utils/task/diskOutput.js'
 import {
@@ -366,6 +376,34 @@ export function getLastToolUseName(message: MessageType): string | undefined {
   return block?.type === 'tool_use' ? block.name : undefined
 }
 
+export function emitLiveSubagentSdkMessages(
+  message: MessageType,
+  parentToolUseId: string | undefined,
+): void {
+  if (!parentToolUseId) {
+    return
+  }
+
+  switch (message.type) {
+    case 'assistant':
+      enqueueSdkCompatibilityMessages(
+        projectAssistantMessageToSDKMessages(message as AssistantMessage, {
+          parentToolUseId,
+        }),
+      )
+      return
+    case 'user':
+      enqueueSdkCompatibilityMessages(
+        projectUserMessageToSDKMessages(message as UserMessage, {
+          parentToolUseId,
+        }),
+      )
+      return
+    default:
+      return
+  }
+}
+
 export function emitTaskProgress(
   tracker: ProgressTracker,
   taskId: string,
@@ -570,6 +608,7 @@ export async function runAsyncAgentLifecycle({
       : undefined
     for await (const message of makeStream(onCacheSafeParams)) {
       agentMessages.push(message)
+      emitLiveSubagentSdkMessages(message, toolUseContext.toolUseId)
       // Append immediately when UI holds the task (retain). Bootstrap reads
       // disk in parallel and UUID-merges the prefix — disk-write-before-yield
       // means live is always a suffix of disk, so merge is order-correct.

@@ -1,6 +1,8 @@
 import type { UUID } from 'crypto'
 import { randomUUID } from 'crypto'
 import { getIsNonInteractiveSession, getSessionId } from '../bootstrap/state.js'
+import type { SDKMessage } from '../entrypoints/agentSdkTypes.js'
+import type { StdoutMessage } from '../entrypoints/sdk/controlTypes.js'
 import type { SdkWorkflowProgress } from '../types/tools.js'
 
 type TaskStartedEvent = {
@@ -71,10 +73,12 @@ export type SdkEvent =
   | TaskNotificationSdkEvent
   | SessionStateChangedEvent
 
-const MAX_QUEUE_SIZE = 1000
-const queue: SdkEvent[] = []
+type QueuedSdkMessage = SDKMessage | SdkEvent
 
-export function enqueueSdkEvent(event: SdkEvent): void {
+const MAX_QUEUE_SIZE = 1000
+const queue: QueuedSdkMessage[] = []
+
+function enqueueQueuedSdkMessage(event: QueuedSdkMessage): void {
   // SDK events are only consumed (drained) in headless/streaming mode.
   // In TUI mode they would accumulate up to the cap and never be read.
   if (!getIsNonInteractiveSession()) {
@@ -86,18 +90,42 @@ export function enqueueSdkEvent(event: SdkEvent): void {
   queue.push(event)
 }
 
+export function enqueueSdkEvent(event: SdkEvent): void {
+  enqueueQueuedSdkMessage(event)
+}
+
+export function enqueueSdkCompatibilityMessages(
+  messages: readonly SDKMessage[],
+): void {
+  for (const message of messages) {
+    enqueueQueuedSdkMessage(message)
+  }
+}
+
 export function drainSdkEvents(): Array<
-  SdkEvent & { uuid: UUID; session_id: string }
+  StdoutMessage & { uuid: UUID; session_id: string }
 > {
   if (queue.length === 0) {
     return []
   }
   const events = queue.splice(0)
-  return events.map(e => ({
-    ...e,
-    uuid: randomUUID(),
-    session_id: getSessionId(),
-  }))
+  return events.map(event => {
+    const record = event as SDKMessage & {
+      uuid?: string
+      session_id?: string
+    }
+    return {
+      ...(event as StdoutMessage),
+      uuid:
+        typeof record.uuid === 'string'
+          ? (record.uuid as UUID)
+          : randomUUID(),
+      session_id:
+        typeof record.session_id === 'string'
+          ? record.session_id
+          : getSessionId(),
+    }
+  })
 }
 
 /**

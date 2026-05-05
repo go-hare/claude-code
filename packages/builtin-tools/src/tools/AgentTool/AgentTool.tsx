@@ -107,6 +107,7 @@ import { setAgentColor } from './agentColorManager.js'
 import {
   agentToolResultSchema,
   classifyHandoffIfNeeded,
+  emitLiveSubagentSdkMessages,
   emitTaskProgress,
   extractPartialResult,
   finalizeAgentTool,
@@ -1390,6 +1391,10 @@ export const AgentTool = buildTool({
                           : undefined,
                       })) {
                         agentMessages.push(msg)
+                        emitLiveSubagentSdkMessages(
+                          msg,
+                          toolUseContext.toolUseId,
+                        )
 
                         // Track progress for backgrounded agents
                         updateProgressFromMessage(

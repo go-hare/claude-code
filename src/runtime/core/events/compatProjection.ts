@@ -86,6 +86,40 @@ export function getCanonicalProjectionForSDKMessage(
     : undefined
 }
 
+export function projectSemanticRuntimeEventsFromSDKMessage({
+  conversationId,
+  turnId,
+  message,
+}: {
+  conversationId: string
+  turnId?: string
+  message: SDKMessage
+}): KernelEvent[] {
+  const events: KernelEvent[] = []
+  const topLevelAssistantText = getTopLevelAssistantTextFromSDKMessage(message)
+  if (topLevelAssistantText) {
+    events.push({
+      conversationId,
+      turnId,
+      type: 'turn.delta',
+      replayable: true,
+      payload: {
+        kind: 'assistant_message',
+        text: topLevelAssistantText,
+      },
+    })
+  }
+
+  events.push(
+    ...projectSemanticToolUseRuntimeEventsFromSDKMessage({
+      conversationId,
+      turnId,
+      message,
+    }),
+  )
+  return events
+}
+
 export function getTextOutputDeltaFromSDKMessage(
   message: SDKMessage,
 ): string | undefined {
@@ -104,6 +138,167 @@ export function getTextOutputDeltaFromSDKMessage(
     return delta.text.length > 0 ? delta.text : undefined
   }
   return undefined
+}
+
+function projectSemanticToolUseRuntimeEventsFromSDKMessage({
+  conversationId,
+  turnId,
+  message,
+}: {
+  conversationId: string
+  turnId?: string
+  message: SDKMessage
+}): KernelEvent[] {
+  const record = asRecord(message)
+  const parentToolUseId =
+    typeof record?.parent_tool_use_id === 'string' &&
+    record.parent_tool_use_id.length > 0
+      ? record.parent_tool_use_id
+      : undefined
+  if (record?.type === 'stream_event') {
+    const event = asRecord(record.event)
+    const contentBlock = asRecord(event?.content_block)
+    if (
+      event?.type === 'content_block_start' &&
+      contentBlock?.type === 'tool_use' &&
+      typeof contentBlock.id === 'string'
+    ) {
+      return [
+        createTurnProgressRuntimeEvent({
+          conversationId,
+          turnId,
+          kind: 'tool_use_start',
+          toolUseId: contentBlock.id,
+          parentToolUseId,
+          toolName:
+            typeof contentBlock.name === 'string'
+              ? contentBlock.name
+              : undefined,
+          toolInput: contentBlock.input,
+        }),
+      ]
+    }
+    return []
+  }
+
+  const sdkMessage = asRecord(record?.message)
+  const content = Array.isArray(sdkMessage?.content)
+    ? sdkMessage.content
+    : []
+  if (record?.type === 'assistant') {
+    return content.flatMap(block => {
+      const contentBlock = asRecord(block)
+      if (
+        contentBlock?.type !== 'tool_use' ||
+        typeof contentBlock.id !== 'string'
+      ) {
+        return []
+      }
+      return [
+        createTurnProgressRuntimeEvent({
+          conversationId,
+          turnId,
+          kind: 'tool_use_start',
+          toolUseId: contentBlock.id,
+          parentToolUseId,
+          toolName:
+            typeof contentBlock.name === 'string'
+              ? contentBlock.name
+              : undefined,
+          toolInput: contentBlock.input,
+        }),
+      ]
+    })
+  }
+
+  if (record?.type === 'user') {
+    return content.flatMap(block => {
+      const contentBlock = asRecord(block)
+      if (
+        contentBlock?.type !== 'tool_result' ||
+        typeof contentBlock.tool_use_id !== 'string'
+      ) {
+        return []
+      }
+      return [
+        createTurnProgressRuntimeEvent({
+          conversationId,
+          turnId,
+          kind: 'tool_use_done',
+          toolUseId: contentBlock.tool_use_id,
+          parentToolUseId,
+          content: contentBlock.content,
+          isError: contentBlock.is_error === true,
+        }),
+      ]
+    })
+  }
+
+  return []
+}
+
+function getTopLevelAssistantTextFromSDKMessage(message: SDKMessage): string {
+  const record = asRecord(message)
+  if (record?.type !== 'assistant') {
+    return ''
+  }
+  if (
+    typeof record.parent_tool_use_id === 'string' &&
+    record.parent_tool_use_id.length > 0
+  ) {
+    return ''
+  }
+  const sdkMessage = asRecord(record.message)
+  const content = Array.isArray(sdkMessage?.content)
+    ? sdkMessage.content
+    : []
+  return content
+    .map(block => {
+      const contentBlock = asRecord(block)
+      return contentBlock?.type === 'text' &&
+        typeof contentBlock.text === 'string'
+        ? contentBlock.text
+        : ''
+    })
+    .join('')
+}
+
+function createTurnProgressRuntimeEvent(options: {
+  conversationId: string
+  turnId?: string
+  kind: 'tool_use_start' | 'tool_use_done'
+  toolUseId: string
+  parentToolUseId?: string
+  toolName?: string
+  toolInput?: unknown
+  content?: unknown
+  isError?: boolean
+}): KernelEvent {
+  return {
+    conversationId: options.conversationId,
+    turnId: options.turnId,
+    type: 'turn.progress',
+    replayable: true,
+    payload: {
+      kind: options.kind,
+      toolUseId: options.toolUseId,
+      ...(options.parentToolUseId
+        ? { parentToolUseId: options.parentToolUseId }
+        : {}),
+      ...(options.toolName ? { toolName: options.toolName } : {}),
+      ...(options.toolInput === undefined
+        ? {}
+        : { toolInput: options.toolInput }),
+      ...(options.content === undefined ? {} : { content: options.content }),
+      ...(options.isError === undefined ? {} : { isError: options.isError }),
+    },
+  }
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object'
+    ? (value as Record<string, unknown>)
+    : undefined
 }
 
 export function runtimeEnvelopeToSDKMessage(

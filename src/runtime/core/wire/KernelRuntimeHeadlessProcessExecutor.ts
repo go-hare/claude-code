@@ -4,6 +4,8 @@ import { createInterface } from 'readline'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 
+import type { SDKMessage } from '../../../entrypoints/agentSdkTypes.js'
+import { projectSemanticRuntimeEventsFromSDKMessage } from '../events/compatProjection.js'
 import type {
   KernelRuntimeWireTurnExecutionEvent,
   KernelRuntimeWireTurnExecutor,
@@ -100,7 +102,10 @@ export function createKernelRuntimeHeadlessProcessExecutor(
           continue
         }
         const message = parseHeadlessStdoutMessage(line)
-        for (const event of mapHeadlessStdoutMessage(message)) {
+        for (const event of mapHeadlessStdoutMessage(message, {
+          conversationId: context.command.conversationId,
+          turnId: context.command.turnId,
+        })) {
           if (event.type === 'completed' || event.type === 'failed') {
             terminalSeen = true
           }
@@ -172,8 +177,9 @@ function resolveHeadlessProcessCommand(
 
 function resolveDefaultCliCommand(): HeadlessProcessCommand {
   const currentModulePath = fileURLToPath(import.meta.url)
+  const moduleDir = dirname(currentModulePath)
   const sourceCliPath = join(
-    dirname(currentModulePath),
+    moduleDir,
     '..',
     '..',
     '..',
@@ -187,25 +193,27 @@ function resolveDefaultCliCommand(): HeadlessProcessCommand {
     }
   }
 
-  const distDir = dirname(currentModulePath)
-  const bunCliPath = join(distDir, 'cli-bun.js')
-  if (existsSync(bunCliPath)) {
-    return {
-      command: process.execPath,
-      args: [bunCliPath, ...DEFAULT_HEADLESS_ARGS],
+  const distCandidates = [moduleDir, join(moduleDir, '..')]
+  for (const distDir of distCandidates) {
+    const bunCliPath = join(distDir, 'cli-bun.js')
+    if (existsSync(bunCliPath)) {
+      return {
+        command: process.execPath,
+        args: [bunCliPath, ...DEFAULT_HEADLESS_ARGS],
+      }
     }
-  }
 
-  const nodeCliPath = join(distDir, 'cli-node.js')
-  if (existsSync(nodeCliPath)) {
-    return {
-      command: process.execPath,
-      args: [nodeCliPath, ...DEFAULT_HEADLESS_ARGS],
+    const nodeCliPath = join(distDir, 'cli-node.js')
+    if (existsSync(nodeCliPath)) {
+      return {
+        command: process.execPath,
+        args: [nodeCliPath, ...DEFAULT_HEADLESS_ARGS],
+      }
     }
   }
 
   return {
-    command: 'hare',
+    command: 'claude',
     args: DEFAULT_HEADLESS_ARGS,
   }
 }
@@ -268,17 +276,31 @@ function parseHeadlessStdoutMessage(line: string): Record<string, unknown> {
 
 function mapHeadlessStdoutMessage(
   message: Record<string, unknown>,
+  options: {
+    conversationId: string
+    turnId: string
+  },
 ): KernelRuntimeWireTurnExecutionEvent[] {
-  const events: KernelRuntimeWireTurnExecutionEvent[] = [
-    {
-      type: 'event',
+  const events: KernelRuntimeWireTurnExecutionEvent[] =
+    projectSemanticRuntimeEventsFromSDKMessage({
+      conversationId: options.conversationId,
+      turnId: options.turnId,
+      message: message as SDKMessage,
+    }).map(event => ({
+      type: 'event' as const,
       event: {
-        type: 'headless.sdk_message',
-        replayable: true,
-        payload: message,
+        ...event,
       },
+    }))
+
+  events.push({
+    type: 'event',
+    event: {
+      type: 'headless.sdk_message',
+      replayable: true,
+      payload: message,
     },
-  ]
+  })
 
   if (shouldEmitOutputDelta(message)) {
     events.push({
