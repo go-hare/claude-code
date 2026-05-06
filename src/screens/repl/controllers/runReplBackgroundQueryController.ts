@@ -4,7 +4,7 @@ import type { Message as MessageType } from '../../../types/message.js'
 import type { QueuedCommand } from '../../../types/textInputTypes.js'
 import type { SetAppState } from '../../../utils/messageQueueManager.js'
 import type { QueryParams } from '../../../query.js'
-import type { PreparedReplRuntimeQuery } from '../../../runtime/capabilities/execution/internal/replQueryRuntime.js'
+import type { KernelPreparedReplRuntimeQuery } from '../../../kernel/replRuntimeController.js'
 
 export type RunReplBackgroundQueryControllerOptions = {
   abortForegroundQuery(): void
@@ -21,7 +21,7 @@ export type RunReplBackgroundQueryControllerOptions = {
   prepareBackgroundQuery(params: {
     toolUseContext: ProcessUserInputContext
     mainThreadAgentDefinition: AgentDefinition | undefined
-  }): Promise<PreparedReplRuntimeQuery>
+  }): Promise<KernelPreparedReplRuntimeQuery>
   getNotificationMessages(
     removedNotifications: QueuedCommand[],
   ): Promise<MessageType[]>

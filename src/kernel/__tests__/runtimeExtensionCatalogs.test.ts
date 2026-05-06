@@ -1,79 +1,33 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import type { RuntimeRegisteredHookMatchers } from '../../utils/hooks.js'
 
 const loadPluginHookMatchers = mock(async () => ({}))
+const getRegisteredHooks = mock(
+  (): RuntimeRegisteredHookMatchers | null => null,
+)
 
-import {
-  clearRegisteredHooks,
-  getRegisteredHooks,
-  registerHookCallbacks,
-} from '../../bootstrap/state.js'
 import { createDefaultKernelRuntimeHookCatalog } from '../runtimeExtensionCatalogs.js'
 
 describe('createDefaultKernelRuntimeHookCatalog', () => {
   beforeEach(() => {
-    clearRegisteredHooks()
+    getRegisteredHooks.mockReset()
+    getRegisteredHooks.mockImplementation(() => null)
     loadPluginHookMatchers.mockReset()
     loadPluginHookMatchers.mockImplementation(async () => ({}))
   })
 
   afterEach(() => {
-    clearRegisteredHooks()
+    getRegisteredHooks.mockReset()
   })
 
-  test('runs registered callback hooks through the default runtime hook runner', async () => {
-    registerHookCallbacks({
+  test('lists registered callback hooks from the injected host provider', async () => {
+    getRegisteredHooks.mockImplementation(() => ({
       Notification: [
         {
           matcher: 'runtime',
           hooks: [
             {
-              type: 'callback',
-              timeout: 1,
-              callback: async input => ({
-                systemMessage: `seen:${String((input as { notification_type?: unknown }).notification_type)}`,
-              }),
-            },
-          ],
-        },
-      ],
-    })
-
-    const catalog = createDefaultKernelRuntimeHookCatalog(undefined, {
-      loadPluginHookMatchers,
-    })
-    const result = await catalog.runHook?.({
-      event: 'Notification',
-      matcher: 'runtime',
-      input: {
-        notification_type: 'runtime',
-      },
-      metadata: { source: 'test' },
-    })
-
-    expect(result).toMatchObject({
-      event: 'Notification',
-      handled: true,
-      metadata: { source: 'test' },
-    })
-    expect(result?.outputs).toEqual([
-      expect.objectContaining({
-        command: 'callback',
-        succeeded: true,
-        output: 'seen:runtime',
-        blocked: false,
-      }),
-    ])
-    expect(result?.errors).toBeUndefined()
-  })
-
-  test('lists registered callback hooks from bootstrap state', async () => {
-    registerHookCallbacks({
-      Notification: [
-        {
-          matcher: 'runtime',
-          hooks: [
-            {
-              type: 'callback',
+              type: 'callback' as const,
               timeout: 1,
               callback: async () => ({
                 systemMessage: 'listed',
@@ -82,9 +36,10 @@ describe('createDefaultKernelRuntimeHookCatalog', () => {
           ],
         },
       ],
-    })
+    }))
 
     const catalog = createDefaultKernelRuntimeHookCatalog(undefined, {
+      getRegisteredHooks,
       loadPluginHookMatchers,
     })
     const hooks = await catalog.listHooks()
@@ -140,7 +95,7 @@ describe('createDefaultKernelRuntimeHookCatalog', () => {
     ])
   })
 
-  test('runs locally registered callback hooks without writing bootstrap global state', async () => {
+  test('runs locally registered callback hooks without requiring a bootstrap provider', async () => {
     const catalog = createDefaultKernelRuntimeHookCatalog(undefined)
 
     await catalog.registerHook?.({
@@ -158,8 +113,6 @@ describe('createDefaultKernelRuntimeHookCatalog', () => {
         }),
       },
     })
-
-    expect(getRegisteredHooks()).toBeNull()
 
     const result = await catalog.runHook?.({
       event: 'Notification',
@@ -184,10 +137,10 @@ describe('createDefaultKernelRuntimeHookCatalog', () => {
       }),
     ])
     expect(result?.errors).toBeUndefined()
-    expect(getRegisteredHooks()).toBeNull()
+    expect(getRegisteredHooks).not.toHaveBeenCalled()
   })
 
-  test('runs plugin hooks through the default runtime hook runner without writing bootstrap state', async () => {
+  test('runs plugin hooks through the default runtime hook runner without requiring a bootstrap provider', async () => {
     loadPluginHookMatchers.mockImplementation(async () => ({
       Notification: [
         {
@@ -207,8 +160,6 @@ describe('createDefaultKernelRuntimeHookCatalog', () => {
     const catalog = createDefaultKernelRuntimeHookCatalog(undefined, {
       loadPluginHookMatchers,
     })
-
-    expect(getRegisteredHooks()).toBeNull()
 
     const result = await catalog.runHook?.({
       event: 'Notification',
@@ -234,7 +185,7 @@ describe('createDefaultKernelRuntimeHookCatalog', () => {
       }),
     ])
     expect(result?.errors).toBeUndefined()
-    expect(getRegisteredHooks()).toBeNull()
+    expect(getRegisteredHooks).not.toHaveBeenCalled()
   })
 
   test('adds registered hook descriptors to the default catalog listing', async () => {

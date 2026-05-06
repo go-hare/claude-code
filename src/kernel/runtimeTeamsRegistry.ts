@@ -1,6 +1,5 @@
 import { readdir } from 'fs/promises'
 
-import { getSessionId } from '../bootstrap/state.js'
 import type {
   RuntimeTeamCreateRequest,
   RuntimeTeamCreateResult,
@@ -35,7 +34,13 @@ import {
 } from '../utils/tasks.js'
 import { generateWordSlug } from '../utils/words.js'
 
-export function createDefaultKernelRuntimeTeamRegistry(): KernelRuntimeWireTeamRegistry {
+type KernelRuntimeTeamRegistryDeps = {
+  getSessionId?(): string | undefined
+}
+
+export function createDefaultKernelRuntimeTeamRegistry(
+  deps: KernelRuntimeTeamRegistryDeps = {},
+): KernelRuntimeWireTeamRegistry {
   return {
     async listTeams() {
       const teamsDir = getTeamsDir()
@@ -74,7 +79,7 @@ export function createDefaultKernelRuntimeTeamRegistry(): KernelRuntimeWireTeamR
       return toRuntimeTeamDescriptor(teamName, teamFile)
     },
     async createTeam(request, context) {
-      return createRuntimeTeam(request, context?.cwd)
+      return createRuntimeTeam(request, context?.cwd, deps)
     },
     async sendMessage(request) {
       return sendRuntimeTeamMessage(request)
@@ -88,6 +93,7 @@ export function createDefaultKernelRuntimeTeamRegistry(): KernelRuntimeWireTeamR
 async function createRuntimeTeam(
   request: RuntimeTeamCreateRequest,
   cwd: string | undefined,
+  deps: KernelRuntimeTeamRegistryDeps,
 ): Promise<RuntimeTeamCreateResult> {
   const requestedTeamName = request.teamName.trim()
   if (requestedTeamName.length === 0) {
@@ -114,7 +120,7 @@ async function createRuntimeTeam(
     description: request.description,
     createdAt,
     leadAgentId,
-    leadSessionId: request.leadSessionId ?? getSessionId(),
+    leadSessionId: request.leadSessionId ?? deps.getSessionId?.(),
     members: [
       {
         agentId: leadAgentId,

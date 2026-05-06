@@ -52,13 +52,11 @@ import {
   isSyncHookJSONOutput,
   type HookCallback,
 } from '../types/hooks.js'
-import {
-  getRegisteredHooks,
-} from '../bootstrap/state.js'
 import { normalizeLegacyToolName } from '../utils/permissions/permissionRuleParser.js'
 import { errorMessage } from '../utils/errors.js'
 
 type KernelRuntimeHookCatalogDeps = {
+  getRegisteredHooks?(): RuntimeRegisteredHookMatchers | null | undefined
   loadPluginHookMatchers?(): Promise<RuntimeRegisteredHookMatchers>
 }
 
@@ -92,7 +90,7 @@ export function createDefaultKernelRuntimeHookCatalog(
 
   function getBootstrapRegisteredHookDescriptors(): readonly RuntimeHookDescriptor[] {
     const descriptors: RuntimeHookDescriptor[] = []
-    const registered = getRegisteredHooks()
+    const registered = deps.getRegisteredHooks?.()
     if (!registered) {
       return descriptors
     }

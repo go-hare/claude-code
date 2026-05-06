@@ -1,9 +1,9 @@
 import type { AgentDefinition } from '@go-hare/builtin-tools/tools/AgentTool/loadAgentsDir.js'
 import {
-  prepareReplRuntimeQuery,
-  runReplRuntimeQuery,
-  type ReplQueryRuntimeEvent,
-} from '../../../runtime/capabilities/execution/internal/replQueryRuntime.js'
+  prepareKernelReplRuntimeQuery,
+  runKernelReplRuntimeQuery,
+  type KernelReplQueryRuntimeEvent,
+} from '../../../kernel/replRuntimeController.js'
 import { createRuntimeTurnMetricsStateProvider } from '../../../runtime/core/state/bootstrapProvider.js'
 import type { AppState } from '../../../state/AppStateStore.js'
 import type { Message as MessageType } from '../../../types/message.js'
@@ -81,10 +81,10 @@ export type RunReplQueryTurnControllerOptions = {
     getExtraUserContext(
       toolUseContext: ProcessUserInputContext,
     ): Record<string, string>
-    querySource: Parameters<typeof runReplRuntimeQuery>[0]['querySource']
-    canUseTool: Parameters<typeof runReplRuntimeQuery>[0]['canUseTool']
+    querySource: Parameters<typeof runKernelReplRuntimeQuery>[0]['querySource']
+    canUseTool: Parameters<typeof runKernelReplRuntimeQuery>[0]['canUseTool']
     onQueryEvent(
-      event: ReplQueryRuntimeEvent,
+      event: KernelReplQueryRuntimeEvent,
     ): void | Promise<void>
     fireCompanionObserver?: (
       messages: MessageType[],
@@ -145,7 +145,7 @@ export async function runReplQueryTurnController(
   queryCheckpoint('query_context_loading_start')
   await query.beforePrepareQuery?.()
 
-  const preparedQuery = await prepareReplRuntimeQuery({
+  const preparedQuery = await prepareKernelReplRuntimeQuery({
     toolUseContext,
     mainThreadAgentDefinition: query.mainThreadAgentDefinition,
     effort: turn.effort,
@@ -156,7 +156,7 @@ export async function runReplQueryTurnController(
   queryCheckpoint('query_query_start')
   runtimeTurnMetricsState.resetTurnMetrics()
 
-  await runReplRuntimeQuery({
+  await runKernelReplRuntimeQuery({
     preparedQuery,
     messages: turn.messagesIncludingNewMessages,
     canUseTool: query.canUseTool,

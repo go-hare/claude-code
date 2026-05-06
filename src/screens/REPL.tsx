@@ -289,13 +289,14 @@ import { processSessionStartHooks } from '../utils/sessionStart.js';
 import { executeSessionEndHooks, getSessionEndHookTimeoutMs } from '../utils/hooks.js';
 import { type IDESelection, useIdeSelection } from '../hooks/useIdeSelection.js';
 import {
-  prepareReplRuntimeQuery,
-  runReplRuntimeQuery,
-} from '../runtime/capabilities/execution/internal/replQueryRuntime.js';
-import { createRuntimePermissionService } from '../runtime/capabilities/permissions/RuntimePermissionService.js';
-import type { KernelRuntimeEnvelopeBase } from '../runtime/contracts/events.js';
-import { createKernelRuntimeEventFacade } from '../runtime/core/events/KernelRuntimeEventFacade.js';
-import { RuntimeEventBus } from '../runtime/core/events/RuntimeEventBus.js';
+  createKernelReplPermissionService,
+  createKernelReplRuntimeEventBus,
+  createKernelRuntimeEventFacade,
+  materializeKernelReplRuntimeToolSet,
+  prepareKernelReplRuntimeQuery,
+  refreshKernelReplRuntimeAgentDefinitions,
+  type KernelRuntimeEnvelopeBase,
+} from '../kernel/replRuntimeController.js';
 import {
   finalizeReplCompletedTurnHostShell,
   shortCircuitReplNonQueryTurn,
@@ -312,10 +313,6 @@ import { runReplBackgroundQueryController } from './repl/controllers/runReplBack
 import { runReplInitialMessageController } from './repl/controllers/runReplInitialMessageController.js';
 import { runReplQueryTurnController } from './repl/controllers/runReplQueryTurnController.js';
 import { runReplForegroundQueryController } from './repl/controllers/runReplForegroundQueryController.js';
-import {
-  materializeRuntimeToolSet,
-  refreshRuntimeAgentDefinitions,
-} from '../runtime/capabilities/execution/headlessCapabilityMaterializer.js';
 import type { AgentDefinition } from '@go-hare/builtin-tools/tools/AgentTool/loadAgentsDir.js';
 import { resumeAgentBackground } from '@go-hare/builtin-tools/tools/AgentTool/resumeAgent.js';
 import { useMainLoopModel } from '../hooks/useMainLoopModel.js';
@@ -914,7 +911,7 @@ export function REPL({
   const isBriefOnly = useAppState(s => s.isBriefOnly);
 
   const localTools = useMemo(
-    () => materializeRuntimeToolSet({ toolPermissionContext }),
+    () => materializeKernelReplRuntimeToolSet({ toolPermissionContext }),
     [toolPermissionContext, proactiveActive, isBriefOnly],
   );
 
@@ -1780,13 +1777,13 @@ export function REPL({
   const [conversationId, setConversationId] = useState(randomUUID());
   const [replRuntimeEventBus] = useState(
     () =>
-      new RuntimeEventBus({
+      createKernelReplRuntimeEventBus({
         runtimeId: `repl-${randomUUID()}`,
       }),
   );
   const [replPermissionService] = useState(
     () =>
-      createRuntimePermissionService({
+      createKernelReplPermissionService({
         runtimeId: `repl-permissions-${randomUUID()}`,
         eventBus: replRuntimeEventBus,
       }),
@@ -2120,7 +2117,7 @@ export function REPL({
           if (warning) {
             // Re-derive agent definitions after mode switch so built-in agents
             // reflect the new coordinator/normal mode
-            const freshAgentDefs = await refreshRuntimeAgentDefinitions({
+            const freshAgentDefs = await refreshKernelReplRuntimeAgentDefinitions({
               cwd: getReplSessionIdentity().originalCwd,
               activeFromAll: true,
             });
@@ -3013,7 +3010,7 @@ export function REPL({
       getToolUseContext,
       mainLoopModel,
       mainThreadAgentDefinition,
-      prepareBackgroundQuery: prepareReplRuntimeQuery,
+      prepareBackgroundQuery: prepareKernelReplRuntimeQuery,
       getNotificationMessages: async removedNotifications => {
         const notificationAttachments = await getQueuedCommandAttachments(
           removedNotifications,
@@ -5685,7 +5682,7 @@ export function REPL({
 
               const newAbortController = createAbortController();
               const context = getToolUseContext(compactMessages, [], newAbortController, mainLoopModel);
-              const { systemPrompt, userContext, systemContext } = await prepareReplRuntimeQuery({
+              const { systemPrompt, userContext, systemContext } = await prepareKernelReplRuntimeQuery({
                 toolUseContext: context,
                 mainThreadAgentDefinition: undefined,
               });

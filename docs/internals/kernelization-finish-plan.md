@@ -1,4 +1,4 @@
-# 内核化完成执行文档
+# 内核化收口执行文档
 
 ## 目标
 
@@ -19,7 +19,7 @@
 4. 能并行就并行，但不制造额外冲突
 5. 可明确切块的任务，优先交给子 agent；主线程负责边界、集成、验证和收口
 
-## 完成的定义
+## 产品级完成的定义
 
 只有同时满足下面 6 条，才算“内核化完成”：
 
@@ -32,20 +32,26 @@
 
 ## 2026-04-27 收口状态
 
-内部 kernelization 已按本文的完成定义收口。本文下方 phase 保留为历史执行记录和
-回归定位索引，不再作为当前待办清单。
+当时按较窄的 internal runnable 口径，kernelization 被记录为已收口。2026-05-06
+复核后，本文改为区分两层状态：**internal headless/server/wire kernel 可运行**
+已经成立；**产品级内核化完成** 仍未完成。本文下方 phase 保留为历史执行记录和
+回归定位索引，但当前待办以本节口径为准。
 
-当前还可能继续推进的内容只剩两类，均不再属于“补内核完整性”的 blocker：
+当前继续推进的内容不再是“随手治理”，而是产品级收口项：
 
-1. public API / compatibility matrix 的发布治理
-2. legacy transport / 历史 lint 存量的工程治理
+1. REPL kernel-first：interactive CLI 不直接碰 runtime execution internal / event bus / materializer。
+2. bootstrap singleton 隔离：kernel 生产源码不直接 import `bootstrap/state`。
+3. public surface 治理：`index.d.ts` 与 `index.ts` export 集合对齐，root surface 不继续膨胀。
+4. legacy protocol 治理：`headless.protocol_message` / `sdk.message` 只留在兼容投影边界。
+5. wire contract 治理：明确 guaranteed capability 与 host-injected optional capability。
 
 ## 2026-05-04 最终复核
 
-按“内核完成”标准重新验收后，当前结论保持不变，并进一步收紧为：
+按 internal runnable 标准重新验收后，当前结论应收紧为：
 
-> 内部 kernel 已完成。剩余工作不是补内核语义，而是 release / public API /
-> legacy projection 的治理边界。
+> internal headless/server/wire kernel 已可运行。剩余工作仍会影响产品级
+> kernelization 完成度，尤其是 REPL kernel-first、public API surface 与 legacy
+> projection 边界。
 
 本次复核确认：
 
@@ -70,7 +76,7 @@
   已使用本地 OpenAI-compatible endpoint 单独执行通过。
 - `scripts/kernel-deep-smoke.ts` 已覆盖 source、built Bun 与 built Node。
 
-public semver surface 已在本轮冻结：
+public semver surface 已在本轮建立事实入口和快照护栏，但不应再写成最终冻结：
 
 - 唯一源码级 public surface：`src/kernel/index.ts`。
 - 唯一 package-level semver entry：`claude-code/kernel` / `./kernel`。
@@ -81,7 +87,7 @@ public semver surface 已在本轮冻结：
 - `surface.test`、`packageEntry.test` 与 `kernel-package-smoke` 共用 manifest，
   source、entrypoint 与 packed package 不再各自维护一份 public export truth。
 
-后续如果继续推进，应只从下面两类里选：
+后续推进应优先从下面这些收口项里选，而不是继续宣称“已全部完成”：
 
 SDKMessage / legacy `stream-json` projection helper 的 public surface 降级也已完成：
 
@@ -94,9 +100,14 @@ SDKMessage / legacy `stream-json` projection helper 的 public surface 降级也
 - headless verbose streaming 与 runtime event output 不再手写
   `includeRuntimeEvent` / `includeSDKMessage` 布尔组合。
 
-后续只剩：
+后续仍需：
 
-release-gated live smoke 已在 2026-05-04 最终复跑通过：
+1. 把 REPL 主链继续收成 kernel-facing controller。
+2. 为 kernel/bootstrap、REPL/runtime internal、`index.d.ts`/`index.ts` 对齐补护栏测试。
+3. 明确 wire capability 的 guaranteed 与 host-injected optional 边界。
+4. 对 legacy protocol projection 做命名和 live smoke 复核。
+
+历史 release-gated live smoke 已在 2026-05-04 最终复跑通过，可作为后续复跑基线：
 
 1. built CLI gated smoke：built Bun / built Node headless `stream-json` turn 通过。
 2. ACP live smoke：built ACP stdio transport 到 OpenAI-compatible endpoint 通过。

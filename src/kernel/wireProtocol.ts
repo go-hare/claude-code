@@ -7,6 +7,7 @@ import { RuntimePermissionBroker } from '../runtime/capabilities/permissions/Run
 import { RuntimeConversationSnapshotJournal } from '../runtime/core/conversation/RuntimeConversationSnapshotJournal.js'
 import { RuntimeEventBus } from '../runtime/core/events/RuntimeEventBus.js'
 import { RuntimeEventFileJournal } from '../runtime/core/events/RuntimeEventJournal.js'
+import { createRuntimeSessionIdentityStateProvider } from '../runtime/core/state/bootstrapProvider.js'
 import {
   createKernelRuntimeWireRouter,
   type KernelRuntimeWireAgentRegistry,
@@ -169,6 +170,9 @@ export function createDefaultKernelRuntimeWireRouter(
   const defaultMcpPlane = options.mcpRegistry
     ? undefined
     : createDefaultKernelRuntimeMcpPlane(options.workspacePath)
+  const sessionIdentityStateProvider = options.teamRegistry
+    ? undefined
+    : createRuntimeSessionIdentityStateProvider()
 
   return createKernelRuntimeWireRouter({
     runtimeId,
@@ -216,7 +220,11 @@ export function createDefaultKernelRuntimeWireRouter(
       options.taskRegistry ??
       createDefaultKernelRuntimeTaskRegistry(options.workspacePath),
     teamRegistry:
-      options.teamRegistry ?? createDefaultKernelRuntimeTeamRegistry(),
+      options.teamRegistry ??
+      createDefaultKernelRuntimeTeamRegistry({
+        getSessionId: () =>
+          sessionIdentityStateProvider?.getSessionIdentity().sessionId,
+      }),
     companionRuntime:
       options.companionRuntime ??
       createDefaultKernelRuntimeCompanionRuntime(),

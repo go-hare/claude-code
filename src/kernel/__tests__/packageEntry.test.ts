@@ -38,6 +38,45 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
+function parseKernelImplementationExportNames(source: string): string[] {
+  const names = new Set<string>()
+  const exportBlockPattern =
+    /export\s+(?:type\s+)?\{([\s\S]*?)\}\s+from/g
+  let match: RegExpExecArray | null
+  while ((match = exportBlockPattern.exec(source))) {
+    for (const rawItem of match[1].split(',')) {
+      const item = rawItem.trim().replace(/^type\s+/, '')
+      if (!item) {
+        continue
+      }
+      const alias = item.match(/\bas\s+([A-Za-z_$][\w$]*)$/)
+      const identifier = alias?.[1] ?? item.match(/^([A-Za-z_$][\w$]*)/)?.[1]
+      if (identifier) {
+        names.add(identifier)
+      }
+    }
+  }
+  return [...names].sort()
+}
+
+function parseKernelDeclarationExportNames(source: string): string[] {
+  const names = new Set<string>()
+  for (const line of source.split(/\r?\n/)) {
+    const typeMatch = line.match(/^export\s+type\s+([A-Za-z_$][\w$]*)\b/)
+    if (typeMatch) {
+      names.add(typeMatch[1])
+      continue
+    }
+    const valueMatch = line.match(
+      /^export\s+declare\s+(?:const|function|class)\s+([A-Za-z_$][\w$]*)\b/,
+    )
+    if (valueMatch) {
+      names.add(valueMatch[1])
+    }
+  }
+  return [...names].sort()
+}
+
 describe('kernel package entry', () => {
   test('declares the package-level ./kernel export', () => {
     expect(packageJson.exports).toBeDefined()
@@ -234,10 +273,10 @@ describe('kernel package entry', () => {
     expect(declaration).toContain(
       'transportConfig?: KernelRuntimeTransportConfig',
     )
-    expect(declaration).toContain('export type KernelCapabilityName = string')
+    expect(declaration).toContain('type KernelCapabilityName = string')
     expect(declaration).toContain('export type KernelCapabilityFamily =')
-    expect(declaration).toContain('export type KernelCapabilityStatus =')
-    expect(declaration).toContain('export type KernelCapabilityError = {')
+    expect(declaration).toContain('type KernelCapabilityStatus =')
+    expect(declaration).toContain('type KernelCapabilityError = {')
     expect(declaration).toContain('export type KernelCapabilityFilter = {')
     expect(declaration).toContain(
       'export type KernelCapabilityView = KernelCapabilityDescriptor & {',
@@ -412,6 +451,18 @@ describe('kernel package entry', () => {
     expect(declaration).not.toContain("'src/")
     expect(declaration).not.toContain('"src/')
     expect(declaration).not.toContain('packages/')
+  })
+
+  test('keeps the declaration export names aligned with src/kernel/index.ts', async () => {
+    const kernelExport = packageJson.exports?.['./kernel']
+    const [implementation, declaration] = await Promise.all([
+      readFile(join(repoRoot, 'src/kernel/index.ts'), 'utf8'),
+      readFile(join(repoRoot, kernelExport!.types!), 'utf8'),
+    ])
+
+    expect(parseKernelDeclarationExportNames(declaration)).toEqual(
+      parseKernelImplementationExportNames(implementation),
+    )
   })
 
   test('declares the package-level kernel runtime bin', () => {

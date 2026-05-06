@@ -17,27 +17,39 @@
 
 ## 当前判断
 
-截至 2026-05-04，当前内核化已经进入 **内部 kernel 完整状态**：执行、
-事件、权限、capability refresh、multi-session isolation、wire runtime、
-headless / interactive capability materialization 与 ACP / host compatibility
-adapter 均已按 runtime-first owner 收口。CLI 仍是第一宿主，但 legacy 输出与
-transport 只作为兼容投影保留，不再作为内部 source of truth。
+> 2026-05-06 口径校正：本文不再宣称“内核化全部完成”。当前更准确的结论是
+> **internal headless / server / wire kernel 可运行，核心 runtime owner 已收口**；
+> 但按产品级主链路验收，REPL kernel-first、public API 治理、bootstrap
+> singleton 隔离、legacy protocol 清理，以及 wire guaranteed / optional
+> contract 仍是收口项。
+
+截至 2026-05-04，当前内核化已经进入 **内部 headless/server/wire kernel
+可运行状态**：执行、事件、权限、capability refresh、multi-session
+isolation、wire runtime、headless capability materialization 与 ACP / host
+compatibility adapter 已按 runtime-first owner 收口。CLI 仍是第一宿主；
+legacy 输出与 transport 应只作为兼容投影保留，不能再被描述成已经完全退出。
 
 一句话概括：
 
-> 当前项目已经完成统一入口、宿主改道、package-level kernel 发布面、runtime-first execution/event/permission/capability/session ownership 与完整测试护栏。后续 public API 扩面或 legacy transport 治理不再属于“补内核完整性”的 blocker；现有 SDK / `stream-json` adapter 保留为兼容投影，不能因内核迁移导致 CLI 行为衰减。
+> 当前项目已经完成 internal headless/server/wire kernel 的可运行主链、统一入口第一轮改道、runtime-first execution/event/permission/capability/session ownership 与基础测试护栏。它还不能被称为“产品级内核化全部完成”；REPL host/runtime 边界、root public surface 收窄、legacy protocol 命名与 live smoke 仍必须继续治理。
 
-截至 2026-04-28，本轮“内核 + 开发接口封板”也已经完成：
+截至 2026-04-28，本轮“内核 + 开发接口封板”已经完成第一轮：
 
-> `claude-code/kernel` 的 public surface、runtime/wire contract、capability lifecycle 与 developer-facing manager 均已收口到可发布状态。`companion`、`Kairos`、`memory`、`context`、`sessions` 已进入 root surface，并且已经连通 in-process / stdio runtime 与 wire protocol。
+> `claude-code/kernel` 的 root surface、runtime/wire contract、capability lifecycle 与 developer-facing manager 已连通 in-process / stdio runtime 与 wire protocol。但 root surface 仍偏大，`index.d.ts` 必须继续和实现导出保持集合级对齐，不能把迁移期总出口当成长期稳定 API。
 
-当前仍可继续深化、但**不再属于 blocker** 的点是：
+当前仍可继续深化，其中 resume hydration 不属于 internal runnable blocker，但下列事项仍属于 product-level kernelization 收口项：
+
+1. `REPL.tsx` 不得直接 import runtime execution internal / event bus / materializer 深路径。
+2. `src/kernel/**/*.ts` 生产源码不得直接 import `bootstrap/state` singleton。
+3. `src/kernel/index.d.ts` 的 export 名集合必须与 `src/kernel/index.ts` 对齐。
+4. `headless.protocol_message` / legacy `sdk.message` 兼容层必须明确停留在 projection boundary。
+5. wire router 需要明确 guaranteed capability 与 host-injected optional capability 的 contract。
 
 > `runtime.sessions.resume()` 现在已经返回 live `KernelConversation`、允许继续运行 turn，并会把 transcript 历史消息、todo snapshot、nested memory snapshot、task snapshot、attribution snapshot、file history snapshot、content replacement 记录，以及 context collapse commit / snapshot 一并 hydrate 进 resumed conversation 的 replayable live event state（当前事件类型为 `conversation.transcript_message` / `conversation.todo_snapshot` / `conversation.nested_memory_snapshot` / `conversation.task_snapshot` / `conversation.attribution_snapshot` / `conversation.file_history_snapshot` / `conversation.content_replacement` / `conversation.context_collapse_commit` / `conversation.context_collapse_snapshot`）；`getTranscript()` 仍保留原始 transcript 读取入口。与此同时，headless/runtime turn 也已开始在每轮执行前恢复 nested memory dedupe state，避免 resumed session 在后续 turn 里重复注入已加载的 `CLAUDE.md` / nested memory 附件；task storage 中唯一 open owned task context 也会重新挂回 `activeTaskExecutionContext`。剩余若继续追平的，是更深的 richer tool context / execution context，而不是这些已持久化历史状态、TodoWrite 连续性、nested memory dedupe、task-list snapshot 与 open-task context 的恢复缺口。
 
-### 2026-05-04 内核完成标准复核
+### 2026-05-04 内核可运行标准复核
 
-按“内核是否拿回语义主权”复核，当前内部 kernel blocker 已清零。
+按“internal headless/server/wire kernel 是否拿回语义主权”复核，当前可运行主链 blocker 已清零；这不等同于 full kernelization 完成。
 
 - Turn owner 已收口到一条 canonical lifecycle：`SessionRuntime.submitRuntimeTurn(...)`
   是 runtime turn 入口，`RuntimeConversation` / `RuntimeTurnController` 维护
@@ -75,19 +87,21 @@ transport 只作为兼容投影保留，不再作为内部 source of truth。
   skip 是 gated live smoke（built CLI smoke 与 ACP live smoke），已在本轮用真实
   endpoint 单独执行过。
 
-public semver surface 已冻结到 `src/kernel/index.ts` 与 package-level `./kernel`：
-`src/kernel/__tests__/publicSurfaceManifest.ts` 是唯一 export manifest，
+public semver surface 的事实入口仍是 `src/kernel/index.ts` 与 package-level
+`./kernel`，但当前 surface 仍偏大，不能视为最终冻结：
+`src/kernel/__tests__/publicSurfaceManifest.ts` 是 export manifest，
 `surface.test`、`packageEntry.test` 与 `kernel-package-smoke` 共用同一份快照，
-并且 package `exports` 被锁定为 `./kernel` 与 `./package.json`。剩余事项不再是
-“内核未完成”的 blocker。2026-05-04 后续复核进一步收紧 public surface：
+并且 package `exports` 被锁定为 `./kernel` 与 `./package.json`。2026-05-04
+后续复核进一步收紧 public surface：
 SDKMessage / legacy stream-json projection helper 不再从 root `./kernel` 导出，
 只保留为 runtime 内部 transitional bridge。新宿主只应消费
 `KernelRuntimeEnvelope` / `KernelEvent` / wire contract，不再把 historical
 headless message format 当作 `KernelRuntimeEnvelope` 之外的第二条 public 接口线。
 这里的 SDKMessage 是历史 headless compatibility message type，不是当前项目的
 public 接入层。2026-05-04 最终 release smoke 已复跑全绿；后续
-`query()` / `runQueryTurn()` 去 SDKMessage 化归类为 **P1 hardening**，不是当前
-kernel complete blocker。
+`query()` / `runQueryTurn()` 去 legacy message projection 化归类为 **P1
+hardening**：它不是 internal runnable blocker，但仍是 full kernelization 的
+命名与协议清理项。
 
 本轮 release-gated smoke 已执行并通过：
 

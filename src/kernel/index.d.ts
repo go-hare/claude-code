@@ -1,62 +1,62 @@
-export type KernelJsonSchema = Record<string, unknown>
+type KernelJsonSchema = Record<string, unknown>
 
-export type KernelHeadlessState = Record<string, unknown>
+type KernelHeadlessState = Record<string, unknown>
 
-export type KernelCommand = {
+type KernelCommand = {
   name: string
   [key: string]: unknown
 }
 
-export type KernelTool = {
+type KernelTool = {
   name?: string
   [key: string]: unknown
 }
 
-export type KernelAgentDefinition = {
+type KernelAgentDefinition = {
   agentType: string
   [key: string]: unknown
 }
 
-export type KernelMcpServerConfig = {
+type KernelMcpServerConfig = {
   type?: string
   scope?: string
   [key: string]: unknown
 }
 
-export type KernelMcpServerConnection = {
+type KernelMcpServerConnection = {
   name: string
   type: string
   config: KernelMcpServerConfig
   [key: string]: unknown
 }
 
-export type KernelToolPermissionContext = {
+type KernelToolPermissionContext = {
   mode: string
   [key: string]: unknown
 }
 
-export type KernelThinkingConfig = Record<string, unknown>
+type KernelThinkingConfig = Record<string, unknown>
 
 export type KernelHeadlessInput = string | AsyncIterable<string>
 
-export type KernelRuntimeHostStopReason =
+type KernelRuntimeHostStopReason =
   | 'end_turn'
   | 'max_tokens'
   | 'max_turn_requests'
   | 'cancelled'
 
-export type KernelRuntimeTerminalProjection = {
+type KernelRuntimeTerminalProjection = {
   eventType: 'turn.completed' | 'turn.failed'
   isError: boolean
   runtimeStopReason: string | null | undefined
   hostStopReason: KernelRuntimeHostStopReason
 }
 
-export type KernelRuntimeTextOutputDelta = {
+type KernelRuntimeTextOutputDelta = {
   text: string
 }
 
-export type KernelRuntimeCoordinatorLifecycleEventType =
+type KernelRuntimeCoordinatorLifecycleEventType =
   | 'handoff.started'
   | 'handoff.completed'
   | 'handoff.failed'
@@ -69,14 +69,14 @@ export type KernelRuntimeCoordinatorLifecycleEventType =
   | 'team.cleanup_completed'
   | 'team.cleanup_failed'
 
-export type KernelRuntimeTaskNotificationProjection = {
+type KernelRuntimeTaskNotificationProjection = {
   kind: 'tasks.notification'
   taskId: string
   status: KernelTaskNotificationPayload['status']
   payload: KernelTaskNotificationPayload
 }
 
-export type KernelRuntimeCoordinatorLifecycleProjection = {
+type KernelRuntimeCoordinatorLifecycleProjection = {
   kind: 'coordinator.lifecycle'
   eventType: KernelRuntimeCoordinatorLifecycleEventType
   phase: KernelCoordinatorLifecyclePayload['phase']
@@ -84,7 +84,7 @@ export type KernelRuntimeCoordinatorLifecycleProjection = {
   payload: KernelCoordinatorLifecyclePayload
 }
 
-export type KernelRuntimeLifecycleProjection =
+type KernelRuntimeLifecycleProjection =
   | KernelRuntimeTaskNotificationProjection
   | KernelRuntimeCoordinatorLifecycleProjection
 
@@ -477,7 +477,7 @@ export type KernelTasksAssignedEvent =
     }
   }
 
-export type KernelTasksNotificationEvent =
+type KernelTasksNotificationEvent =
   KnownKernelRuntimeEventEnvelope<'tasks.notification'> & {
     payload: KernelEvent & {
       type: 'tasks.notification'
@@ -491,7 +491,7 @@ export type KernelRuntimeTaskEvent =
   | KernelTasksAssignedEvent
   | KernelTasksNotificationEvent
 
-export type KernelCoordinatorLifecycleEvent =
+type KernelCoordinatorLifecycleEvent =
   KnownKernelRuntimeEventEnvelope<
     | 'handoff.started'
     | 'handoff.completed'
@@ -818,7 +818,7 @@ export type KernelRuntimeEventFacade = {
   ): Array<KernelRuntimeEnvelopeBase<KernelEvent>>
 }
 
-export type KernelRuntimeEventReplayErrorCode = 'expired' | 'not_found'
+type KernelRuntimeEventReplayErrorCode = 'expired' | 'not_found'
 
 export declare class KernelRuntimeEventReplayError extends Error {
   readonly code: KernelRuntimeEventReplayErrorCode
@@ -877,7 +877,7 @@ export type KernelRuntimeTrustLevel =
   | 'remote'
   | 'untrusted'
 
-export type KernelRuntimeState =
+type KernelRuntimeState =
   | 'created'
   | 'starting'
   | 'ready'
@@ -895,9 +895,9 @@ export type KernelRuntimeHostIdentity = {
   metadata?: Record<string, unknown>
 }
 
-export type KernelCapabilityName = string
+type KernelCapabilityName = string
 
-export type KernelCapabilityStatus =
+type KernelCapabilityStatus =
   | 'declared'
   | 'loading'
   | 'ready'
@@ -905,7 +905,7 @@ export type KernelCapabilityStatus =
   | 'failed'
   | 'disabled'
 
-export type KernelCapabilityError = {
+type KernelCapabilityError = {
   code: string
   message: string
   retryable: boolean
@@ -922,14 +922,14 @@ export type KernelCapabilityDescriptor = {
   metadata?: Record<string, unknown>
 }
 
-export type KernelCapabilityPlaneDenial = {
+type KernelCapabilityPlaneDenial = {
   capability: KernelCapabilityName
   actor: 'runtime' | 'host' | 'mode' | 'tool' | 'agent'
   reason: string
   metadata?: Record<string, unknown>
 }
 
-export type KernelCapabilityPlane = {
+type KernelCapabilityPlane = {
   runtimeSupports: readonly KernelCapabilityName[]
   hostGrants: readonly KernelCapabilityName[]
   modePermits: readonly KernelCapabilityName[]
@@ -938,12 +938,12 @@ export type KernelCapabilityPlane = {
   metadata?: Record<string, unknown>
 }
 
-export type KernelContextCategory =
+type KernelContextCategory =
   | 'model_visible'
   | 'host_visible'
   | 'operator_debug'
 
-export type KernelContextSource =
+type KernelContextSource =
   | 'user_input'
   | 'queued_command'
   | 'attachment'
@@ -956,17 +956,17 @@ export type KernelContextSource =
   | 'runtime'
   | 'operator'
 
-export type KernelContextAssemblyPhase =
+type KernelContextAssemblyPhase =
   | 'turn_input'
   | 'attachment_batch'
   | 'memory_prefetch'
   | 'skill_prefetch'
 
-export type KernelContextAssemblyMetadata = Record<string, unknown> & {
+type KernelContextAssemblyMetadata = Record<string, unknown> & {
   phase: KernelContextAssemblyPhase
 }
 
-export type KernelContextEntry = {
+type KernelContextEntry = {
   id?: string
   type: string
   category: KernelContextCategory
@@ -975,18 +975,18 @@ export type KernelContextEntry = {
   metadata?: Record<string, unknown>
 }
 
-export type KernelContextAssembly = {
+type KernelContextAssembly = {
   modelVisible: readonly KernelContextEntry[]
   hostVisible: readonly KernelContextEntry[]
   operatorDebug: readonly KernelContextEntry[]
 }
 
-export type KernelContextAssemblySnapshot = {
+type KernelContextAssemblySnapshot = {
   entries: readonly KernelContextEntry[]
   categories: KernelContextAssembly
 }
 
-export type KernelExecutionMode =
+type KernelExecutionMode =
   | 'interactive'
   | 'headless'
   | 'direct_connect'
@@ -998,7 +998,7 @@ export type KernelExecutionMode =
   | 'background'
   | 'unknown'
 
-export type KernelTurnInputContract = {
+type KernelTurnInputContract = {
   executionMode: KernelExecutionMode
   contextAssembly: KernelContextAssembly
   capabilityPlane: KernelCapabilityPlane
@@ -1375,7 +1375,7 @@ export type KernelHookRunRequest = {
   metadata?: Record<string, unknown>
 }
 
-export type KernelHookRunError = {
+type KernelHookRunError = {
   message: string
   hook?: KernelHookDescriptor
   code?: string
@@ -1639,7 +1639,7 @@ export type KernelAgentRunStatus =
   | 'failed'
   | 'cancelled'
 
-export type KernelAgentRunError = {
+type KernelAgentRunError = {
   message: string
   code?: string
   details?: Record<string, unknown>
@@ -1744,7 +1744,7 @@ export type KernelTaskSnapshot = {
   tasks: readonly KernelTaskDescriptor[]
 }
 
-export type KernelTaskMetadataPatch = Record<string, unknown | null>
+type KernelTaskMetadataPatch = Record<string, unknown | null>
 
 export type KernelTaskCreateRequest = {
   taskListId?: string
@@ -1791,15 +1791,15 @@ export type KernelTaskMutationResult = {
   assigned?: boolean
 }
 
-export type KernelTaskTerminalStatus = 'completed' | 'failed' | 'stopped'
+type KernelTaskTerminalStatus = 'completed' | 'failed' | 'stopped'
 
-export type KernelTaskUsage = {
+type KernelTaskUsage = {
   total_tokens: number
   tool_uses: number
   duration_ms: number
 }
 
-export type KernelTaskNotificationPayload = {
+type KernelTaskNotificationPayload = {
   taskId: string
   toolUseId?: string
   status: KernelTaskTerminalStatus
@@ -1809,13 +1809,13 @@ export type KernelTaskNotificationPayload = {
   source: 'queued_task_notification'
 }
 
-export type KernelCoordinatorLifecyclePhase =
+type KernelCoordinatorLifecyclePhase =
   | 'handoff'
   | 'team_idle'
   | 'team_shutdown'
   | 'team_cleanup'
 
-export type KernelCoordinatorLifecycleState =
+type KernelCoordinatorLifecycleState =
   | 'started'
   | 'completed'
   | 'failed'
@@ -1824,7 +1824,7 @@ export type KernelCoordinatorLifecycleState =
   | 'waiting'
   | 'reached'
 
-export type KernelCoordinatorLifecyclePayload = {
+type KernelCoordinatorLifecyclePayload = {
   phase: KernelCoordinatorLifecyclePhase
   state: KernelCoordinatorLifecycleState
   source:
@@ -1850,7 +1850,7 @@ export type KernelCoordinatorLifecyclePayload = {
   error?: string
 }
 
-export type KernelTeamMemberDescriptor = {
+type KernelTeamMemberDescriptor = {
   agentId: string
   name: string
   agentType?: string
@@ -1984,14 +1984,14 @@ export type KernelRuntimeCommandType =
   | 'subscribe_events'
   | 'ping'
 
-export type KernelRuntimeCommandBase<TType extends KernelRuntimeCommandType> = {
+type KernelRuntimeCommandBase<TType extends KernelRuntimeCommandType> = {
   schemaVersion: typeof KERNEL_RUNTIME_COMMAND_SCHEMA_VERSION
   type: TType
   requestId: string
   metadata?: Record<string, unknown>
 }
 
-export type KernelRuntimeInitCommand =
+type KernelRuntimeInitCommand =
   KernelRuntimeCommandBase<'init_runtime'> & {
     host?: KernelRuntimeHostIdentity
     workspacePath?: string
@@ -2020,7 +2020,7 @@ export type KernelRuntimeDisconnectHostCommand =
     policy?: KernelRuntimeHostDisconnectPolicy
   }
 
-export type KernelRuntimeCreateConversationCommand =
+type KernelRuntimeCreateConversationCommand =
   KernelRuntimeCommandBase<'create_conversation'> & {
     conversationId: string
     workspacePath: string
@@ -2030,7 +2030,7 @@ export type KernelRuntimeCreateConversationCommand =
     provider?: RuntimeProviderSelection
   }
 
-export type KernelRuntimeRunTurnCommand =
+type KernelRuntimeRunTurnCommand =
   KernelRuntimeCommandBase<'run_turn'> & {
     conversationId: string
     turnId: string
@@ -2042,7 +2042,7 @@ export type KernelRuntimeRunTurnCommand =
     capabilityPlane?: KernelCapabilityPlane
   }
 
-export type KernelRuntimeAbortTurnCommand =
+type KernelRuntimeAbortTurnCommand =
   KernelRuntimeCommandBase<'abort_turn'> & {
     conversationId: string
     turnId: string
@@ -2140,22 +2140,22 @@ export declare function createKernelPermissionBroker(
 export type KernelRuntimeDecidePermissionCommand =
   KernelRuntimeCommandBase<'decide_permission'> & KernelPermissionDecision
 
-export type KernelRuntimeDisposeConversationCommand =
+type KernelRuntimeDisposeConversationCommand =
   KernelRuntimeCommandBase<'dispose_conversation'> & {
     conversationId: string
     reason?: string
   }
 
-export type KernelRuntimeReloadCapabilitiesCommand =
+type KernelRuntimeReloadCapabilitiesCommand =
   KernelRuntimeCommandBase<'reload_capabilities'> & {
     scope: KernelCapabilityReloadScope
     capabilities?: readonly string[]
   }
 
-export type KernelRuntimeListCommandsCommand =
+type KernelRuntimeListCommandsCommand =
   KernelRuntimeCommandBase<'list_commands'>
 
-export type KernelRuntimeListCommandsResult = {
+type KernelRuntimeListCommandsResult = {
   entries: readonly KernelCommandEntry[]
 }
 
@@ -2359,7 +2359,7 @@ export type KernelRuntimeGetTaskCommand =
     taskListId?: string
   }
 
-export type KernelRuntimeGetTaskResult = {
+type KernelRuntimeGetTaskResult = {
   task: KernelTaskDescriptor | null
 }
 
@@ -2403,12 +2403,12 @@ export type KernelRuntimeDestroyTeamCommand =
 
 export type KernelRuntimeDestroyTeamResult = KernelTeamDestroyResult
 
-export type KernelRuntimePublishHostEventCommand =
+type KernelRuntimePublishHostEventCommand =
   KernelRuntimeCommandBase<'publish_host_event'> & {
     event: KernelEvent
   }
 
-export type KernelRuntimeSubscribeEventsCommand =
+type KernelRuntimeSubscribeEventsCommand =
   KernelRuntimeCommandBase<'subscribe_events'> & {
     conversationId?: string
     turnId?: string
@@ -2416,7 +2416,7 @@ export type KernelRuntimeSubscribeEventsCommand =
     filters?: Record<string, unknown>
   }
 
-export type KernelRuntimePingCommand = KernelRuntimeCommandBase<'ping'>
+type KernelRuntimePingCommand = KernelRuntimeCommandBase<'ping'>
 
 export type KernelRuntimeCommand =
   | KernelRuntimeInitCommand
@@ -2473,7 +2473,7 @@ export type KernelRuntimeCommand =
   | KernelRuntimeSubscribeEventsCommand
   | KernelRuntimePingCommand
 
-export type KernelConversationSnapshot = {
+type KernelConversationSnapshot = {
   runtimeId: string
   conversationId: string
   workspacePath: string
@@ -2494,7 +2494,7 @@ export type KernelConversationSnapshot = {
   updatedAt: string
 }
 
-export type KernelTurnSnapshot = {
+type KernelTurnSnapshot = {
   conversationId: string
   turnId: string
   state:
@@ -2539,7 +2539,7 @@ export type KernelRuntimeWireTurnExecutionResult =
   | Promise<void>
   | AsyncIterable<KernelRuntimeWireTurnExecutionEvent>
 
-export type KernelRuntimeWireAbortSignal = {
+type KernelRuntimeWireAbortSignal = {
   readonly aborted: boolean
   readonly reason?: unknown
   addEventListener(
@@ -2890,7 +2890,7 @@ export type KernelRuntimeTransportConfig =
   | { kind?: 'in-process' }
   | ({ kind: 'stdio' } & KernelRuntimeStdioWireTransportOptions)
 
-export type KernelRuntimeWireConversation = {
+type KernelRuntimeWireConversation = {
   readonly id: string
   readonly activeTurnId: string | undefined
   snapshot(): KernelConversationSnapshot
@@ -2966,7 +2966,7 @@ export type KernelRuntimeWireCapabilityResolver = {
   ): Promise<readonly KernelCapabilityDescriptor[]>
 }
 
-export type KernelRuntimeWireCommandCatalog = {
+type KernelRuntimeWireCommandCatalog = {
   listCommands(context?: {
     cwd?: string
     metadata?: Record<string, unknown>
@@ -2977,7 +2977,7 @@ export type KernelRuntimeWireCommandCatalog = {
   ): KernelCommandExecutionResult | Promise<KernelCommandExecutionResult>
 }
 
-export type KernelRuntimeWireToolCatalog = {
+type KernelRuntimeWireToolCatalog = {
   listTools(context?: {
     cwd?: string
     metadata?: Record<string, unknown>
@@ -2988,7 +2988,7 @@ export type KernelRuntimeWireToolCatalog = {
   ): KernelToolCallResult | Promise<KernelToolCallResult>
 }
 
-export type KernelRuntimeWireMcpRegistry = {
+type KernelRuntimeWireMcpRegistry = {
   listServers(context?: {
     cwd?: string
     metadata?: Record<string, unknown>
@@ -3019,7 +3019,7 @@ export type KernelRuntimeWireMcpRegistry = {
   ): KernelMcpLifecycleResult | Promise<KernelMcpLifecycleResult>
 }
 
-export type KernelRuntimeWireHookCatalog = {
+type KernelRuntimeWireHookCatalog = {
   listHooks(context?: {
     cwd?: string
     metadata?: Record<string, unknown>
@@ -3038,7 +3038,7 @@ export type KernelRuntimeWireHookCatalog = {
   ): KernelHookMutationResult | Promise<KernelHookMutationResult>
 }
 
-export type KernelRuntimeWireSkillCatalog = {
+type KernelRuntimeWireSkillCatalog = {
   listSkills(context?: {
     cwd?: string
     metadata?: Record<string, unknown>
@@ -3055,7 +3055,7 @@ export type KernelRuntimeWireSkillCatalog = {
   ): KernelSkillPromptContextResult | Promise<KernelSkillPromptContextResult>
 }
 
-export type KernelRuntimeWirePluginCatalog = {
+type KernelRuntimeWirePluginCatalog = {
   listPlugins(context?: { cwd?: string; metadata?: Record<string, unknown> }):
     | {
         plugins: readonly KernelPluginDescriptor[]
@@ -3797,9 +3797,9 @@ export declare function createKernelRuntime(
   options?: KernelRuntimeOptions,
 ): Promise<KernelRuntime>
 
-export type KernelRuntimeWireInput = AsyncIterable<string | Uint8Array>
+type KernelRuntimeWireInput = AsyncIterable<string | Uint8Array>
 
-export type KernelRuntimeWireOutput = {
+type KernelRuntimeWireOutput = {
   write(chunk: string): unknown
 }
 
