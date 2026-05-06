@@ -32,18 +32,21 @@
 
 ## 2026-04-27 收口状态
 
-当时按较窄的 internal runnable 口径，kernelization 被记录为已收口。2026-05-06
+当时按较窄的 internal runnable 口径，kernelization 被记录为已收口。2026-05-07
 复核后，本文改为区分两层状态：**internal headless/server/wire kernel 可运行**
-已经成立；**产品级内核化完成** 仍未完成。本文下方 phase 保留为历史执行记录和
-回归定位索引，但当前待办以本节口径为准。
+已经成立，且指定 OpenAI-compatible endpoint 的 source / built Bun / built Node /
+ACP live validation 已闭环；**正式 public/semver release** 仍应继续做 public API
+冻结、host hardening 与发布卫生。本文下方 phase 保留为历史执行记录和回归定位
+索引，但当前待办以本节口径为准。
 
-当前继续推进的内容不再是“随手治理”，而是产品级收口项：
+当前继续推进的内容不再是“live 验证缺口”，而是 release/API hardening：
 
 1. REPL kernel-first：interactive CLI 不直接碰 runtime execution internal / event bus / materializer。
 2. bootstrap singleton 隔离：kernel 生产源码不直接 import `bootstrap/state`。
 3. public surface 治理：`index.d.ts` 与 `index.ts` export 集合对齐，root surface 不继续膨胀。
 4. legacy protocol 治理：旧 headless protocol payload 只留在兼容投影边界，kernel-facing facade 不再暴露 `sdk.message`。
 5. wire contract 治理：明确 guaranteed command 与 host / environment optional effect。
+6. release 卫生：pack/publish 前保持工作区无误入产物，发布包、fixture、密钥均不进入源码提交。
 
 2026-05-06 进一步把 wire contract 写入代码：
 
@@ -100,10 +103,14 @@
 
 验证记录：
 
-- `bun run test:all` 通过：`4498 pass / 2 skip / 0 fail`。
-- 两个 skipped 用例是 gated live smoke：built CLI smoke 与 ACP live smoke；本轮
-  已使用本地 OpenAI-compatible endpoint 单独执行通过。
-- `scripts/kernel-deep-smoke.ts` 已覆盖 source、built Bun 与 built Node。
+- `bun run test:all` 通过：`4544 pass / 2 skip / 0 fail`。
+- 两个 skipped 用例是 gated live smoke：built CLI smoke 与 ACP live smoke；2026-05-07
+  已使用外部 OpenAI-compatible endpoint + `gpt-5.4` 单独执行等价 live 验证通过。
+- `scripts/kernel-deep-smoke.ts --built` 已覆盖 source、built Bun 与 built Node；
+  deep smoke 默认 `KERNEL_DEEP_TEST_EFFORT=high`，用于避开不支持 `xhigh` 的网关。
+- built ACP stdio transport 已通过同一 OpenAI-compatible endpoint live smoke。
+- 本轮修复了 ACP OpenAI-compatible path 的 auth preflight：非 `firstParty`
+  provider 不再要求 Anthropic-only API key。
 
 public semver surface 已在本轮建立事实入口和快照护栏，但不应再写成最终冻结：
 
@@ -129,15 +136,15 @@ SDKMessage / legacy `stream-json` projection helper 的 public surface 降级也
 - headless verbose streaming 与 runtime event output 不再手写
   `includeRuntimeEvent` / `includeSDKMessage` 布尔组合。
 
-后续仍需：
+后续若进入正式 public/semver release，仍建议：
 
 1. 把 REPL 主链继续收成 kernel-facing controller。
 2. 为 kernel/bootstrap、REPL/runtime internal、`index.d.ts`/`index.ts` 对齐补护栏测试。
 3. 基于 `wireContract.ts` 继续补 release / smoke 证据，确认默认产品面无
    unexpected `unavailable`。
-4. 对 legacy protocol projection 做 live smoke 复核。
+4. 对 legacy protocol projection 做更细粒度 compatibility hardening。
 
-历史 release-gated live smoke 已在 2026-05-04 最终复跑通过，可作为后续复跑基线：
+release-gated live smoke 已在 2026-05-07 最终复跑通过，可作为后续复跑基线：
 
 1. built CLI gated smoke：built Bun / built Node headless `stream-json` turn 通过。
 2. ACP live smoke：built ACP stdio transport 到 OpenAI-compatible endpoint 通过。

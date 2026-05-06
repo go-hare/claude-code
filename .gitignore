@@ -21,6 +21,7 @@ src/utils/vendor/
 .docs/task/
 # Binary / screenshot files (root only)
 /*.png
+/*.tgz
 *.bmp
 
 # Agent / tool state dirs

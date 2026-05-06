@@ -320,6 +320,7 @@
 | `KERNEL_DEEP_TEST_API_KEY` | kernel deep smoke API key | 测试/验证 |
 | `KERNEL_DEEP_TEST_BASE_URL` | kernel deep smoke base URL | 测试/验证 |
 | `KERNEL_DEEP_TEST_MODEL` | kernel deep smoke model | 测试/验证 |
+| `KERNEL_DEEP_TEST_EFFORT` | kernel deep smoke effort，默认 `high` | 测试/验证 |
 | `KERNEL_DEEP_TEST_ORIGINAL` | kernel deep smoke original checkout | 测试/验证 |
 | `KERNEL_DEEP_TEST_PROMPT` | kernel deep smoke prompt | 测试/验证 |
 
