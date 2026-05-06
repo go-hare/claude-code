@@ -263,6 +263,10 @@ export function getAnthropicApiKeyWithSource(
     }
   }
 
+  if (getAPIProvider() !== 'firstParty') {
+    return { key: null, source: 'none' }
+  }
+
   if (isEnvTruthy(process.env.CI) || process.env.NODE_ENV === 'test') {
     // Check for API key from file descriptor first
     const apiKeyFromFd = getApiKeyFromFileDescriptor()

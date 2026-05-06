@@ -113,6 +113,7 @@ Optional:
   --built                 Also run dist/cli-bun.js and dist/cli-node.js.
   --original              Also run the reference checkout.
   --original-path <path>  Defaults to ${defaultOriginalPath}.
+  KERNEL_DEEP_TEST_EFFORT Defaults to high; use this for gateways that reject xhigh.
   --timeout-ms <ms>       Defaults to 120000.`)
 }
 
@@ -125,6 +126,7 @@ function getDeepEnv(): Record<string, string> {
   const baseUrl =
     process.env.KERNEL_DEEP_TEST_BASE_URL ?? process.env.OPENAI_BASE_URL
   const model = process.env.KERNEL_DEEP_TEST_MODEL ?? process.env.OPENAI_MODEL
+  const effort = process.env.KERNEL_DEEP_TEST_EFFORT ?? 'high'
 
   if (!apiKey || !baseUrl || !model) {
     throw new Error(
@@ -141,6 +143,7 @@ function getDeepEnv(): Record<string, string> {
     OPENAI_DEFAULT_HAIKU_MODEL: model,
     OPENAI_DEFAULT_SONNET_MODEL: model,
     OPENAI_DEFAULT_OPUS_MODEL: model,
+    CLAUDE_CODE_EFFORT_LEVEL: effort,
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
     NO_COLOR: '1',
   }
@@ -159,6 +162,8 @@ function commandForTarget(target: Target, model: string): string[] {
     '1',
     '--model',
     model,
+    '--effort',
+    process.env.KERNEL_DEEP_TEST_EFFORT ?? 'high',
   ]
 
   if (target.kind === 'built-bun') {
