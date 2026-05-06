@@ -191,11 +191,7 @@ export function resolveAppliedEffort(
   }
   const resolved =
     envOverride ?? appStateEffortValue ?? getDefaultEffortForModel(model)
-  if (
-    resolved === 'xhigh' &&
-    getAPIProvider() !== 'openai' &&
-    !modelSupportsXhighEffort(model)
-  ) {
+  if (resolved === 'xhigh' && !modelSupportsXhighEffort(model)) {
     return 'high'
   }
   // API rejects 'max' on non-Opus-4.6/4.7 models — downgrade to 'high'.

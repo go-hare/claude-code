@@ -282,6 +282,9 @@ describe("resolveAppliedEffort", () => {
   const saved = {
     CLAUDE_CODE_EFFORT_LEVEL: process.env.CLAUDE_CODE_EFFORT_LEVEL,
     CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
+    OPENAI_DEFAULT_OPUS_MODEL: process.env.OPENAI_DEFAULT_OPUS_MODEL,
+    OPENAI_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES:
+      process.env.OPENAI_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES,
   };
 
   afterEach(() => {
@@ -295,10 +298,32 @@ describe("resolveAppliedEffort", () => {
     } else {
       process.env.CLAUDE_CODE_USE_OPENAI = saved.CLAUDE_CODE_USE_OPENAI;
     }
+    if (saved.OPENAI_DEFAULT_OPUS_MODEL === undefined) {
+      delete process.env.OPENAI_DEFAULT_OPUS_MODEL;
+    } else {
+      process.env.OPENAI_DEFAULT_OPUS_MODEL = saved.OPENAI_DEFAULT_OPUS_MODEL;
+    }
+    if (
+      saved.OPENAI_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES === undefined
+    ) {
+      delete process.env.OPENAI_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES;
+    } else {
+      process.env.OPENAI_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES =
+        saved.OPENAI_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES;
+    }
   });
 
-  test("preserves xhigh for OpenAI provider", () => {
+  test("downgrades xhigh for OpenAI provider without explicit capability override", () => {
     process.env.CLAUDE_CODE_USE_OPENAI = "1";
+    expect(resolveAppliedEffort("gpt-5", "xhigh")).toBe("high");
+  });
+
+  test("preserves xhigh for OpenAI provider with explicit capability override", () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = "1";
+    process.env.OPENAI_DEFAULT_OPUS_MODEL = "gpt-5";
+    process.env.OPENAI_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES =
+      "effort,xhigh_effort";
+
     expect(resolveAppliedEffort("gpt-5", "xhigh")).toBe("xhigh");
   });
 
@@ -317,6 +342,9 @@ describe("shouldShowEffortUI", () => {
   const saved = {
     CLAUDE_CODE_EFFORT_LEVEL: process.env.CLAUDE_CODE_EFFORT_LEVEL,
     CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
+    OPENAI_DEFAULT_OPUS_MODEL: process.env.OPENAI_DEFAULT_OPUS_MODEL,
+    OPENAI_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES:
+      process.env.OPENAI_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES,
   };
 
   afterEach(() => {
@@ -349,6 +377,9 @@ describe("getEffortSuffix", () => {
   const saved = {
     CLAUDE_CODE_EFFORT_LEVEL: process.env.CLAUDE_CODE_EFFORT_LEVEL,
     CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
+    OPENAI_DEFAULT_OPUS_MODEL: process.env.OPENAI_DEFAULT_OPUS_MODEL,
+    OPENAI_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES:
+      process.env.OPENAI_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES,
   };
 
   afterEach(() => {
@@ -362,11 +393,34 @@ describe("getEffortSuffix", () => {
     } else {
       process.env.CLAUDE_CODE_USE_OPENAI = saved.CLAUDE_CODE_USE_OPENAI;
     }
+    if (saved.OPENAI_DEFAULT_OPUS_MODEL === undefined) {
+      delete process.env.OPENAI_DEFAULT_OPUS_MODEL;
+    } else {
+      process.env.OPENAI_DEFAULT_OPUS_MODEL = saved.OPENAI_DEFAULT_OPUS_MODEL;
+    }
+    if (
+      saved.OPENAI_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES === undefined
+    ) {
+      delete process.env.OPENAI_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES;
+    } else {
+      process.env.OPENAI_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES =
+        saved.OPENAI_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES;
+    }
   });
 
-  test("shows env-driven suffix for OpenAI custom model", () => {
+  test("shows clamped env-driven suffix for OpenAI custom model", () => {
     process.env.CLAUDE_CODE_USE_OPENAI = "1";
     process.env.CLAUDE_CODE_EFFORT_LEVEL = "xhigh";
+    expect(getEffortSuffix("gpt-5.5", undefined)).toBe(" with high effort");
+  });
+
+  test("shows xhigh suffix for OpenAI custom model with capability override", () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = "1";
+    process.env.CLAUDE_CODE_EFFORT_LEVEL = "xhigh";
+    process.env.OPENAI_DEFAULT_OPUS_MODEL = "gpt-5.5";
+    process.env.OPENAI_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES =
+      "effort,xhigh_effort";
+
     expect(getEffortSuffix("gpt-5.5", undefined)).toBe(" with xhigh effort");
   });
 });

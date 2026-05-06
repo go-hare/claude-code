@@ -1,4 +1,3 @@
-import memoize from 'lodash-es/memoize.js'
 import { getAPIProvider } from './providers.js'
 
 export type ModelCapabilityOverride =
@@ -43,26 +42,27 @@ const OPENAI_TIERS = [
  * Check whether a 3p model capability override is set for a model that matches one of
  * the pinned ANTHROPIC_DEFAULT_*_MODEL or OPENAI_DEFAULT_*_MODEL env vars.
  */
-export const get3PModelCapabilityOverride = memoize(
-  (model: string, capability: ModelCapabilityOverride): boolean | undefined => {
-    if (getAPIProvider() === 'firstParty') {
-      return undefined
-    }
-    const m = model.toLowerCase()
-    // Choose the appropriate tier list based on provider
-    const tiers = getAPIProvider() === 'openai' ? OPENAI_TIERS : ANTHROPIC_TIERS
-    for (const tier of tiers) {
-      const pinned = process.env[tier.modelEnvVar]
-      const capabilities = process.env[tier.capabilitiesEnvVar]
-      if (!pinned || capabilities === undefined) continue
-      if (m !== pinned.toLowerCase()) continue
-      return capabilities
-        .toLowerCase()
-        .split(',')
-        .map(s => s.trim())
-        .includes(capability)
-    }
+export function get3PModelCapabilityOverride(
+  model: string,
+  capability: ModelCapabilityOverride,
+): boolean | undefined {
+  const provider = getAPIProvider()
+  if (provider === 'firstParty') {
     return undefined
-  },
-  (model, capability) => `${model.toLowerCase()}:${capability}`,
-)
+  }
+  const m = model.toLowerCase()
+  // Choose the appropriate tier list based on provider.
+  const tiers = provider === 'openai' ? OPENAI_TIERS : ANTHROPIC_TIERS
+  for (const tier of tiers) {
+    const pinned = process.env[tier.modelEnvVar]
+    const capabilities = process.env[tier.capabilitiesEnvVar]
+    if (!pinned || capabilities === undefined) continue
+    if (m !== pinned.toLowerCase()) continue
+    return capabilities
+      .toLowerCase()
+      .split(',')
+      .map(s => s.trim())
+      .includes(capability)
+  }
+  return undefined
+}
