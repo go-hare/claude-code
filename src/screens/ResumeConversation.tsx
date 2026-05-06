@@ -51,8 +51,8 @@ import {
 } from '../utils/sessionStorage.js'
 import type { ThinkingConfig } from '../utils/thinking.js'
 import type { ContentReplacementRecord } from '../utils/toolResultStorage.js'
-import { refreshRuntimeAgentDefinitions } from '../runtime/capabilities/execution/headlessCapabilityMaterializer.js'
 import { createRuntimeSessionIdentityStateProvider } from '../runtime/core/state/bootstrapProvider.js'
+import { refreshKernelReplRuntimeAgentDefinitions } from '../kernel/replRuntimeController.js'
 import { REPL } from './REPL.js'
 
 const runtimeSessionIdentityState =
@@ -254,7 +254,7 @@ export function ResumeConversation({
         if (warning) {
           const { originalCwd } =
             runtimeSessionIdentityState.getSessionIdentity()
-          const freshAgentDefs = await refreshRuntimeAgentDefinitions({
+          const freshAgentDefs = await refreshKernelReplRuntimeAgentDefinitions({
             cwd: originalCwd,
             activeFromAll: true,
           })

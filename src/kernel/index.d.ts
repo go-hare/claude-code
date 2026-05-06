@@ -107,6 +107,68 @@ export type KernelRuntimeErrorPayload = {
   details?: Record<string, unknown>
 }
 
+export type KernelRuntimeWireCommandFamily =
+  | 'core'
+  | 'host'
+  | 'conversation'
+  | 'permission'
+  | 'capability'
+  | 'commands'
+  | 'tools'
+  | 'mcp'
+  | 'hooks'
+  | 'skills'
+  | 'plugins'
+  | 'agents'
+  | 'tasks'
+  | 'teams'
+  | 'autonomy'
+  | 'memory'
+  | 'context'
+  | 'sessions'
+
+export type KernelRuntimeWireCommandSupport =
+  | 'guaranteed'
+  | 'guaranteed_with_optional_effects'
+
+export type KernelRuntimeWireHostDependency =
+  | 'capability_resolver'
+  | 'permission_broker'
+  | 'turn_executor'
+  | 'command_catalog'
+  | 'tool_catalog'
+  | 'mcp_registry'
+  | 'hook_catalog'
+  | 'skill_catalog'
+  | 'plugin_catalog'
+  | 'agent_registry'
+  | 'task_registry'
+  | 'team_registry'
+  | 'companion_runtime'
+  | 'kairos_runtime'
+  | 'memory_manager'
+  | 'context_manager'
+  | 'session_manager'
+
+export type KernelRuntimeWireMissingDependencyBehavior =
+  | 'unavailable_error'
+  | 'ack_without_terminal_event'
+
+export type KernelRuntimeWireUnavailableContract = {
+  readonly code: 'unavailable'
+  readonly retryable: false
+  readonly emitsDomainEventBeforeError: false
+}
+
+export type KernelRuntimeWireCommandContract = {
+  readonly command: KernelRuntimeCommandType
+  readonly family: KernelRuntimeWireCommandFamily
+  readonly support: KernelRuntimeWireCommandSupport
+  readonly rawRouterDependency?: KernelRuntimeWireHostDependency
+  readonly missingDependencyBehavior?: KernelRuntimeWireMissingDependencyBehavior
+  readonly unavailable: KernelRuntimeWireUnavailableContract
+}
+
 export type KernelRuntimeEnvelopeBase<TPayload = unknown> = {
   schemaVersion: 'kernel.runtime.v1'
   messageId: string
@@ -1928,6 +1990,30 @@ export type KernelTeamDestroyResult = {
 }
 
 export declare const KERNEL_RUNTIME_COMMAND_SCHEMA_VERSION: 'kernel.runtime.command.v1'
+
+export declare const KERNEL_RUNTIME_WIRE_COMMAND_CONTRACTS: {
+  readonly [TCommand in KernelRuntimeCommandType]: KernelRuntimeWireCommandContract & {
+    readonly command: TCommand
+  }
+}
+
+export declare const KERNEL_RUNTIME_WIRE_GUARANTEED_COMMANDS: readonly KernelRuntimeCommandType[]
+
+export declare const KERNEL_RUNTIME_WIRE_HOST_OPTIONAL_COMMANDS: readonly KernelRuntimeCommandType[]
+
+export declare const KERNEL_RUNTIME_WIRE_RAW_ROUTER_OPTIONAL_COMMANDS: readonly KernelRuntimeCommandType[]
+
+export declare function getKernelRuntimeWireCommandContract(
+  command: KernelRuntimeCommandType,
+): KernelRuntimeWireCommandContract
+
+export declare function isKernelRuntimeWireCommandGuaranteed(
+  command: KernelRuntimeCommandType,
+): boolean
+
+export declare function isKernelRuntimeWireCommandHostOptional(
+  command: KernelRuntimeCommandType,
+): boolean
 
 export type KernelRuntimeCommandType =
   | 'init_runtime'
@@ -3988,9 +4074,10 @@ export type KernelHeadlessEvent =
       error?: unknown
     }
   | {
-      type: 'sdk.message'
+      type: 'compat.protocol_message'
       envelope: KernelRuntimeEventEnvelope
       message: unknown
+      compatibilitySource: 'legacy_headless_protocol'
     }
 
 export type KernelHeadlessControllerOptions = {

@@ -42,8 +42,37 @@
 1. REPL kernel-first：interactive CLI 不直接碰 runtime execution internal / event bus / materializer。
 2. bootstrap singleton 隔离：kernel 生产源码不直接 import `bootstrap/state`。
 3. public surface 治理：`index.d.ts` 与 `index.ts` export 集合对齐，root surface 不继续膨胀。
-4. legacy protocol 治理：`headless.protocol_message` / `sdk.message` 只留在兼容投影边界。
-5. wire contract 治理：明确 guaranteed capability 与 host-injected optional capability。
+4. legacy protocol 治理：旧 headless protocol payload 只留在兼容投影边界，kernel-facing facade 不再暴露 `sdk.message`。
+5. wire contract 治理：明确 guaranteed command 与 host / environment optional effect。
+
+2026-05-06 进一步把 wire contract 写入代码：
+
+- `src/kernel/wireContract.ts` 是 wire command contract manifest。
+- `KERNEL_RUNTIME_WIRE_COMMAND_CONTRACTS` 覆盖全部 `KernelRuntimeCommandType`。
+- `KERNEL_RUNTIME_WIRE_GUARANTEED_COMMANDS` 表示 `createDefaultKernelRuntime()`
+  / `createDefaultKernelRuntimeWireRouter()` 默认产品面承诺的 command。
+- `KERNEL_RUNTIME_WIRE_HOST_OPTIONAL_COMMANDS` 当前只包含 `run_turn`：默认面会稳定
+  ack 并记录 turn state，但 terminal execution 取决于 host / environment 提供的
+  turn executor。
+- 裸 `createKernelRuntimeWireRouter()` 仍允许 host 不注入 registry / manager；
+  缺失时统一返回 `unavailable`、`retryable:false`，且不先发 domain event。
+
+2026-05-06 进一步收口 legacy projection 命名：
+
+- `KernelHeadlessEvent` 不再暴露 `sdk.message`。
+- `normalizeKernelHeadlessEvent(...)` 会把内部 `headless.protocol_message`
+  投影成 kernel-facing `compat.protocol_message`。
+- root `./kernel` declaration 继续禁止导出 `headless.protocol_message` 与
+  SDK/stream-json legacy helper，把旧格式限制在 compatibility projection。
+
+2026-05-06 进一步给 public API 定级：
+
+- `src/kernel/__tests__/publicSurfaceManifest.ts` 现在把 package-visible value
+  exports 分为 `stable_contract`、`host_integration`、`experimental_runtime`
+  与 `compat_projection`。
+- `surface.test` 会校验每个公开 value export 恰好属于一个产品 tier。
+- root `./kernel` 仍是唯一 public 入口；leaf module 继续是 host-internal /
+  implementation surface，不纳入 semver 承诺。
 
 ## 2026-05-04 最终复核
 
@@ -104,8 +133,9 @@ SDKMessage / legacy `stream-json` projection helper 的 public surface 降级也
 
 1. 把 REPL 主链继续收成 kernel-facing controller。
 2. 为 kernel/bootstrap、REPL/runtime internal、`index.d.ts`/`index.ts` 对齐补护栏测试。
-3. 明确 wire capability 的 guaranteed 与 host-injected optional 边界。
-4. 对 legacy protocol projection 做命名和 live smoke 复核。
+3. 基于 `wireContract.ts` 继续补 release / smoke 证据，确认默认产品面无
+   unexpected `unavailable`。
+4. 对 legacy protocol projection 做 live smoke 复核。
 
 历史 release-gated live smoke 已在 2026-05-04 最终复跑通过，可作为后续复跑基线：
 

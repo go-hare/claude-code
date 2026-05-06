@@ -132,6 +132,19 @@ describe('kernel package entry', () => {
     expect(declaration).toContain('runtimeEventSink?: KernelRuntimeEventSink')
     expect(declaration).toContain("schemaVersion: 'kernel.runtime.v1'")
     expect(declaration).toContain('KERNEL_RUNTIME_COMMAND_SCHEMA_VERSION:')
+    expect(declaration).toContain('export type KernelRuntimeWireCommandSupport =')
+    expect(declaration).toContain("'guaranteed_with_optional_effects'")
+    expect(declaration).toContain(
+      'export declare const KERNEL_RUNTIME_WIRE_COMMAND_CONTRACTS:',
+    )
+    expect(declaration).toContain('KERNEL_RUNTIME_WIRE_GUARANTEED_COMMANDS:')
+    expect(declaration).toContain('KERNEL_RUNTIME_WIRE_HOST_OPTIONAL_COMMANDS:')
+    expect(declaration).toContain(
+      'KERNEL_RUNTIME_WIRE_RAW_ROUTER_OPTIONAL_COMMANDS:',
+    )
+    expect(declaration).toContain('getKernelRuntimeWireCommandContract(')
+    expect(declaration).toContain('isKernelRuntimeWireCommandGuaranteed(')
+    expect(declaration).toContain('isKernelRuntimeWireCommandHostOptional(')
     expect(declaration).toContain('runKernelRuntimeWireProtocol(')
     expect(declaration).toContain("KernelRuntimeCommandBase<'connect_host'>")
     expect(declaration).toContain('resumeSessionAt?: string')
@@ -165,6 +178,11 @@ describe('kernel package entry', () => {
     expect(declaration).not.toContain('projectProtocolMessageToLegacyStreamJsonMessages(')
     expect(declaration).not.toContain('emitKernelHeadlessRuntimeMessage(')
     expect(declaration).not.toContain('handleKernelRuntimeHostEvent(')
+    expect(declaration).toContain("'compat.protocol_message'")
+    expect(declaration).toContain(
+      "compatibilitySource: 'legacy_headless_protocol'",
+    )
+    expect(declaration).not.toContain("'sdk.message'")
     expect(declaration).not.toContain("'headless.protocol_message'")
     expect(declaration).toContain(
       'capabilityResolver?: KernelRuntimeWireCapabilityResolver',
@@ -592,6 +610,27 @@ describe('kernel package entry', () => {
     ).toBe(true)
     expect(packageEntry.KERNEL_RUNTIME_COMMAND_SCHEMA_VERSION).toBe(
       kernel.KERNEL_RUNTIME_COMMAND_SCHEMA_VERSION,
+    )
+    expect(packageEntry.KERNEL_RUNTIME_WIRE_COMMAND_CONTRACTS).toBe(
+      kernel.KERNEL_RUNTIME_WIRE_COMMAND_CONTRACTS,
+    )
+    expect(packageEntry.KERNEL_RUNTIME_WIRE_GUARANTEED_COMMANDS).toBe(
+      kernel.KERNEL_RUNTIME_WIRE_GUARANTEED_COMMANDS,
+    )
+    expect(packageEntry.KERNEL_RUNTIME_WIRE_HOST_OPTIONAL_COMMANDS).toBe(
+      kernel.KERNEL_RUNTIME_WIRE_HOST_OPTIONAL_COMMANDS,
+    )
+    expect(packageEntry.KERNEL_RUNTIME_WIRE_RAW_ROUTER_OPTIONAL_COMMANDS).toBe(
+      kernel.KERNEL_RUNTIME_WIRE_RAW_ROUTER_OPTIONAL_COMMANDS,
+    )
+    expect(packageEntry.getKernelRuntimeWireCommandContract).toBe(
+      kernel.getKernelRuntimeWireCommandContract,
+    )
+    expect(packageEntry.isKernelRuntimeWireCommandGuaranteed).toBe(
+      kernel.isKernelRuntimeWireCommandGuaranteed,
+    )
+    expect(packageEntry.isKernelRuntimeWireCommandHostOptional).toBe(
+      kernel.isKernelRuntimeWireCommandHostOptional,
     )
     expect(
       Object.is(packageEntry.createKernelRuntime, kernel.createKernelRuntime),

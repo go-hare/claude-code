@@ -56,7 +56,33 @@ function createServer() {
           choices: [
             {
               index: 0,
-              delta: { role: "assistant", content: expectedText },
+              delta: { role: "assistant" },
+              finish_reason: null,
+            },
+          ],
+        },
+        {
+          id: "chatcmpl-test",
+          object: "chat.completion.chunk",
+          created: 1,
+          model: "gpt-5.4",
+          choices: [
+            {
+              index: 0,
+              delta: { content: expectedText.slice(0, 8) },
+              finish_reason: null,
+            },
+          ],
+        },
+        {
+          id: "chatcmpl-test",
+          object: "chat.completion.chunk",
+          created: 1,
+          model: "gpt-5.4",
+          choices: [
+            {
+              index: 0,
+              delta: { content: expectedText.slice(8) },
               finish_reason: null,
             },
           ],
@@ -73,6 +99,13 @@ function createServer() {
               finish_reason: "stop",
             },
           ],
+        },
+        {
+          id: "chatcmpl-test",
+          object: "chat.completion.chunk",
+          created: 1,
+          model: "gpt-5.4",
+          choices: [],
           usage: {
             prompt_tokens: 11,
             completion_tokens: 7,

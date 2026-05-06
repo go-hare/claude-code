@@ -144,6 +144,7 @@ export function createQueryTurnEventAdapter(
               result: message,
               turnId: options.turnId,
             }),
+            message,
           ),
           ...compatibilityEvents,
         ],
@@ -321,7 +322,7 @@ function createTerminalEvent(options: {
   type: 'turn.completed' | 'turn.failed'
   state: 'completed' | 'failed'
   stopReason: string | null
-}): KernelEvent {
+}, result?: QueryTurnTerminalResult): KernelEvent {
   return {
     conversationId: options.conversationId,
     turnId: options.turnId,
@@ -332,6 +333,24 @@ function createTerminalEvent(options: {
       turnId: options.turnId,
       state: options.state,
       stopReason: options.stopReason,
-    },
+      ...(result?.durationMs !== undefined
+        ? { durationMs: result.durationMs }
+        : {}),
+      ...(result?.durationApiMs !== undefined
+        ? { durationApiMs: result.durationApiMs }
+        : {}),
+      ...(result?.turnCount !== undefined
+        ? { turnCount: result.turnCount }
+        : {}),
+      ...(result?.usage !== undefined
+        ? { usage: result.usage }
+        : {}),
+      ...(result?.modelUsage !== undefined
+        ? { modelUsage: result.modelUsage }
+        : {}),
+      ...(result?.totalCostUsd !== undefined
+        ? { totalCostUsd: result.totalCostUsd }
+        : {}),
+      },
+    }
   }
-}

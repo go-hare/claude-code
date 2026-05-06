@@ -99,7 +99,7 @@ describe('createKernelHeadlessController', () => {
       expect(
         seen.some(
           event =>
-            event.type === 'sdk.message' &&
+            event.type === 'compat.protocol_message' &&
             (event.message as { text?: string }).text === 'sdk:hello',
         ),
       ).toBe(true)
@@ -198,7 +198,7 @@ describe('normalizeKernelHeadlessEvent', () => {
     })
   })
 
-  test('normalizes terminal and SDK projections with shared helpers', () => {
+  test('normalizes terminal and compatibility projections with shared helpers', () => {
     expect(
       normalizeKernelHeadlessEvent({
         schemaVersion: 'kernel.runtime.v1',
@@ -266,8 +266,9 @@ describe('normalizeKernelHeadlessEvent', () => {
         },
       }),
     ).toMatchObject({
-      type: 'sdk.message',
+      type: 'compat.protocol_message',
       message: protocolPayload,
+      compatibilitySource: 'legacy_headless_protocol',
     })
   })
 })

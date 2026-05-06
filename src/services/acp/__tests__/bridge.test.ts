@@ -989,6 +989,48 @@ describe('forwardSessionUpdates', () => {
     expect(result.usage!.outputTokens).toBe(50)
   })
 
+  test('sends usage_update from canonical terminal runtime event', async () => {
+    const conn = makeConn()
+    const result = await forwardSessionUpdates(
+      's1',
+      makeRuntimeStream([
+        makeRuntimeEnvelope('turn.completed', {
+          state: 'completed',
+          stopReason: 'end_turn',
+          usage: {
+            input_tokens: 100,
+            output_tokens: 50,
+            cache_read_input_tokens: 10,
+            cache_creation_input_tokens: 5,
+          },
+          modelUsage: {
+            'gpt-5.4': { contextWindow: 200000 },
+          },
+          totalCostUsd: 0.01,
+        }),
+      ]),
+      conn,
+      new AbortController().signal,
+      {},
+    )
+
+    const calls = (conn.sessionUpdate as ReturnType<typeof mock>).mock.calls
+    const usageUpdate = calls.find((c: unknown[]) => ((c[0] as Record<string, Record<string, unknown>>).update ?? {})['sessionUpdate'] === 'usage_update')
+    expect(result.stopReason).toBe('end_turn')
+    expect(result.usage).toMatchObject({
+      inputTokens: 100,
+      outputTokens: 50,
+      cachedReadTokens: 10,
+      cachedWriteTokens: 5,
+    })
+    expect(usageUpdate).toBeDefined()
+    expect(((usageUpdate![0] as Record<string, unknown>).update as Record<string, unknown>)).toMatchObject({
+      used: 165,
+      size: 200000,
+      cost: { amount: 0.01, currency: 'USD' },
+    })
+  })
+
   test('maps protocol result stop reasons through shared runtime host projection', async () => {
     const conn = makeConn()
 

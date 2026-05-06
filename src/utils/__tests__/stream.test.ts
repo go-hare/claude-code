@@ -39,6 +39,20 @@ describe("Stream", () => {
     expect(await promise).toEqual({ done: true, value: undefined });
   });
 
+  test("done() does not drop a queued value when a reader is pending", async () => {
+    const stream = new Stream<number>();
+    stream[Symbol.asyncIterator]();
+    const first = stream.next();
+    stream.enqueue(1);
+    const second = stream.next();
+    stream.enqueue(2);
+    stream.done();
+
+    expect(await first).toEqual({ done: false, value: 1 });
+    expect(await second).toEqual({ done: false, value: 2 });
+    expect(await stream.next()).toEqual({ done: true, value: undefined });
+  });
+
   test("done() with no pending reader — subsequent next returns done:true", async () => {
     const stream = new Stream<number>();
     stream[Symbol.asyncIterator]();

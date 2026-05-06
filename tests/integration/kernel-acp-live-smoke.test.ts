@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test'
 import { spawn } from 'child_process'
 import { existsSync } from 'fs'
 import { Readable, Writable } from 'stream'
+import { fileURLToPath } from 'url'
 
 type AcpSessionUpdateParams = {
   sessionId?: string
@@ -19,7 +20,7 @@ type LiveAcpEnv = {
   model: string
 }
 
-const repoRoot = new URL('../..', import.meta.url).pathname
+const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
 const hasLiveAcpEnv =
   process.env.RUN_ACP_LIVE_SMOKE === '1' &&
   getEnvValue('KERNEL_DEEP_TEST_API_KEY', 'OPENAI_API_KEY') !== undefined &&

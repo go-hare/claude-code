@@ -474,6 +474,19 @@ describe('QueryTurnEventAdapter', () => {
       subtype: 'success',
       isError: false,
       stopReason: 'end_turn',
+      durationMs: 123,
+      durationApiMs: 45,
+      turnCount: 1,
+      usage: {
+        input_tokens: 100,
+        output_tokens: 50,
+        cache_read_input_tokens: 10,
+        cache_creation_input_tokens: 5,
+      },
+      modelUsage: {
+        'gpt-5.4': { contextWindow: 200000 },
+      },
+      totalCostUsd: 0.01,
       protocolMessage: {
         type: 'result',
         subtype: 'success',
@@ -492,6 +505,16 @@ describe('QueryTurnEventAdapter', () => {
       payload: {
         state: 'completed',
         stopReason: 'end_turn',
+        usage: {
+          input_tokens: 100,
+          output_tokens: 50,
+          cache_read_input_tokens: 10,
+          cache_creation_input_tokens: 5,
+        },
+        modelUsage: {
+          'gpt-5.4': { contextWindow: 200000 },
+        },
+        totalCostUsd: 0.01,
       },
     })
     expect(projection.compatibilityMessages).toHaveLength(1)

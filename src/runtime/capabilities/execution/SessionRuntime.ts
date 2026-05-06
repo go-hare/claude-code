@@ -111,6 +111,7 @@ import type {
 import type { KernelCapabilityPlane } from '../../contracts/capability.js'
 import { RuntimeEventBus } from '../../core/events/RuntimeEventBus.js'
 import {
+  createHeadlessProtocolMessageRuntimeEvent,
   getRuntimeAbortStopReason,
   getProtocolMessageFromRuntimeEnvelope,
 } from '../../core/events/compatProjection.js'
@@ -136,6 +137,13 @@ type QueryResultProtocolMessage = ProtocolMessage & {
 type QueryTurnSidecarOutput = {
   type: 'query_sidecar'
   messages: ProtocolMessage[]
+}
+
+type SubmitRuntimeTurnOptions = {
+  uuid?: string
+  isMeta?: boolean
+  preludeEvents?: readonly RuntimeTurnPreludeEvent[]
+  includeCompatibilityMessages?: boolean
 }
 
 // Lazy: MessageSelector.tsx pulls React/ink; only needed for message filtering at query time
@@ -295,11 +303,7 @@ export type QueryEngineConfig = {
 export interface RuntimeExecutionSession extends RuntimeSessionLifecycle {
   submitRuntimeTurn(
     prompt: string | ContentBlockParam[],
-    options?: {
-      uuid?: string
-      isMeta?: boolean
-      preludeEvents?: readonly RuntimeTurnPreludeEvent[]
-    },
+    options?: SubmitRuntimeTurnOptions,
   ): AsyncGenerator<KernelRuntimeEnvelopeBase, void, unknown>
   getReadFileState(): FileStateCache
 }
@@ -427,11 +431,7 @@ export class SessionRuntime implements RuntimeExecutionSession {
 
   async *submitRuntimeTurn(
     prompt: string | ContentBlockParam[],
-    options?: {
-      uuid?: string
-      isMeta?: boolean
-      preludeEvents?: readonly RuntimeTurnPreludeEvent[]
-    },
+    options?: SubmitRuntimeTurnOptions,
   ): AsyncGenerator<KernelRuntimeEnvelopeBase, void, unknown> {
     const sessionId = this.getSessionId()
     const turnId = options?.uuid ?? randomUUID()
@@ -512,21 +512,37 @@ export class SessionRuntime implements RuntimeExecutionSession {
           turnId,
           enqueueRuntimeEvent,
           (queryMessage, projectionOptions) => {
-            const events = turnEventAdapter.projectQueryMessage(
-              queryMessage,
-              projectionOptions,
-            )
-            for (const event of events) {
+            const projection = options?.includeCompatibilityMessages
+              ? turnEventAdapter.projectQueryMessageWithCompatibility(
+                  queryMessage,
+                  projectionOptions,
+                )
+              : {
+                  events: turnEventAdapter.projectQueryMessage(
+                    queryMessage,
+                    projectionOptions,
+                  ),
+                  compatibilityMessages: [],
+                }
+            for (const event of projection.events) {
               enqueueRuntimeEvent(event)
             }
             return {
               type: 'query_sidecar',
-              messages: [],
+              messages: projection.compatibilityMessages,
             }
           },
         ),
       )) {
-        void sidecar
+        for (const message of sidecar.messages) {
+          yield this.runtimeEventBus.emit(
+            createHeadlessProtocolMessageRuntimeEvent({
+              conversationId: sessionId,
+              turnId,
+              message,
+            }),
+          )
+        }
         for (const envelope of drainPendingRuntimeEvents()) {
           yield envelope
         }
@@ -589,7 +605,10 @@ export class SessionRuntime implements RuntimeExecutionSession {
     prompt: string | ContentBlockParam[],
     options?: { uuid?: string; isMeta?: boolean },
   ): AsyncGenerator<ProtocolMessage, void, unknown> {
-    for await (const envelope of this.submitRuntimeTurn(prompt, options)) {
+    for await (const envelope of this.submitRuntimeTurn(prompt, {
+      ...options,
+      includeCompatibilityMessages: true,
+    })) {
       const protocolMessage = getProtocolMessageFromRuntimeEnvelope(envelope)
       if (protocolMessage) {
         yield protocolMessage
@@ -903,6 +922,28 @@ export class SessionRuntime implements RuntimeExecutionSession {
         isError: result.is_error === true,
         stopReason:
           typeof result.stop_reason === 'string' ? result.stop_reason : null,
+        durationMs:
+          typeof result.duration_ms === 'number'
+            ? result.duration_ms
+            : undefined,
+        durationApiMs:
+          typeof result.duration_api_ms === 'number'
+            ? result.duration_api_ms
+            : undefined,
+        turnCount:
+          typeof result.num_turns === 'number' ? result.num_turns : undefined,
+        usage:
+          typeof result.usage === 'object' && result.usage !== null
+            ? (result.usage as Record<string, number>)
+            : undefined,
+        modelUsage:
+          typeof result.modelUsage === 'object' && result.modelUsage !== null
+            ? (result.modelUsage as Record<string, unknown>)
+            : undefined,
+        totalCostUsd:
+          typeof result.total_cost_usd === 'number'
+            ? result.total_cost_usd
+            : undefined,
         protocolMessage: result,
       })
 
@@ -1685,6 +1726,7 @@ export type AskRuntimeOptions = {
   executionMode?: KernelExecutionMode
   capabilityPlane?: KernelCapabilityPlane
   preludeEvents?: readonly RuntimeTurnPreludeEvent[]
+  includeCompatibilityMessages?: boolean
   createSessionRuntime?: ExecutionSessionFactory
 }
 
@@ -1727,6 +1769,7 @@ export async function* askRuntime({
   executionMode = 'headless',
   capabilityPlane,
   preludeEvents,
+  includeCompatibilityMessages,
   createSessionRuntime,
 }: AskRuntimeOptions): AsyncGenerator<KernelRuntimeEnvelopeBase, void, unknown> {
   const sessionBootstrapStateProvider =
@@ -1781,6 +1824,7 @@ export async function* askRuntime({
       uuid: promptUuid,
       isMeta,
       preludeEvents,
+      includeCompatibilityMessages,
     })) {
       yield envelope
     }

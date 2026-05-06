@@ -23,12 +23,42 @@ import * as sessions from '../sessions.js'
 import * as serverHost from '../serverHost.js'
 import * as wireProtocol from '../wireProtocol.js'
 import * as serverTypes from '../../server/types.js'
-import { EXPECTED_KERNEL_PUBLIC_EXPORTS } from './publicSurfaceManifest.js'
+import {
+  EXPECTED_KERNEL_PUBLIC_EXPORTS,
+  KERNEL_PUBLIC_SURFACE_TIERS,
+  KERNEL_PUBLIC_SURFACE_TIER_ORDER,
+} from './publicSurfaceManifest.js'
 
 describe('kernel index surface', () => {
   test('locks the exact stable public kernel export set', () => {
     expect(Object.keys(kernel).sort()).toEqual(
       [...EXPECTED_KERNEL_PUBLIC_EXPORTS].sort(),
+    )
+  })
+
+  test('classifies every public value export into exactly one product tier', () => {
+    const tieredExports = KERNEL_PUBLIC_SURFACE_TIER_ORDER.flatMap(
+      tier => KERNEL_PUBLIC_SURFACE_TIERS[tier],
+    )
+    const duplicates = tieredExports.filter(
+      (name, index) => tieredExports.indexOf(name) !== index,
+    )
+
+    expect(duplicates).toEqual([])
+    expect([...tieredExports].sort()).toEqual(
+      [...EXPECTED_KERNEL_PUBLIC_EXPORTS].sort(),
+    )
+    expect(KERNEL_PUBLIC_SURFACE_TIERS.stable_contract).toContain(
+      'runKernelRuntimeWireProtocol',
+    )
+    expect(KERNEL_PUBLIC_SURFACE_TIERS.host_integration).toContain(
+      'runBridgeHeadless',
+    )
+    expect(KERNEL_PUBLIC_SURFACE_TIERS.experimental_runtime).toContain(
+      'createKernelKairosRuntime',
+    )
+    expect(KERNEL_PUBLIC_SURFACE_TIERS.compat_projection).toContain(
+      'getCompatibilityProjectionFromKernelEvent',
     )
   })
 

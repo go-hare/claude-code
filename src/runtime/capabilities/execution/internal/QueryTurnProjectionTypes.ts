@@ -13,6 +13,12 @@ export type QueryTurnTerminalResult = {
   isError: boolean
   stopReason: string | null
   subtype?: string
+  durationMs?: number
+  durationApiMs?: number
+  turnCount?: number
+  usage?: Record<string, number>
+  modelUsage?: Record<string, unknown>
+  totalCostUsd?: number
   protocolMessage?: ProtocolMessage
 }
 

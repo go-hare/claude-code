@@ -2115,6 +2115,7 @@ function runHeadlessStreaming(
                   executionMode: toolState.executionMode ?? 'headless',
                   capabilityPlane: toolState.capabilityPlane,
                   preludeEvents,
+                  includeCompatibilityMessages: true,
                   setProtocolStatus: status => {
                     emitOutput({
                       type: 'system',

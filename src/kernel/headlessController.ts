@@ -89,9 +89,10 @@ export type KernelHeadlessEvent =
       error?: unknown
     }
   | {
-      type: 'sdk.message'
+      type: 'compat.protocol_message'
       envelope: KernelRuntimeEventEnvelope
       message: unknown
+      compatibilitySource: 'legacy_headless_protocol'
     }
 
 export type KernelHeadlessControllerOptions = {
@@ -176,9 +177,10 @@ export function normalizeKernelHeadlessEvent(
       }
     case 'headless.protocol_message':
       return {
-        type: 'sdk.message',
+        type: 'compat.protocol_message',
         envelope: input,
         message: getProtocolMessageFromKernelRuntimeEnvelope(input),
+        compatibilitySource: 'legacy_headless_protocol',
       }
     default:
       return {

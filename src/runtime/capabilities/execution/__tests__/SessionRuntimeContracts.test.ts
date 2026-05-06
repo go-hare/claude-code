@@ -76,8 +76,9 @@ describe('SessionRuntime contracts', () => {
   test('keeps legacy compatibility message projection outside runtime owners', () => {
     expect(content).toContain('private async *runQueryTurn(')
     expect(content).toContain(
-      'for await (const envelope of this.submitRuntimeTurn(prompt, options))',
+      'for await (const envelope of this.submitRuntimeTurn(prompt, {',
     )
+    expect(content).toContain('includeCompatibilityMessages: true')
     expect(content).toContain('for await (const envelope of askRuntime(options))')
     expect(content).toContain('getProtocolMessageFromRuntimeEnvelope(envelope)')
     expect(content).toContain('for await (const sidecar of this.bindBootstrapState(')
@@ -88,19 +89,24 @@ describe('SessionRuntime contracts', () => {
     expect(acpAgentContent).not.toContain('queryEngine.submitMessage')
   })
 
-  test('runtime turns emit canonical event semantics without compatibility sidecars', () => {
+  test('runtime turns default to canonical events and require explicit compatibility projection', () => {
     expect(content).toContain('createQueryTurnEventAdapter')
     expect(content).toContain(
       'turnEventAdapter.projectQueryMessage(',
     )
-    expect(content).not.toContain(
+    expect(content).toContain(
       'turnEventAdapter.projectQueryMessageWithCompatibility(',
     )
+    expect(content).toContain('includeCompatibilityMessages?: boolean')
     expect(content).toContain('type QueryTurnSidecarOutput')
     expect(content).toContain('AsyncGenerator<QueryTurnSidecarOutput')
     expect(content).toContain("type: 'query_sidecar'")
     expect(content).toContain('messages: []')
-    expect(content).not.toContain('compatibilityMessages')
+    expect(content).toContain('compatibilityMessages: []')
+    expect(content).toContain('messages: projection.compatibilityMessages')
+    expect(content).toContain('createHeadlessProtocolMessageRuntimeEvent')
+    expect(content).toContain('includeCompatibilityMessages: true')
+    expect(headlessRuntimeLoopContent).toContain('includeCompatibilityMessages: true')
     expect(content).toContain('yield projectQuerySidecar(')
     expect(content).toContain('const emitTerminalResult')
     expect(content).toContain("type: 'query_result'")

@@ -427,6 +427,23 @@ export type {
   KernelPermissionSessionGrantKeyFactory,
 } from './permissions.js'
 export {
+  getKernelRuntimeWireCommandContract,
+  isKernelRuntimeWireCommandGuaranteed,
+  isKernelRuntimeWireCommandHostOptional,
+  KERNEL_RUNTIME_WIRE_COMMAND_CONTRACTS,
+  KERNEL_RUNTIME_WIRE_GUARANTEED_COMMANDS,
+  KERNEL_RUNTIME_WIRE_HOST_OPTIONAL_COMMANDS,
+  KERNEL_RUNTIME_WIRE_RAW_ROUTER_OPTIONAL_COMMANDS,
+} from './wireContract.js'
+export type {
+  KernelRuntimeWireCommandContract,
+  KernelRuntimeWireCommandFamily,
+  KernelRuntimeWireCommandSupport,
+  KernelRuntimeWireHostDependency,
+  KernelRuntimeWireMissingDependencyBehavior,
+  KernelRuntimeWireUnavailableContract,
+} from './wireContract.js'
+export {
   createDefaultKernelRuntimeWireRouter,
   createKernelRuntimeInProcessWireTransport,
   createKernelRuntimeStdioWireTransport,

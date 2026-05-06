@@ -87,12 +87,10 @@ describe('kernel import discipline', () => {
   })
 
   test('REPL host goes through the kernel runtime controller instead of execution internals', async () => {
-    const replSources = [
-      'src/screens/REPL.tsx',
-      'src/screens/repl/controllers/runReplBackgroundQueryController.ts',
-      'src/screens/repl/controllers/runReplQueryTurnController.ts',
-    ]
-    const offenders = await collectFilesContaining(replSources, [
+    const screenSources = (await listRepoTypeScriptFiles('src/screens')).filter(
+      path => !path.includes('/__tests__/'),
+    )
+    const offenders = await collectFilesContaining(screenSources, [
       /runtime\/capabilities\/execution\/internal\//,
       /runtime\/capabilities\/execution\/headlessCapabilityMaterializer\.js/,
       /runtime\/capabilities\/permissions\/RuntimePermissionService\.js/,

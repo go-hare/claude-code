@@ -73,6 +73,18 @@ type ProtocolMessageProjection = {
 type AcpRuntimeEnvelopeProjection = {
   protocolMessages: ProtocolMessageProjection[]
   stopReason?: StopReason
+  terminalUsage?: TerminalUsageProjection
+}
+
+type TerminalUsageProjection = {
+  usage?: {
+    input_tokens?: number
+    output_tokens?: number
+    cache_read_input_tokens?: number
+    cache_creation_input_tokens?: number
+  }
+  modelUsage?: Record<string, { contextWindow?: number }>
+  totalCostUsd?: number
 }
 // ── Tool info conversion ──────────────────────────────────────────
 
@@ -623,6 +635,28 @@ export async function forwardSessionUpdates(
         stopReason = projection.stopReason
         runtimeTerminalSeen = true
       }
+      if (projection.terminalUsage) {
+        await applyTerminalUsageProjection({
+          accumulatedUsage,
+          lastAssistantTotalUsage,
+          lastAssistantModel,
+          projection: projection.terminalUsage,
+          sendUsageUpdate: async ({ used, size, cost }) => {
+            if (size !== undefined) {
+              lastContextWindowSize = size
+            }
+            await conn.sessionUpdate({
+              sessionId,
+              update: {
+                sessionUpdate: 'usage_update',
+                used,
+                size: lastContextWindowSize,
+                cost,
+              },
+            })
+          },
+        })
+      }
 
       for (const { message: msg, event: sourceEvent } of projection.protocolMessages) {
         if (!protocolMessageDedupe.shouldProcess(msg)) {
@@ -671,43 +705,30 @@ export async function forwardSessionUpdates(
               }
             | undefined
 
-          if (usage) {
-            accumulatedUsage.inputTokens += usage.input_tokens
-            accumulatedUsage.outputTokens += usage.output_tokens
-            accumulatedUsage.cachedReadTokens += usage.cache_read_input_tokens
-            accumulatedUsage.cachedWriteTokens += usage.cache_creation_input_tokens
-          }
-
-          // Resolve context window size from modelUsage via prefix matching
-          const modelUsage = msg.modelUsage as
-            | Record<string, { contextWindow?: number }>
-            | undefined
-          if (modelUsage && lastAssistantModel) {
-            const match = getMatchingModelUsage(modelUsage, lastAssistantModel)
-            if (match?.contextWindow) {
-              lastContextWindowSize = match.contextWindow
-            }
-          }
-
-          // Send usage_update — use lastAssistantTotalUsage if available
-          // (more accurate than accumulatedUsage which may include background tasks)
-          const usedTokens = lastAssistantTotalUsage ?? (
-            accumulatedUsage.inputTokens +
-            accumulatedUsage.outputTokens +
-            accumulatedUsage.cachedReadTokens +
-            accumulatedUsage.cachedWriteTokens
-          )
-
-          const totalCostUsd = msg.total_cost_usd as number | undefined
-          await conn.sessionUpdate({
-            sessionId,
-            update: {
-              sessionUpdate: 'usage_update',
-              used: usedTokens,
-              size: lastContextWindowSize,
-              cost: totalCostUsd != null
-                ? { amount: totalCostUsd, currency: 'USD' }
-                : undefined,
+          await applyTerminalUsageProjection({
+            accumulatedUsage,
+            lastAssistantTotalUsage,
+            lastAssistantModel,
+            projection: {
+              usage,
+              modelUsage: msg.modelUsage as
+                | Record<string, { contextWindow?: number }>
+                | undefined,
+              totalCostUsd: msg.total_cost_usd as number | undefined,
+            },
+            sendUsageUpdate: async ({ used, size, cost }) => {
+              if (size !== undefined) {
+                lastContextWindowSize = size
+              }
+              await conn.sessionUpdate({
+                sessionId,
+                update: {
+                  sessionUpdate: 'usage_update',
+                  used,
+                  size: lastContextWindowSize,
+                  cost,
+                },
+              })
             },
           })
 
@@ -945,6 +966,7 @@ async function projectRuntimeEnvelopeToAcpSessionUpdates({
   if (isKernelTurnTerminalEvent(event)) {
     const terminalProjection = getKernelRuntimeTerminalProjection(event)
     projection.stopReason = terminalProjection.hostStopReason as StopReason
+    projection.terminalUsage = getTerminalUsageProjection(event)
   }
 
   const protocolMessage = getProtocolMessageFromKernelRuntimeEnvelope(runtimeEnvelope)
@@ -955,6 +977,91 @@ async function projectRuntimeEnvelopeToAcpSessionUpdates({
     })
   }
   return projection
+}
+
+async function applyTerminalUsageProjection(options: {
+  accumulatedUsage: SessionUsage
+  lastAssistantTotalUsage: number | null
+  lastAssistantModel: string | null
+  projection: TerminalUsageProjection
+  sendUsageUpdate: (update: {
+    used: number
+    size?: number
+    cost?: { amount: number; currency: 'USD' }
+  }) => Promise<void>
+}): Promise<void> {
+  const { accumulatedUsage, projection } = options
+  const usage = projection.usage
+  if (usage) {
+    accumulatedUsage.inputTokens += usage.input_tokens ?? 0
+    accumulatedUsage.outputTokens += usage.output_tokens ?? 0
+    accumulatedUsage.cachedReadTokens += usage.cache_read_input_tokens ?? 0
+    accumulatedUsage.cachedWriteTokens +=
+      usage.cache_creation_input_tokens ?? 0
+  }
+
+  const size = getTerminalContextWindowSize(
+    projection.modelUsage,
+    options.lastAssistantModel,
+  )
+  const used = options.lastAssistantTotalUsage ?? getTotalSessionUsage(
+    accumulatedUsage,
+  )
+  await options.sendUsageUpdate({
+    used,
+    ...(size !== undefined ? { size } : {}),
+    ...(projection.totalCostUsd !== undefined
+      ? {
+          cost: {
+            amount: projection.totalCostUsd,
+            currency: 'USD',
+          },
+        }
+      : {}),
+  })
+}
+
+function getTerminalContextWindowSize(
+  modelUsage: Record<string, { contextWindow?: number }> | undefined,
+  lastAssistantModel: string | null,
+): number | undefined {
+  if (!modelUsage || !lastAssistantModel) {
+    return undefined
+  }
+  return getMatchingModelUsage(modelUsage, lastAssistantModel)
+    ?.contextWindow
+}
+
+function getTotalSessionUsage(usage: SessionUsage): number {
+  return (
+    usage.inputTokens +
+    usage.outputTokens +
+    usage.cachedReadTokens +
+    usage.cachedWriteTokens
+  )
+}
+
+function getTerminalUsageProjection(
+  event: KernelEvent,
+): TerminalUsageProjection | undefined {
+  const payload = event.payload
+  if (typeof payload !== 'object' || payload === null) {
+    return undefined
+  }
+  const record = payload as Record<string, unknown>
+  const usage =
+    typeof record.usage === 'object' && record.usage !== null
+      ? (record.usage as TerminalUsageProjection['usage'])
+      : undefined
+  const modelUsage =
+    typeof record.modelUsage === 'object' && record.modelUsage !== null
+      ? (record.modelUsage as Record<string, { contextWindow?: number }>)
+      : undefined
+  const totalCostUsd =
+    typeof record.totalCostUsd === 'number' ? record.totalCostUsd : undefined
+  return usage || modelUsage || totalCostUsd !== undefined
+    ? { usage, modelUsage, totalCostUsd }
+    : undefined
 }
 
 // ── Assistant message conversion ──────────────────────────────────

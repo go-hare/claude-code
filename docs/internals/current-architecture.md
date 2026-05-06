@@ -254,6 +254,22 @@ server 和 execution/headless 已经开始共享：
 - `runBridgeHeadless`
 - `runDaemonWorker`
 
+当前 value-level export 已在
+`src/kernel/__tests__/publicSurfaceManifest.ts` 中分为四档，并由
+`surface.test` 保证每个公开 value export 只能属于一个档位：
+
+- `stable_contract`：对外 semver 承诺的 kernel / wire / event /
+  headless / permission / capability 核心 contract。
+- `host_integration`：给内置 CLI、bridge、daemon、server 等宿主接线使用的
+  package-visible 入口，不作为通用 app API 鼓励扩散。
+- `experimental_runtime`：companion、Kairos、memory、context、session 以及
+  domain manager helper，允许继续按产品主链演进。
+- `compat_projection`：legacy / compatibility projection helper，只服务旧输出、
+  host fallback 或迁移期投影，不是第二套 runtime protocol。
+
+type-only export 跟随所属能力族解释；精确 value export 集合与分级以测试
+manifest 为事实源，文档里的手工列表只做阅读索引。
+
 ### 不承诺长期稳定的面
 
 当前不建议对外直接依赖：

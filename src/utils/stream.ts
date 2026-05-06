@@ -48,7 +48,15 @@ export class Stream<T> implements AsyncIterator<T> {
 
   done() {
     this.isDone = true
-    if (this.readResolve) {
+    if (this.readResolve && this.queue.length > 0) {
+      const resolve = this.readResolve
+      this.readResolve = undefined
+      this.readReject = undefined
+      resolve({
+        done: false,
+        value: this.queue.shift()!,
+      })
+    } else if (this.readResolve) {
       const resolve = this.readResolve
       this.readResolve = undefined
       this.readReject = undefined
