@@ -1,4 +1,4 @@
-import type { SDKMessage } from '../../../entrypoints/agentSdkTypes.js'
+import type { ProtocolMessage } from 'src/types/protocol/index.js'
 import { logForDebugging } from '../../../utils/debug.js'
 import { errorMessage } from '../../../utils/errors.js'
 import { extractErrorDetail } from '../../../bridge/debugUtils.js'
@@ -17,7 +17,7 @@ type GitOutcome = {
 
 type SessionEvent = {
   type: 'event'
-  data: SDKMessage
+  data: ProtocolMessage
 }
 
 export async function createBridgeSessionRuntime(params: {

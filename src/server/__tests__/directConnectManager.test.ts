@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 
-import type { SDKControlRequest } from '../../entrypoints/sdk/controlTypes.js'
+import type { ProtocolControlRequest } from 'src/types/protocol/controlTypes.js'
 import type { KernelRuntimeEnvelopeBase } from '../../runtime/contracts/events.js'
 import { DirectConnectSessionManager } from '../directConnectManager.js'
 
@@ -99,7 +99,7 @@ function createRuntimeEventMessage() {
       conversationId: 'conversation-1',
       eventId: 'conversation-1:1',
       payload: {
-        type: 'headless.sdk_message',
+        type: 'headless.protocol_message',
         replayable: true,
       },
     },
@@ -121,7 +121,7 @@ describe('DirectConnectSessionManager', () => {
         input: { command: 'pwd' },
         tool_use_id: 'tool-use-1',
       },
-    } satisfies SDKControlRequest)
+    } satisfies ProtocolControlRequest)
 
     manager.respondToPermissionRequest('request-1', {
       behavior: 'allow',
@@ -159,7 +159,7 @@ describe('DirectConnectSessionManager', () => {
         input: { command: 'pwd' },
         tool_use_id: 'tool-use-permanent',
       },
-    } satisfies SDKControlRequest)
+    } satisfies ProtocolControlRequest)
 
     manager.respondToPermissionRequest('request-permanent', {
       behavior: 'allow',
@@ -197,7 +197,7 @@ describe('DirectConnectSessionManager', () => {
         input: { command: 'rm file' },
         tool_use_id: 'tool-use-2',
       },
-    } satisfies SDKControlRequest)
+    } satisfies ProtocolControlRequest)
     sendSocketMessage(socket, {
       type: 'control_cancel_request',
       request_id: 'request-2',
@@ -215,7 +215,7 @@ describe('DirectConnectSessionManager', () => {
     expect(socket.sent).toEqual([])
   })
 
-  test('routes kernel runtime events without forwarding them as SDK messages', () => {
+  test('routes kernel runtime events without forwarding them as protocol messages', () => {
     const onRuntimeEvent = mock((_envelope: KernelRuntimeEnvelopeBase) => {})
     const manager = createManager({ onRuntimeEvent })
     manager.connect()

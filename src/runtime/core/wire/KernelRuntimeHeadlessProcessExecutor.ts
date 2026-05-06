@@ -4,8 +4,8 @@ import { createInterface } from 'readline'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 
-import type { SDKMessage } from '../../../entrypoints/agentSdkTypes.js'
-import { projectSemanticRuntimeEventsFromSDKMessage } from '../events/compatProjection.js'
+import type { ProtocolMessage } from 'src/types/protocol/index.js'
+import { projectSemanticRuntimeEventsFromProtocolMessage } from '../events/compatProjection.js'
 import type {
   KernelRuntimeWireTurnExecutionEvent,
   KernelRuntimeWireTurnExecutor,
@@ -101,8 +101,8 @@ export function createKernelRuntimeHeadlessProcessExecutor(
         if (line.trim().length === 0) {
           continue
         }
-        const message = parseHeadlessStdoutMessage(line)
-        for (const event of mapHeadlessStdoutMessage(message, {
+        const message = parseHeadlessProtocolStdoutMessage(line)
+        for (const event of mapHeadlessProtocolStdoutMessage(message, {
           conversationId: context.command.conversationId,
           turnId: context.command.turnId,
         })) {
@@ -259,7 +259,7 @@ function serializePromptForHeadlessStdin(prompt: string | readonly unknown[]): s
   return JSON.stringify(prompt)
 }
 
-function parseHeadlessStdoutMessage(line: string): Record<string, unknown> {
+function parseHeadlessProtocolStdoutMessage(line: string): Record<string, unknown> {
   try {
     const parsed = JSON.parse(line) as unknown
     if (typeof parsed === 'object' && parsed !== null) {
@@ -274,7 +274,7 @@ function parseHeadlessStdoutMessage(line: string): Record<string, unknown> {
   throw new Error(`Headless process emitted non-object JSON: ${line.slice(0, 500)}`)
 }
 
-function mapHeadlessStdoutMessage(
+function mapHeadlessProtocolStdoutMessage(
   message: Record<string, unknown>,
   options: {
     conversationId: string
@@ -282,10 +282,10 @@ function mapHeadlessStdoutMessage(
   },
 ): KernelRuntimeWireTurnExecutionEvent[] {
   const events: KernelRuntimeWireTurnExecutionEvent[] =
-    projectSemanticRuntimeEventsFromSDKMessage({
+    projectSemanticRuntimeEventsFromProtocolMessage({
       conversationId: options.conversationId,
       turnId: options.turnId,
-      message: message as SDKMessage,
+      message: message as ProtocolMessage,
     }).map(event => ({
       type: 'event' as const,
       event: {
@@ -296,7 +296,7 @@ function mapHeadlessStdoutMessage(
   events.push({
     type: 'event',
     event: {
-      type: 'headless.sdk_message',
+      type: 'headless.protocol_message',
       replayable: true,
       payload: message,
     },

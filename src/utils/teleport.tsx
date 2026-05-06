@@ -16,7 +16,7 @@ import {
   type TeleportLocalErrorType,
 } from '../components/TeleportError.js'
 import { getOauthConfig } from '../constants/oauth.js'
-import type { SDKMessage } from '../entrypoints/agentSdkTypes.js'
+import type { ProtocolMessage } from 'src/types/protocol/index.js'
 import type { Root } from '@anthropic/ink'
 import { KeybindingSetup } from '../keybindings/KeybindingProviderSetup.js'
 import { queryHaiku } from '../services/api/claude.js'
@@ -828,7 +828,7 @@ export async function teleportFromSessionsAPI(
  * Response type for polling remote session events (uses SDK events format)
  */
 export type PollRemoteSessionResponse = {
-  newEvents: SDKMessage[]
+  newEvents: ProtocolMessage[]
   lastEventId: string | null
   branch?: string
   sessionStatus?: 'idle' | 'running' | 'requires_action' | 'archived'
@@ -870,7 +870,7 @@ export async function pollRemoteSessionEvents(
 
   // Cap is a safety valve against stuck cursors; steady-state is 0–1 pages.
   const MAX_EVENT_PAGES = 50
-  const sdkMessages: SDKMessage[] = []
+  const protocolMessages: ProtocolMessage[] = []
   let cursor = afterId
   for (let page = 0; page < MAX_EVENT_PAGES; page++) {
     const eventsResponse = await axios.get(eventsUrl, {
@@ -899,7 +899,7 @@ export async function pollRemoteSessionEvents(
           continue
         }
         if ('session_id' in event) {
-          sdkMessages.push(event as SDKMessage)
+          protocolMessages.push(event as ProtocolMessage)
         }
       }
     }
@@ -910,7 +910,7 @@ export async function pollRemoteSessionEvents(
   }
 
   if (opts?.skipMetadata) {
-    return { newEvents: sdkMessages, lastEventId: cursor }
+    return { newEvents: protocolMessages, lastEventId: cursor }
   }
 
   // Fetch session metadata (branch, status)
@@ -928,7 +928,7 @@ export async function pollRemoteSessionEvents(
     )
   }
 
-  return { newEvents: sdkMessages, lastEventId: cursor, branch, sessionStatus }
+  return { newEvents: protocolMessages, lastEventId: cursor, branch, sessionStatus }
 }
 
 /**

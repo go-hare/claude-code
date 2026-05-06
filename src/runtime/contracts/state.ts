@@ -1,6 +1,6 @@
 import type { BetaMessageStreamParams } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
-import type { HookEvent } from 'src/entrypoints/agentSdkTypes.js'
-import type { ModelUsage } from 'src/entrypoints/agentSdkTypes.js'
+import type { HookEvent } from 'src/types/protocol/index.js'
+import type { ModelUsage } from 'src/types/protocol/index.js'
 import type { AppState } from 'src/state/AppStateStore.js'
 import type { SessionId } from 'src/types/ids.js'
 import type { HookCallbackMatcher } from 'src/types/hooks.js'

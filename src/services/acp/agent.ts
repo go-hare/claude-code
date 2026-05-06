@@ -2,7 +2,7 @@
  * ACP Agent implementation — bridges ACP protocol methods to Claude Code's
  * internal QueryEngine / query() pipeline.
  *
- * Architecture: Uses internal QueryEngine (not @anthropic-ai/claude-agent-sdk)
+ * Architecture: Uses internal QueryEngine directly.
  * to directly run queries, with a bridge layer converting runtime envelopes to
  * ACP SessionUpdate notifications.
  */

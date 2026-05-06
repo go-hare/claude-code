@@ -1,4 +1,4 @@
-import type { SDKMessage } from 'src/entrypoints/agentSdkTypes.js'
+import type { ProtocolMessage } from 'src/types/protocol/index.js'
 import { gracefulShutdownSync } from 'src/utils/gracefulShutdown.js'
 import { writeToStdout } from 'src/utils/process.js'
 import { installStreamJsonStdoutGuard } from 'src/utils/streamJsonStdoutGuard.js'
@@ -34,8 +34,8 @@ export function completeHeadlessRewind(messageId: string): void {
 }
 
 export function writeHeadlessResult(
-  lastMessage: SDKMessage | undefined,
-  messages: SDKMessage[],
+  lastMessage: ProtocolMessage | undefined,
+  messages: ProtocolMessage[],
   options: {
     outputFormat: string | undefined
     verbose: boolean | undefined
@@ -86,7 +86,7 @@ export function writeHeadlessResult(
   }
 }
 
-export function finalizeHeadlessResult(lastMessage: SDKMessage | undefined): void {
+export function finalizeHeadlessResult(lastMessage: ProtocolMessage | undefined): void {
   gracefulShutdownSync(
     lastMessage?.type === 'result' && lastMessage?.is_error ? 1 : 0,
   )

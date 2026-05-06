@@ -1,4 +1,4 @@
-import type { StdoutMessage } from 'src/entrypoints/sdk/controlTypes.js'
+import type { ProtocolStdoutMessage } from 'src/types/protocol/controlTypes.js'
 import { PassThrough } from 'stream'
 import { URL } from 'url'
 import { getPollIntervalConfig } from 'src/bridge/pollConfig.js'
@@ -231,7 +231,7 @@ export class RemoteIO extends StructuredIO {
    * bridge parent can detect permission requests. Other messages are echoed only
    * in debug mode.
    */
-  async write(message: StdoutMessage): Promise<void> {
+  async write(message: ProtocolStdoutMessage): Promise<void> {
     if (this.ccrClient) {
       await this.ccrClient.writeEvent(message)
     } else {

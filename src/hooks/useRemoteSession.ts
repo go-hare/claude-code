@@ -14,12 +14,12 @@ import {
 import {
   handleKernelRuntimeHostEvent,
   KernelRuntimeOutputDeltaDedupe,
-  KernelRuntimeSDKMessageDedupe,
+  KernelRuntimeProtocolMessageDedupe,
 } from '../remote/kernelRuntimeHostEvents.js'
 import {
-  convertSDKMessage,
+  convertProtocolMessage,
   isSessionEndMessage,
-} from '../remote/sdkMessageAdapter.js'
+} from '../remote/protocolMessageAdapter.js'
 import { useSetAppState } from '../state/AppState.js'
 import type { AppState } from '../state/AppStateStore.js'
 import type { KernelRuntimeEventSink } from '../runtime/contracts/events.js'
@@ -45,7 +45,7 @@ import { updateSessionTitle } from '../utils/teleport/api.js'
 // How long to wait for a response before showing a warning
 const RESPONSE_TIMEOUT_MS = 60000 // 60 seconds
 // Extended timeout during compaction — compact API calls take 5-30s and
-// block other SDK messages, so the normal 60s timeout isn't enough when
+// block other protocol messages, so the normal 60s timeout isn't enough when
 // compaction itself runs close to the edge.
 const COMPACTION_TIMEOUT_MS = 180000 // 3 minutes
 
@@ -81,7 +81,7 @@ type UseRemoteSessionResult = {
  *
  * Handles:
  * - WebSocket connection to CCR
- * - Converting SDK messages to REPL messages
+ * - Converting protocol messages to REPL messages
  * - Sending user input to CCR via HTTP POST
  * - Permission request/response flow via existing ToolUseConfirm queue
  */
@@ -134,7 +134,7 @@ export function useRemoteSession({
   const isCompactingRef = useRef(false)
 
   const managerRef = useRef<RemoteSessionManager | null>(null)
-  const sdkMessageDedupeRef = useRef(new KernelRuntimeSDKMessageDedupe())
+  const protocolMessageDedupeRef = useRef(new KernelRuntimeProtocolMessageDedupe())
   const outputDeltaDedupeRef = useRef(new KernelRuntimeOutputDeltaDedupe())
 
   // Track whether we've already updated the session title (for no-initial-prompt sessions)
@@ -169,19 +169,19 @@ export function useRemoteSession({
     logForDebugging(
       `[useRemoteSession] Initializing for session ${config.sessionId}`,
     )
-    sdkMessageDedupeRef.current.clear()
+    protocolMessageDedupeRef.current.clear()
     outputDeltaDedupeRef.current.clear()
 
-    const handleSDKMessage = (sdkMessage: Parameters<typeof convertSDKMessage>[0]) => {
-      if (!sdkMessageDedupeRef.current.shouldProcess(sdkMessage)) {
+    const handleProtocolMessage = (protocolMessage: Parameters<typeof convertProtocolMessage>[0]) => {
+      if (!protocolMessageDedupeRef.current.shouldProcess(protocolMessage)) {
         return
       }
 
-      const parts = [`type=${sdkMessage.type}`]
-      if ('subtype' in sdkMessage)
-        parts.push(`subtype=${sdkMessage.subtype as string}`)
-      if (sdkMessage.type === 'user') {
-        const c = (sdkMessage.message as { content?: unknown } | undefined)
+      const parts = [`type=${protocolMessage.type}`]
+      if ('subtype' in protocolMessage)
+        parts.push(`subtype=${protocolMessage.subtype as string}`)
+      if (protocolMessage.type === 'user') {
+        const c = (protocolMessage.message as { content?: unknown } | undefined)
           ?.content
         parts.push(
           `content=${Array.isArray(c) ? c.map(b => b.type).join(',') : typeof c}`,
@@ -204,22 +204,22 @@ export function useRemoteSession({
       // match — the same uuid can echo more than once (server broadcast +
       // worker echo), and BoundedUUIDSet already caps growth via its ring.
       if (
-        sdkMessage.type === 'user' &&
-        sdkMessage.uuid &&
-        sentUUIDsRef.current.has(sdkMessage.uuid as string)
+        protocolMessage.type === 'user' &&
+        protocolMessage.uuid &&
+        sentUUIDsRef.current.has(protocolMessage.uuid as string)
       ) {
         logForDebugging(
-          `[useRemoteSession] Dropping echoed user message ${sdkMessage.uuid as string}`,
+          `[useRemoteSession] Dropping echoed user message ${protocolMessage.uuid as string}`,
         )
         return
       }
       // Handle init message - extract available slash commands
       if (
-        sdkMessage.type === 'system' &&
-        sdkMessage.subtype === 'init' &&
+        protocolMessage.type === 'system' &&
+        protocolMessage.subtype === 'init' &&
         onInit
       ) {
-        const slashCommands = sdkMessage.slash_commands as string[]
+        const slashCommands = protocolMessage.slash_commands as string[]
         logForDebugging(
           `[useRemoteSession] Init received with ${slashCommands.length} slash commands`,
         )
@@ -230,51 +230,51 @@ export function useRemoteSession({
       // All task types (Agent/teammate/workflow/bash) flow through
       // registerTask() → task_started, and complete via task_notification.
       // Return early — these are status signals, not renderable messages.
-      if (sdkMessage.type === 'system') {
-        if (sdkMessage.subtype === 'task_started') {
-          runningTaskIdsRef.current.add(sdkMessage.task_id as string)
+      if (protocolMessage.type === 'system') {
+        if (protocolMessage.subtype === 'task_started') {
+          runningTaskIdsRef.current.add(protocolMessage.task_id as string)
           writeTaskCount()
           return
         }
-        if (sdkMessage.subtype === 'task_notification') {
-          runningTaskIdsRef.current.delete(sdkMessage.task_id as string)
+        if (protocolMessage.subtype === 'task_notification') {
+          runningTaskIdsRef.current.delete(protocolMessage.task_id as string)
           writeTaskCount()
           return
         }
-        if (sdkMessage.subtype === 'task_progress') {
+        if (protocolMessage.subtype === 'task_progress') {
           return
         }
         // Track compaction state. The CLI emits status='compacting' at
         // the start and status=null when done; compact_boundary also
         // signals completion. Repeated 'compacting' status messages
         // (keep-alive ticks) update the ref but don't append to messages.
-        if (sdkMessage.subtype === 'status') {
+        if (protocolMessage.subtype === 'status') {
           const wasCompacting = isCompactingRef.current
-          isCompactingRef.current = sdkMessage.status === 'compacting'
+          isCompactingRef.current = protocolMessage.status === 'compacting'
           if (wasCompacting && isCompactingRef.current) {
             return
           }
         }
-        if (sdkMessage.subtype === 'compact_boundary') {
+        if (protocolMessage.subtype === 'compact_boundary') {
           isCompactingRef.current = false
         }
       }
 
       // Check if session ended
-      if (isSessionEndMessage(sdkMessage)) {
+      if (isSessionEndMessage(protocolMessage)) {
         isCompactingRef.current = false
         setIsLoading(false)
       }
 
       // Clear in-progress tool_use IDs when their tool_result arrives.
-      // Must read the RAW sdkMessage: in non-viewerOnly mode,
-      // convertSDKMessage returns {type:'ignored'} for user messages, so the
+      // Must read the RAW protocolMessage: in non-viewerOnly mode,
+      // convertProtocolMessage returns {type:'ignored'} for user messages, so the
       // delete would never fire post-conversion. Mirrors the add site below
       // and inProcessRunner.ts; without this the set grows unbounded for the
       // session lifetime (BQ: CCR cohort shows 5.2x higher RSS slope).
-      if (setInProgressToolUseIDs && sdkMessage.type === 'user') {
+      if (setInProgressToolUseIDs && protocolMessage.type === 'user') {
         const content = (
-          sdkMessage.message as { content?: unknown } | undefined
+          protocolMessage.message as { content?: unknown } | undefined
         )?.content
         if (Array.isArray(content)) {
           const resultIds: string[] = []
@@ -293,12 +293,12 @@ export function useRemoteSession({
         }
       }
 
-      // Convert SDK message to REPL message. In viewerOnly mode, the
+      // Convert protocol message to REPL message. In viewerOnly mode, the
       // remote agent runs BriefTool (SendUserMessage) — its tool_use block
       // renders empty (userFacingName() === ''), actual content is in the
       // tool_result. So we must convert tool_results to render them.
-      const converted = convertSDKMessage(
-        sdkMessage,
+      const converted = convertProtocolMessage(
+        protocolMessage,
         config.viewerOnly
           ? { convertToolResults: true, convertUserTextMessages: true }
           : undefined,
@@ -359,7 +359,7 @@ export function useRemoteSession({
     }
 
     const manager = new RemoteSessionManager(config, {
-      onMessage: handleSDKMessage,
+      onMessage: handleProtocolMessage,
       onPermissionRequest: (request, requestId) => {
         logForDebugging(
           `[useRemoteSession] Permission request for tool: ${request.tool_name}`,
@@ -486,7 +486,7 @@ export function useRemoteSession({
       onRuntimeEvent: envelope => {
         handleKernelRuntimeHostEvent(envelope, {
           onRuntimeEvent,
-          onSDKMessage: handleSDKMessage,
+          onProtocolMessage: handleProtocolMessage,
           onRuntimeHeartbeat: () => {
             if (responseTimeoutRef.current) {
               clearTimeout(responseTimeoutRef.current)

@@ -36,7 +36,7 @@ export function createCoordinatorLifecycleEvent({
   }
 }
 
-export function projectCoordinatorLifecycleFromSdkMessage(
+export function projectCoordinatorLifecycleFromCompatibilityMessage(
   message: unknown,
   activeTurnId?: string,
 ): CoordinatorLifecycleRuntimeEvent | undefined {

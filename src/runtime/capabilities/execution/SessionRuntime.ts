@@ -4,10 +4,10 @@ import { randomUUID } from 'crypto'
 import last from 'lodash-es/last.js'
 import type {
   PermissionMode,
-  SDKMessage,
-  SDKPermissionDenial,
-  SDKStatus,
-} from '../../../entrypoints/agentSdkTypes.js'
+  ProtocolMessage,
+  ProtocolPermissionDenial,
+  ProtocolStatus,
+} from 'src/types/protocol/index.js'
 import type { BetaMessageDeltaUsage } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import { accumulateUsage, updateUsage } from '../../../services/api/claude.js'
 import type { NonNullableUsage } from '@ant/model-provider'
@@ -112,7 +112,7 @@ import type { KernelCapabilityPlane } from '../../contracts/capability.js'
 import { RuntimeEventBus } from '../../core/events/RuntimeEventBus.js'
 import {
   getRuntimeAbortStopReason,
-  getSDKMessageFromRuntimeEnvelope,
+  getProtocolMessageFromRuntimeEnvelope,
 } from '../../core/events/compatProjection.js'
 import { createRuntimeToolCapabilityPlane } from '../tools/ToolCapabilityPlane.js'
 import {
@@ -126,7 +126,7 @@ export type RuntimeTurnPreludeEvent = Omit<
   'runtimeId' | 'eventId' | 'conversationId' | 'turnId'
 >
 
-type QueryResultSDKMessage = SDKMessage & {
+type QueryResultProtocolMessage = ProtocolMessage & {
   type: 'result'
   subtype?: string
   is_error?: boolean
@@ -135,7 +135,7 @@ type QueryResultSDKMessage = SDKMessage & {
 
 type QueryTurnSidecarOutput = {
   type: 'query_sidecar'
-  messages: SDKMessage[]
+  messages: ProtocolMessage[]
 }
 
 // Lazy: MessageSelector.tsx pulls React/ink; only needed for message filtering at query time
@@ -156,7 +156,7 @@ function selectableUserMessagesFilter(message: unknown): boolean {
 }
 
 import {
-  sdkCompatToolName,
+  protocolCompatToolName,
 } from '../../../utils/messages/systemInit.js'
 import {
   getScratchpadDir,
@@ -268,7 +268,7 @@ export type QueryEngineConfig = {
   /** Handler for URL elicitations triggered by MCP tool -32042 errors. */
   handleElicitation?: ToolUseContext['handleElicitation']
   includePartialMessages?: boolean
-  setSDKStatus?: (status: SDKStatus) => void
+  setProtocolStatus?: (status: ProtocolStatus) => void
   abortController?: AbortController
   orphanedPermission?: OrphanedPermission
   activeTaskExecutionContext?: ToolUseContext['activeTaskExecutionContext']
@@ -322,7 +322,7 @@ export class SessionRuntime implements RuntimeExecutionSession {
   private config: QueryEngineConfig
   private mutableMessages: Message[]
   private abortController: AbortController
-  private permissionDenials: SDKPermissionDenial[]
+  private permissionDenials: ProtocolPermissionDenial[]
   private totalUsage: NonNullableUsage
   private hasHandledOrphanedPermission = false
   private readFileState: FileStateCache
@@ -512,17 +512,16 @@ export class SessionRuntime implements RuntimeExecutionSession {
           turnId,
           enqueueRuntimeEvent,
           (queryMessage, projectionOptions) => {
-            const projection =
-              turnEventAdapter.projectQueryMessageWithCompatibility(
-                queryMessage,
-                projectionOptions,
-              )
-            for (const event of projection.events) {
+            const events = turnEventAdapter.projectQueryMessage(
+              queryMessage,
+              projectionOptions,
+            )
+            for (const event of events) {
               enqueueRuntimeEvent(event)
             }
             return {
               type: 'query_sidecar',
-              messages: projection.compatibilityMessages,
+              messages: [],
             }
           },
         ),
@@ -589,11 +588,11 @@ export class SessionRuntime implements RuntimeExecutionSession {
   async *submitMessage(
     prompt: string | ContentBlockParam[],
     options?: { uuid?: string; isMeta?: boolean },
-  ): AsyncGenerator<SDKMessage, void, unknown> {
+  ): AsyncGenerator<ProtocolMessage, void, unknown> {
     for await (const envelope of this.submitRuntimeTurn(prompt, options)) {
-      const sdkMessage = getSDKMessageFromRuntimeEnvelope(envelope)
-      if (sdkMessage) {
-        yield sdkMessage
+      const protocolMessage = getProtocolMessageFromRuntimeEnvelope(envelope)
+      if (protocolMessage) {
+        yield protocolMessage
       }
     }
   }
@@ -633,7 +632,7 @@ export class SessionRuntime implements RuntimeExecutionSession {
       replayUserMessages = false,
       includePartialMessages = false,
       agents = [],
-      setSDKStatus,
+      setProtocolStatus,
       orphanedPermission,
     } = this.config
 
@@ -665,7 +664,7 @@ export class SessionRuntime implements RuntimeExecutionSession {
       if (result.behavior !== 'allow') {
         this.permissionDenials.push({
           type: 'permission_denial',
-          tool_name: sdkCompatToolName(tool.name),
+          tool_name: protocolCompatToolName(tool.name),
           tool_use_id: toolUseID,
           tool_input: input,
         })
@@ -788,7 +787,7 @@ export class SessionRuntime implements RuntimeExecutionSession {
         this.stateProviders.app.updateAttribution(updater)
       },
       contentReplacementState: this.contentReplacementState,
-      setSDKStatus,
+      setProtocolStatus,
       activeTaskExecutionContext:
         this.config.activeTaskExecutionContext ??
         getActiveTaskExecutionContext(),
@@ -894,7 +893,7 @@ export class SessionRuntime implements RuntimeExecutionSession {
     }))
 
     const mainLoopModel = modelFromUserInput ?? initialMainLoopModel
-    const emitTerminalResult = <T extends QueryResultSDKMessage>(
+    const emitTerminalResult = <T extends QueryResultProtocolMessage>(
       result: T,
     ): QueryTurnSidecarOutput =>
       projectQuerySidecar({
@@ -904,7 +903,7 @@ export class SessionRuntime implements RuntimeExecutionSession {
         isError: result.is_error === true,
         stopReason:
           typeof result.stop_reason === 'string' ? result.stop_reason : null,
-        sdkMessage: result,
+        protocolMessage: result,
       })
 
     // Recreate after processing the prompt to pick up updated messages and
@@ -944,7 +943,7 @@ export class SessionRuntime implements RuntimeExecutionSession {
       updateFileHistoryState: processUserInputContext.updateFileHistoryState,
       updateAttributionState: processUserInputContext.updateAttributionState,
       contentReplacementState: this.contentReplacementState,
-      setSDKStatus,
+      setProtocolStatus,
       activeTaskExecutionContext:
         this.config.activeTaskExecutionContext ??
         getActiveTaskExecutionContext(),
@@ -1009,7 +1008,7 @@ export class SessionRuntime implements RuntimeExecutionSession {
 
         // Local command output — yield as a synthetic assistant message so
         // RC renders it as assistant-style text rather than a user bubble.
-        // Emitted as assistant (not the dedicated SDKLocalCommandOutputMessage
+        // Emitted as assistant (not the dedicated ProtocolLocalCommandOutputMessage
         // system subtype) so mobile clients + session-ingress can parse it.
         if (
           msg.type === 'system' &&
@@ -1680,7 +1679,7 @@ export type AskRuntimeOptions = {
   includePartialMessages?: boolean
   handleElicitation?: ToolUseContext['handleElicitation']
   agents?: AgentDefinition[]
-  setSDKStatus?: (status: SDKStatus) => void
+  setProtocolStatus?: (status: ProtocolStatus) => void
   orphanedPermission?: OrphanedPermission
   activeTaskExecutionContext?: ToolUseContext['activeTaskExecutionContext']
   executionMode?: KernelExecutionMode
@@ -1722,7 +1721,7 @@ export async function* askRuntime({
   includePartialMessages = false,
   handleElicitation,
   agents = [],
-  setSDKStatus,
+  setProtocolStatus,
   orphanedPermission,
   activeTaskExecutionContext,
   executionMode = 'headless',
@@ -1760,7 +1759,7 @@ export async function* askRuntime({
     handleElicitation,
     replayUserMessages,
     includePartialMessages,
-    setSDKStatus,
+    setProtocolStatus,
     abortController,
     orphanedPermission,
     activeTaskExecutionContext,
@@ -1793,11 +1792,11 @@ export async function* askRuntime({
 
 export async function* ask(
   options: AskRuntimeOptions,
-): AsyncGenerator<SDKMessage, void, unknown> {
+): AsyncGenerator<ProtocolMessage, void, unknown> {
   for await (const envelope of askRuntime(options)) {
-    const sdkMessage = getSDKMessageFromRuntimeEnvelope(envelope)
-    if (sdkMessage) {
-      yield sdkMessage
+    const protocolMessage = getProtocolMessageFromRuntimeEnvelope(envelope)
+    if (protocolMessage) {
+      yield protocolMessage
     }
   }
 }

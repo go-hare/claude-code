@@ -1,5 +1,5 @@
 import type { UUID } from 'crypto'
-import type { StdoutMessage } from 'src/entrypoints/sdk/controlTypes.js'
+import type { ProtocolStdoutMessage } from 'src/types/protocol/controlTypes.js'
 import type { KernelEvent } from '../../../contracts/events.js'
 import type {
   RuntimeTaskNotificationPayload,
@@ -19,7 +19,7 @@ export type RuntimeTurnPreludeEvent = Omit<
 export type HeadlessTaskNotificationProjection = {
   runtimeEvent: RuntimeTurnPreludeEvent
   handoffEvent: CoordinatorLifecycleRuntimeEvent
-  sdkMessage: StdoutMessage
+  protocolMessage: ProtocolStdoutMessage
 }
 
 export function projectHeadlessTaskNotification({
@@ -73,7 +73,7 @@ export function projectHeadlessTaskNotification({
       summary,
       reason: status === 'completed' ? undefined : status,
     }),
-    sdkMessage: {
+    protocolMessage: {
       type: 'system',
       subtype: 'task_notification',
       task_id: payload.taskId,
@@ -84,7 +84,7 @@ export function projectHeadlessTaskNotification({
       ...(payload.usage ? { usage: payload.usage } : {}),
       session_id: sessionId,
       uuid,
-    } as StdoutMessage,
+    } as ProtocolStdoutMessage,
   }
 }
 

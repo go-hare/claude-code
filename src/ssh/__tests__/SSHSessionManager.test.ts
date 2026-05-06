@@ -149,7 +149,7 @@ function createRuntimeEventMessage() {
       conversationId: 'conversation-1',
       eventId: 'conversation-1:1',
       payload: {
-        type: 'headless.sdk_message',
+        type: 'headless.protocol_message',
         replayable: true,
       },
     },
@@ -203,8 +203,8 @@ describe('SSHSessionManagerImpl', () => {
     expect((proc.kill as ReturnType<typeof mock>).mock.calls.length).toBe(1)
   })
 
-  test('processLine routes SDK messages to onMessage', async () => {
-    const sdkMessage = JSON.stringify({
+  test('processLine routes protocol messages to onMessage', async () => {
+    const protocolMessage = JSON.stringify({
       type: 'assistant',
       message: { role: 'assistant', content: 'hello' },
     })
@@ -214,7 +214,7 @@ describe('SSHSessionManagerImpl', () => {
     const manager = new SSHSessionManagerImpl(proc, opts)
 
     manager.connect()
-    writeToStdout(sdkMessage)
+    writeToStdout(protocolMessage)
 
     await new Promise(r => setTimeout(r, 50))
     simulateExit(0)
@@ -282,7 +282,7 @@ describe('SSHSessionManagerImpl', () => {
     expect(opts.state.permissionRequests[0]!.requestId).toBe('req-123')
   })
 
-  test('processLine routes kernel runtime events without forwarding as SDK messages', async () => {
+  test('processLine routes kernel runtime events without forwarding as protocol messages', async () => {
     const { proc, writeToStdout, simulateExit } = createMockSubprocess()
     const opts = createMockOptions()
     const manager = new SSHSessionManagerImpl(proc, opts)
@@ -415,7 +415,7 @@ describe('SSHSessionManagerImpl', () => {
     expect(opts.state.errors.length).toBe(0)
   })
 
-  test('non-StdoutMessage objects are skipped', async () => {
+  test('non-ProtocolStdoutMessage objects are skipped', async () => {
     const { proc, writeToStdout, simulateExit } = createMockSubprocess()
     const opts = createMockOptions()
     const manager = new SSHSessionManagerImpl(proc, opts)

@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from 'bun:test'
 
-import type { SDKMessage } from '../../entrypoints/agentSdkTypes.js'
+import type { ProtocolMessage } from 'src/types/protocol/index.js'
 import type {
   KernelEvent,
   KernelRuntimeEnvelopeBase,
@@ -10,15 +10,15 @@ import {
   getCompatibilityProjectionFromKernelEvent,
   getKernelRuntimeLifecycleProjection,
   getKernelRuntimeTerminalProjection,
-  getKernelRuntimeTerminalProjectionFromSDKResultMessage,
-  getSDKMessageFromKernelRuntimeEnvelope,
+  getKernelRuntimeTerminalProjectionFromProtocolResultMessage,
+  getProtocolMessageFromKernelRuntimeEnvelope,
   getTextOutputDeltaFromKernelRuntimeEnvelope,
   handleKernelRuntimeHostEvent,
   hasCanonicalProjection,
   hasCompatibilityProjection,
   isKernelTurnTerminalEvent,
   KernelRuntimeOutputDeltaDedupe,
-  KernelRuntimeSDKMessageDedupe,
+  KernelRuntimeProtocolMessageDedupe,
 } from '../kernelRuntimeHostEvents.js'
 
 function createEnvelope(
@@ -77,7 +77,7 @@ describe('kernel runtime host events', () => {
     expect(isKernelTurnTerminalEvent(createEvent('turn.completed'))).toBe(true)
     expect(isKernelTurnTerminalEvent(createEvent('turn.failed'))).toBe(true)
     expect(isKernelTurnTerminalEvent(createEvent('turn.started'))).toBe(false)
-    expect(isKernelTurnTerminalEvent(createEvent('headless.sdk_message'))).toBe(
+    expect(isKernelTurnTerminalEvent(createEvent('headless.protocol_message'))).toBe(
       false,
     )
   })
@@ -135,7 +135,7 @@ describe('kernel runtime host events', () => {
 
   test('reads canonical projection metadata from runtime events', () => {
     const event = {
-      ...createEvent('headless.sdk_message'),
+      ...createEvent('headless.protocol_message'),
       metadata: { canonicalProjection: 'turn.output_delta' },
     }
 
@@ -146,7 +146,7 @@ describe('kernel runtime host events', () => {
     expect(hasCanonicalProjection(event, 'turn.completed')).toBe(false)
     expect(
       getCanonicalProjectionFromKernelEvent(
-        createEvent('headless.sdk_message'),
+        createEvent('headless.protocol_message'),
       ),
     ).toBeUndefined()
   })
@@ -163,47 +163,47 @@ describe('kernel runtime host events', () => {
     expect(
       hasCompatibilityProjection(event, 'headless.sdk_task_notification'),
     ).toBe(true)
-    expect(hasCompatibilityProjection(event, 'headless.sdk_message')).toBe(false)
+    expect(hasCompatibilityProjection(event, 'headless.protocol_message')).toBe(false)
   })
 
-  test('extracts SDK payloads from headless.sdk_message envelopes', () => {
-    const sdkMessage: SDKMessage = {
+  test('extracts protocol payloads from headless.protocol_message envelopes', () => {
+    const protocolMessage: ProtocolMessage = {
       type: 'result',
       subtype: 'success',
       uuid: 'sdk-message-1',
     }
     const envelope = createEnvelope(
-      createEvent('headless.sdk_message', sdkMessage),
+      createEvent('headless.protocol_message', protocolMessage),
     )
 
-    expect(getSDKMessageFromKernelRuntimeEnvelope(envelope)).toBe(sdkMessage)
+    expect(getProtocolMessageFromKernelRuntimeEnvelope(envelope)).toBe(protocolMessage)
     expect(
-      getSDKMessageFromKernelRuntimeEnvelope(
+      getProtocolMessageFromKernelRuntimeEnvelope(
         createEnvelope(createEvent('turn.completed')),
       ),
     ).toBeUndefined()
   })
 
-  test('routes headless.sdk_message payloads to host SDK consumers', () => {
-    const sdkMessage: SDKMessage = {
+  test('routes headless.protocol_message payloads to host SDK consumers', () => {
+    const protocolMessage: ProtocolMessage = {
       type: 'assistant',
       uuid: 'sdk-message-1',
     }
     const envelope = createEnvelope(
-      createEvent('headless.sdk_message', sdkMessage),
+      createEvent('headless.protocol_message', protocolMessage),
     )
-    const onSDKMessage = mock(
+    const onProtocolMessage = mock(
       (
-        _message: SDKMessage,
+        _message: ProtocolMessage,
         _envelope: KernelRuntimeEnvelopeBase,
         _event: KernelEvent,
       ) => {},
     )
 
-    handleKernelRuntimeHostEvent(envelope, { onSDKMessage })
+    handleKernelRuntimeHostEvent(envelope, { onProtocolMessage })
 
-    expect(onSDKMessage).toHaveBeenCalledWith(
-      sdkMessage,
+    expect(onProtocolMessage).toHaveBeenCalledWith(
+      protocolMessage,
       envelope,
       envelope.payload,
     )
@@ -281,11 +281,11 @@ describe('kernel runtime host events', () => {
     )
   })
 
-  test('extracts semantic text output deltas without re-rendering SDK-backed deltas', () => {
+  test('extracts semantic text output deltas without re-rendering protocol-backed deltas', () => {
     const semanticEnvelope = createEnvelope(
       createEvent('turn.output_delta', { text: 'hello' }),
     )
-    const sdkBackedEnvelope = createEnvelope(
+    const protocolBackedEnvelope = createEnvelope(
       createEvent('turn.output_delta', {
         text: 'duplicate',
         message: { type: 'result' },
@@ -296,7 +296,7 @@ describe('kernel runtime host events', () => {
       { text: 'hello' },
     )
     expect(
-      getTextOutputDeltaFromKernelRuntimeEnvelope(sdkBackedEnvelope),
+      getTextOutputDeltaFromKernelRuntimeEnvelope(protocolBackedEnvelope),
     ).toBeUndefined()
     expect(
       getTextOutputDeltaFromKernelRuntimeEnvelope(
@@ -326,37 +326,37 @@ describe('kernel runtime host events', () => {
     )
   })
 
-  test('projects SDK result terminal semantics through shared host mapping', () => {
+  test('projects protocol result terminal semantics through shared host mapping', () => {
     expect(
-      getKernelRuntimeTerminalProjectionFromSDKResultMessage({
+      getKernelRuntimeTerminalProjectionFromProtocolResultMessage({
         type: 'result',
         subtype: 'success',
         is_error: false,
         stop_reason: 'max_tokens',
-      } as SDKMessage),
+      } as ProtocolMessage),
     ).toMatchObject({
       eventType: 'turn.completed',
       hostStopReason: 'max_tokens',
     })
 
     expect(
-      getKernelRuntimeTerminalProjectionFromSDKResultMessage({
+      getKernelRuntimeTerminalProjectionFromProtocolResultMessage({
         type: 'result',
         subtype: 'error_max_turns',
         is_error: true,
-      } as SDKMessage),
+      } as ProtocolMessage),
     ).toMatchObject({
       eventType: 'turn.failed',
       hostStopReason: 'max_turn_requests',
     })
 
     expect(
-      getKernelRuntimeTerminalProjectionFromSDKResultMessage(
+      getKernelRuntimeTerminalProjectionFromProtocolResultMessage(
         {
           type: 'result',
           subtype: 'success',
           is_error: false,
-        } as SDKMessage,
+        } as ProtocolMessage,
         { aborted: true },
       ),
     ).toMatchObject({
@@ -364,11 +364,11 @@ describe('kernel runtime host events', () => {
     })
   })
 
-  test('dedupes SDK messages by stable uuid while allowing unkeyed deltas', () => {
-    const dedupe = new KernelRuntimeSDKMessageDedupe(2)
-    const first: SDKMessage = { type: 'assistant', uuid: 'message-1' }
-    const second: SDKMessage = { type: 'assistant', uuid: 'message-2' }
-    const third: SDKMessage = { type: 'assistant', uuid: 'message-3' }
+  test('dedupes protocol messages by stable uuid while allowing unkeyed deltas', () => {
+    const dedupe = new KernelRuntimeProtocolMessageDedupe(2)
+    const first: ProtocolMessage = { type: 'assistant', uuid: 'message-1' }
+    const second: ProtocolMessage = { type: 'assistant', uuid: 'message-2' }
+    const third: ProtocolMessage = { type: 'assistant', uuid: 'message-3' }
 
     expect(dedupe.shouldProcess(first)).toBe(true)
     expect(dedupe.shouldProcess(first)).toBe(false)

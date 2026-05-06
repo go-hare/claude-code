@@ -148,7 +148,7 @@ import type { TaskType, TaskStatus } from '../Task.js'
 import {
   getOriginalCwd,
   getSessionId,
-  getSdkBetas,
+  getProtocolBetas,
   getTotalCostUSD,
   getTotalOutputTokens,
   getCurrentTurnTokenBudget,
@@ -183,7 +183,7 @@ import type { MCPServerConnection } from '../services/mcp/types.js'
 import type {
   HookEvent,
   SyncHookJSONOutput,
-} from 'src/entrypoints/agentSdkTypes.js'
+} from 'src/types/protocol/index.js'
 import {
   checkForAsyncHookResponses,
   removeDeliveredAsyncHooks,
@@ -2848,7 +2848,7 @@ async function getSkillListingAttachments(
   // Format within budget using existing logic
   const contextWindowTokens = getContextWindowForModel(
     toolUseContext.options.mainLoopModel,
-    getSdkBetas(),
+    getProtocolBetas(),
   )
   const content = formatCommandsWithinBudget(newSkills, contextWindowTokens)
 
@@ -4178,7 +4178,7 @@ export function getCompactionReminderAttachment(
     return []
   }
 
-  const contextWindow = getContextWindowForModel(model, getSdkBetas())
+  const contextWindow = getContextWindowForModel(model, getProtocolBetas())
   if (contextWindow < 1_000_000) {
     return []
   }

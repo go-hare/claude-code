@@ -1,51 +1,51 @@
 import { describe, expect, test } from 'bun:test'
 
-import type { SDKMessage } from '../../../../entrypoints/agentSdkTypes.js'
+import type { ProtocolMessage } from 'src/types/protocol/index.js'
 import {
-  createHeadlessSDKMessageRuntimeEvent,
-  createTurnOutputDeltaRuntimeEventFromSDKMessage,
-  dedupeSDKMessage,
-  getCanonicalProjectionForSDKMessage,
+  createHeadlessProtocolMessageRuntimeEvent,
+  createTurnOutputDeltaRuntimeEventFromProtocolMessage,
+  dedupeProtocolMessage,
+  getCanonicalProjectionForProtocolMessage,
   getRuntimeAbortStopReason,
-  getSDKMessageFromRuntimeEnvelope,
-  getSDKResultTurnOutcome,
-  getTextOutputDeltaFromSDKMessage,
-  projectRuntimeEnvelopeToLegacySDKMessage,
+  getProtocolMessageFromRuntimeEnvelope,
+  getProtocolResultTurnOutcome,
+  getTextOutputDeltaFromProtocolMessage,
+  projectRuntimeEnvelopeToLegacyProtocolMessage,
   projectRuntimeEnvelopeToLegacyRuntimeEventStreamJsonMessage,
-  projectRuntimeEnvelopeToLegacySDKStreamJsonMessages,
+  projectRuntimeEnvelopeToLegacyProtocolStreamJsonMessages,
   projectRuntimeEnvelopeToLegacyStreamJsonMessages,
-  projectSDKMessageToLegacyStreamJsonMessages,
+  projectProtocolMessageToLegacyStreamJsonMessages,
 } from '../compatProjection.js'
 import { RuntimeEventBus } from '../RuntimeEventBus.js'
 
 describe('compatProjection', () => {
-  test('wraps SDK messages as runtime events before projecting them back', () => {
+  test('wraps protocol messages as runtime events before projecting them back', () => {
     const eventBus = new RuntimeEventBus({
       runtimeId: 'runtime-1',
       createMessageId: () => 'runtime-message-1',
       now: () => '2026-04-27T00:00:00.000Z',
     })
-    const sdkMessage = {
+    const protocolMessage = {
       type: 'assistant',
       uuid: 'sdk-1',
       optionalField: undefined,
       message: { content: 'hello' },
-    } as SDKMessage & { optionalField?: undefined }
+    } as ProtocolMessage & { optionalField?: undefined }
 
     const envelope = eventBus.emit(
-      createHeadlessSDKMessageRuntimeEvent({
+      createHeadlessProtocolMessageRuntimeEvent({
         conversationId: 'conversation-1',
         turnId: 'turn-1',
-        message: sdkMessage,
+        message: protocolMessage,
       }),
     )
 
-    expect(getSDKMessageFromRuntimeEnvelope(envelope)).toEqual({
+    expect(getProtocolMessageFromRuntimeEnvelope(envelope)).toEqual({
       type: 'assistant',
       uuid: 'sdk-1',
       message: { content: 'hello' },
     })
-    expect(projectRuntimeEnvelopeToLegacySDKMessage(envelope)).toEqual({
+    expect(projectRuntimeEnvelopeToLegacyProtocolMessage(envelope)).toEqual({
       type: 'assistant',
       uuid: 'sdk-1',
       message: { content: 'hello' },
@@ -58,17 +58,17 @@ describe('compatProjection', () => {
       createMessageId: () => 'runtime-message-1',
       now: () => '2026-04-27T00:00:00.000Z',
     })
-    const sdkMessage = {
+    const protocolMessage = {
       type: 'result',
       subtype: 'success',
       is_error: false,
       uuid: 'result-1',
-    } as SDKMessage
+    } as ProtocolMessage
     const envelope = eventBus.emit(
-      createHeadlessSDKMessageRuntimeEvent({
+      createHeadlessProtocolMessageRuntimeEvent({
         conversationId: 'conversation-1',
         turnId: 'turn-1',
-        message: sdkMessage,
+        message: protocolMessage,
       }),
     )
 
@@ -83,11 +83,11 @@ describe('compatProjection', () => {
         uuid: 'runtime-message-1',
         session_id: 'session-1',
       },
-      sdkMessage,
+      protocolMessage,
     ])
     expect(
-      projectSDKMessageToLegacyStreamJsonMessages(sdkMessage) as unknown[],
-    ).toEqual([sdkMessage])
+      projectProtocolMessageToLegacyStreamJsonMessages(protocolMessage) as unknown[],
+    ).toEqual([protocolMessage])
     expect(
       projectRuntimeEnvelopeToLegacyRuntimeEventStreamJsonMessage(envelope, {
         sessionId: 'session-1',
@@ -99,20 +99,20 @@ describe('compatProjection', () => {
       session_id: 'session-1',
     })
     expect(
-      projectRuntimeEnvelopeToLegacySDKStreamJsonMessages(
+      projectRuntimeEnvelopeToLegacyProtocolStreamJsonMessages(
         envelope,
       ) as unknown[],
-    ).toEqual([sdkMessage])
+    ).toEqual([protocolMessage])
   })
 
-  test('maps SDK result messages to runtime terminal outcomes', () => {
+  test('maps protocol result messages to runtime terminal outcomes', () => {
     expect(
-      getSDKResultTurnOutcome({
+      getProtocolResultTurnOutcome({
         type: 'result',
         subtype: 'success',
         is_error: false,
         stop_reason: 'end_turn',
-      } as SDKMessage),
+      } as ProtocolMessage),
     ).toEqual({
       eventType: 'turn.completed',
       state: 'completed',
@@ -120,11 +120,11 @@ describe('compatProjection', () => {
     })
 
     expect(
-      getSDKResultTurnOutcome({
+      getProtocolResultTurnOutcome({
         type: 'result',
         subtype: 'error_max_turns',
         is_error: true,
-      } as SDKMessage),
+      } as ProtocolMessage),
     ).toEqual({
       eventType: 'turn.failed',
       state: 'failed',
@@ -132,11 +132,11 @@ describe('compatProjection', () => {
     })
 
     expect(
-      getSDKResultTurnOutcome({
+      getProtocolResultTurnOutcome({
         type: 'result',
         subtype: 'success',
         is_error: false,
-      } as SDKMessage, { abortReason: 'interrupt' }),
+      } as ProtocolMessage, { abortReason: 'interrupt' }),
     ).toEqual({
       eventType: 'turn.failed',
       state: 'failed',
@@ -144,24 +144,24 @@ describe('compatProjection', () => {
     })
   })
 
-  test('projects SDK stream text deltas into canonical runtime output events', () => {
-    const sdkMessage = {
+  test('projects protocol stream text deltas into canonical runtime output events', () => {
+    const protocolMessage = {
       type: 'stream_event',
       event: {
         type: 'content_block_delta',
         delta: { type: 'text_delta', text: 'hello' },
       },
-    } as unknown as SDKMessage
+    } as unknown as ProtocolMessage
 
-    expect(getTextOutputDeltaFromSDKMessage(sdkMessage)).toBe('hello')
-    expect(getCanonicalProjectionForSDKMessage(sdkMessage)).toBe(
+    expect(getTextOutputDeltaFromProtocolMessage(protocolMessage)).toBe('hello')
+    expect(getCanonicalProjectionForProtocolMessage(protocolMessage)).toBe(
       'turn.output_delta',
     )
     expect(
-      createTurnOutputDeltaRuntimeEventFromSDKMessage({
+      createTurnOutputDeltaRuntimeEventFromProtocolMessage({
         conversationId: 'conversation-1',
         turnId: 'turn-1',
-        message: sdkMessage,
+        message: protocolMessage,
       }),
     ).toEqual({
       conversationId: 'conversation-1',
@@ -170,10 +170,10 @@ describe('compatProjection', () => {
       replayable: true,
       payload: {
         text: 'hello',
-        source: 'sdk_stream_event',
+        source: 'protocol_stream_event',
       },
       metadata: {
-        compatibilitySource: 'headless.sdk_message',
+        compatibilitySource: 'headless.protocol_message',
       },
     })
   })
@@ -186,7 +186,7 @@ describe('compatProjection', () => {
     expect(getRuntimeAbortStopReason(controller.signal)).toBe('interrupt')
   })
 
-  test('ignores malformed runtime SDK payloads without stream-json noise', () => {
+  test('ignores malformed runtime protocol payloads without stream-json noise', () => {
     const eventBus = new RuntimeEventBus({
       runtimeId: 'runtime-1',
       createMessageId: () => 'runtime-message-1',
@@ -195,36 +195,36 @@ describe('compatProjection', () => {
     const envelope = eventBus.emit({
       conversationId: 'conversation-1',
       turnId: 'turn-1',
-      type: 'headless.sdk_message',
+      type: 'headless.protocol_message',
       replayable: true,
       payload: { message: 'missing SDK type' },
     })
 
-    expect(getSDKMessageFromRuntimeEnvelope(envelope)).toBeUndefined()
+    expect(getProtocolMessageFromRuntimeEnvelope(envelope)).toBeUndefined()
     expect(projectRuntimeEnvelopeToLegacyStreamJsonMessages(envelope)).toEqual(
       [],
     )
   })
 
-  test('dedupes SDK messages without dropping unkeyed events', () => {
+  test('dedupes protocol messages without dropping unkeyed events', () => {
     const seen = new Set<string>()
     const order: string[] = []
-    const first = { type: 'assistant', uuid: 'message-1' } as SDKMessage
-    const second = { type: 'assistant', uuid: 'message-2' } as SDKMessage
-    const third = { type: 'assistant', uuid: 'message-3' } as SDKMessage
+    const first = { type: 'assistant', uuid: 'message-1' } as ProtocolMessage
+    const second = { type: 'assistant', uuid: 'message-2' } as ProtocolMessage
+    const third = { type: 'assistant', uuid: 'message-3' } as ProtocolMessage
 
-    expect(dedupeSDKMessage(first, seen, order, 2)).toBe(true)
-    expect(dedupeSDKMessage(first, seen, order, 2)).toBe(false)
+    expect(dedupeProtocolMessage(first, seen, order, 2)).toBe(true)
+    expect(dedupeProtocolMessage(first, seen, order, 2)).toBe(false)
     expect(
-      dedupeSDKMessage(
-        { type: 'stream_event' } as SDKMessage,
+      dedupeProtocolMessage(
+        { type: 'stream_event' } as ProtocolMessage,
         seen,
         order,
         2,
       ),
     ).toBe(true)
-    expect(dedupeSDKMessage(second, seen, order, 2)).toBe(true)
-    expect(dedupeSDKMessage(third, seen, order, 2)).toBe(true)
-    expect(dedupeSDKMessage(first, seen, order, 2)).toBe(true)
+    expect(dedupeProtocolMessage(second, seen, order, 2)).toBe(true)
+    expect(dedupeProtocolMessage(third, seen, order, 2)).toBe(true)
+    expect(dedupeProtocolMessage(first, seen, order, 2)).toBe(true)
   })
 })

@@ -222,7 +222,7 @@ describe('kernel server host surface', () => {
     }) as unknown as typeof process.stdout.write
     FakeWebSocket.messagesToEmit = [
       createRuntimeEvent(1, {
-        type: 'headless.sdk_message',
+        type: 'headless.protocol_message',
         replayable: true,
         payload: {
           type: 'result',

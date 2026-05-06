@@ -408,7 +408,7 @@ export interface ComputerUseOverrides {
    * Fired after every `prepareForAction` with the bundle IDs it just hid.
    * The wrapper closure in serverDef.ts accumulates these into
    * `Session.cuHiddenDuringTurn` via a write-through callback (same pattern
-   * as `onCuPermissionUpdated`). At turn end (`sdkMessage.type === "result"`),
+   * as `onCuPermissionUpdated`). At turn end (`protocolMessage.type === "result"`),
    * if the `chicagoAutoUnhide` setting is on, everything in the set is
    * unhidden. Set is cleared regardless of the setting so it doesn't leak
    * across turns.

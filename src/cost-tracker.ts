@@ -5,7 +5,7 @@ import {
   addToTotalLinesChanged,
   getCostCounter,
   getModelUsage,
-  getSdkBetas,
+  getProtocolBetas,
   getSessionId,
   getTokenCounter,
   getTotalAPIDuration,
@@ -27,7 +27,7 @@ import {
   setCostStateForRestore,
   setHasUnknownModelCost,
 } from './bootstrap/state.js'
-import type { ModelUsage } from './entrypoints/agentSdkTypes.js'
+import type { ModelUsage } from 'src/types/protocol/index.js'
 import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
   logEvent,
@@ -102,7 +102,7 @@ export function getStoredSessionCosts(
         model,
         {
           ...usage,
-          contextWindow: getContextWindowForModel(model, getSdkBetas()),
+          contextWindow: getContextWindowForModel(model, getProtocolBetas()),
           maxOutputTokens: getModelMaxOutputTokens(model).default,
         },
       ]),
@@ -270,7 +270,7 @@ function addToTotalModelUsage(
   modelUsage.webSearchRequests +=
     usage.server_tool_use?.web_search_requests ?? 0
   modelUsage.costUSD += cost
-  modelUsage.contextWindow = getContextWindowForModel(model, getSdkBetas())
+  modelUsage.contextWindow = getContextWindowForModel(model, getProtocolBetas())
   modelUsage.maxOutputTokens = getModelMaxOutputTokens(model).default
   return modelUsage
 }

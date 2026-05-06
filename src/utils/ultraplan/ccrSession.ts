@@ -1,6 +1,6 @@
 // CCR session polling for /ultraplan. Waits for an approved ExitPlanMode
 // tool_result, then extracts the plan text. Uses pollRemoteSessionEvents
-// (shared with RemoteAgentTask) for pagination + typed SDKMessage[].
+// (shared with RemoteAgentTask) for pagination + typed ProtocolMessage[].
 // Plan mode is set via set_permission_mode control_request in
 // teleportToRemote's CreateSession events array.
 
@@ -8,7 +8,7 @@ import type {
   ToolResultBlockParam,
   ToolUseBlock,
 } from '@anthropic-ai/sdk/resources'
-import type { SDKMessage } from '../../entrypoints/agentSdkTypes.js'
+import type { ProtocolMessage } from 'src/types/protocol/index.js'
 import { EXIT_PLAN_MODE_V2_TOOL_NAME } from '@go-hare/builtin-tools/tools/ExitPlanModeTool/constants.js'
 import { logForDebugging } from '../debug.js'
 import { sleep } from '../sleep.js'
@@ -66,7 +66,7 @@ export type ScanResult =
 export type UltraplanPhase = 'running' | 'needs_input' | 'plan_ready'
 
 /**
- * Pure stateful classifier for the CCR event stream. Ingests SDKMessage[]
+ * Pure stateful classifier for the CCR event stream. Ingests ProtocolMessage[]
  * batches (as delivered by pollRemoteSessionEvents) and returns the current
  * ExitPlanMode verdict. No I/O, no timers — feed it synthetic or recorded
  * events for unit tests and offline replay.
@@ -98,7 +98,7 @@ export class ExitPlanModeScanner {
     return id !== undefined && !this.results.has(id)
   }
 
-  ingest(newEvents: SDKMessage[]): ScanResult {
+  ingest(newEvents: ProtocolMessage[]): ScanResult {
     for (const m of newEvents) {
       if (m.type === 'assistant') {
         for (const block of (m as any).message.content) {
@@ -215,7 +215,7 @@ export async function pollForApprovedExitPlanMode(
         scanner.rejectCount,
       )
     }
-    let newEvents: SDKMessage[]
+    let newEvents: ProtocolMessage[]
     let sessionStatus: PollRemoteSessionResponse['sessionStatus']
     try {
       // Metadata fetch (session_status) is the needs_input signal —

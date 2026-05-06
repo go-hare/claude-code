@@ -1,4 +1,4 @@
-import type { StdoutMessage } from 'src/entrypoints/sdk/controlTypes.js'
+import type { ProtocolStdoutMessage } from 'src/types/protocol/controlTypes.js'
 import { CCRClient } from '../cli/transports/ccrClient.js'
 import type { HybridTransport } from '../cli/transports/HybridTransport.js'
 import { SSETransport } from '../cli/transports/SSETransport.js'
@@ -21,8 +21,8 @@ import { registerWorker } from './workSecret.js'
  * Session-Ingress POST URL shape, which is wrong for CCR v2.
  */
 export type ReplBridgeTransport = {
-  write(message: StdoutMessage): Promise<void>
-  writeBatch(messages: StdoutMessage[]): Promise<void>
+  write(message: ProtocolStdoutMessage): Promise<void>
+  writeBatch(messages: ProtocolStdoutMessage[]): Promise<void>
   close(): void
   isConnectedStatus(): boolean
   getStateLabel(): string

@@ -1,8 +1,8 @@
 import { randomUUID } from 'crypto'
 import type {
-  SDKPartialAssistantMessage,
-  StdoutMessage,
-} from 'src/entrypoints/sdk/controlTypes.js'
+  ProtocolPartialAssistantMessage,
+  ProtocolStdoutMessage,
+} from 'src/types/protocol/controlTypes.js'
 import { decodeJwtExpiry } from 'src/bridge/jwtUtils.js'
 import { logForDebugging } from 'src/utils/debug.js'
 import { logForDiagnosticsNoPII } from 'src/utils/diagLogs.js'
@@ -80,7 +80,7 @@ type ClientEvent = {
 
 /**
  * Structural subset of a stream_event carrying a text_delta. Not a narrowing
- * of SDKPartialAssistantMessage — RawMessageStreamEvent's delta is a union and
+ * of ProtocolPartialAssistantMessage — RawMessageStreamEvent's delta is a union and
  * narrowing through two levels defeats the discriminant.
  */
 type CoalescedStreamEvent = {
@@ -98,7 +98,7 @@ type CoalescedStreamEvent = {
 /**
  * Accumulator state for text_delta coalescing. Keyed by API message ID so
  * lifetime is tied to the assistant message — cleared when the complete
- * SDKAssistantMessage arrives (writeEvent), which is reliable even when
+ * ProtocolAssistantMessage arrives (writeEvent), which is reliable even when
  * abort/error paths skip content_block_stop/message_stop delivery.
  */
 export type StreamAccumulatorState = {
@@ -139,7 +139,7 @@ function scopeKey(m: {
  * (reliable), not here on stop events (abort/error paths skip those).
  */
 export function accumulateStreamEvents(
-  buffer: SDKPartialAssistantMessage[],
+  buffer: ProtocolPartialAssistantMessage[],
   state: StreamAccumulatorState,
 ): EventPayload[] {
   const out: EventPayload[] = []
@@ -207,7 +207,7 @@ export function accumulateStreamEvents(
 
 /**
  * Clear accumulator entries for a completed assistant message. Called from
- * writeEvent when the SDKAssistantMessage arrives — the reliable end-of-stream
+ * writeEvent when the ProtocolAssistantMessage arrives — the reliable end-of-stream
  * signal that fires even when abort/interrupt/error skip SSE stop events.
  */
 export function clearStreamAccumulatorForMessage(
@@ -278,7 +278,7 @@ export class CCRClient {
   // stream_event delay buffer — accumulates content deltas for up to
   // STREAM_EVENT_FLUSH_INTERVAL_MS before enqueueing (reduces POST count
   // and enables text_delta coalescing). Mirrors HybridTransport's pattern.
-  private streamEventBuffer: SDKPartialAssistantMessage[] = []
+  private streamEventBuffer: ProtocolPartialAssistantMessage[] = []
   private streamEventTimer: ReturnType<typeof setTimeout> | null = null
   // Full-so-far text accumulator. Persists across flushes so each emitted
   // text_delta event carries the complete text from the start of the block —
@@ -727,7 +727,7 @@ export class CCRClient {
   }
 
   /**
-   * Write a StdoutMessage as a client event via POST /sessions/{id}/worker/events.
+   * Write a ProtocolStdoutMessage as a client event via POST /sessions/{id}/worker/events.
    * These events are visible to frontend clients via the SSE stream.
    * Injects a UUID if missing to ensure server-side idempotency on retry.
    *
@@ -736,7 +736,7 @@ export class CCRClient {
    * flush). A non-stream_event write flushes the buffer first so downstream
    * ordering is preserved.
    */
-  async writeEvent(message: StdoutMessage): Promise<void> {
+  async writeEvent(message: ProtocolStdoutMessage): Promise<void> {
     if (message.type === 'stream_event') {
       this.streamEventBuffer.push(message)
       if (!this.streamEventTimer) {
@@ -754,8 +754,8 @@ export class CCRClient {
     await this.eventUploader.enqueue(this.toClientEvent(message))
   }
 
-  /** Wrap a StdoutMessage as a ClientEvent, injecting a UUID if missing. */
-  private toClientEvent(message: StdoutMessage): ClientEvent {
+  /** Wrap a ProtocolStdoutMessage as a ClientEvent, injecting a UUID if missing. */
+  private toClientEvent(message: ProtocolStdoutMessage): ClientEvent {
     const msg = message as unknown as Record<string, unknown>
     return {
       payload: {

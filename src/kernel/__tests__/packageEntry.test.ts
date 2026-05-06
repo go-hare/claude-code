@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { readFile } from 'fs/promises'
+import { readFile, stat } from 'fs/promises'
 import { join } from 'path'
 
 import * as kernel from '../index.js'
@@ -25,6 +25,17 @@ const packageJson = JSON.parse(
     }
   >
   bin?: Record<string, string>
+  dependencies?: Record<string, string>
+  devDependencies?: Record<string, string>
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path)
+    return true
+  } catch {
+    return false
+  }
 }
 
 describe('kernel package entry', () => {
@@ -38,6 +49,19 @@ describe('kernel package entry', () => {
       './kernel',
       './package.json',
     ])
+  })
+
+  test('does not ship or depend on the removed Agent SDK surface', async () => {
+    expect(packageJson.dependencies).not.toHaveProperty(
+      '@anthropic-ai/claude-agent-sdk',
+    )
+    expect(packageJson.devDependencies).not.toHaveProperty(
+      '@anthropic-ai/claude-agent-sdk',
+    )
+    expect(
+      await pathExists(join(repoRoot, 'src/entrypoints/agentSdkTypes.ts')),
+    ).toBe(false)
+    expect(await pathExists(join(repoRoot, 'src/entrypoints/sdk'))).toBe(false)
   })
 
   test('publishes a standalone declaration file for the ./kernel surface', async () => {
@@ -95,14 +119,14 @@ describe('kernel package entry', () => {
     expect(declaration).toContain('onEvent(handler: (event: KernelRuntimeSkillEvent) => void)')
     expect(declaration).toContain('onEvent(handler: (event: KernelRuntimePluginEvent) => void)')
     expect(declaration).toContain('getKernelRuntimeLifecycleProjection(')
-    expect(declaration).not.toContain('KernelLegacySDKMessage')
-    expect(declaration).not.toContain('getSDKMessageFromRuntimeEnvelope(')
-    expect(declaration).not.toContain('projectRuntimeEnvelopeToLegacySDKMessage(')
+    expect(declaration).not.toContain('KernelLegacyProtocolMessage')
+    expect(declaration).not.toContain('getProtocolMessageFromRuntimeEnvelope(')
+    expect(declaration).not.toContain('projectRuntimeEnvelopeToLegacyProtocolMessage(')
     expect(declaration).not.toContain('projectRuntimeEnvelopeToLegacyStreamJsonMessages(')
-    expect(declaration).not.toContain('projectSDKMessageToLegacyStreamJsonMessages(')
+    expect(declaration).not.toContain('projectProtocolMessageToLegacyStreamJsonMessages(')
     expect(declaration).not.toContain('emitKernelHeadlessRuntimeMessage(')
     expect(declaration).not.toContain('handleKernelRuntimeHostEvent(')
-    expect(declaration).not.toContain("'headless.sdk_message'")
+    expect(declaration).not.toContain("'headless.protocol_message'")
     expect(declaration).toContain(
       'capabilityResolver?: KernelRuntimeWireCapabilityResolver',
     )

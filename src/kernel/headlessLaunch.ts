@@ -87,7 +87,7 @@ function normalizeHeadlessStartupDeps(
     startDeferredPrefetches: deps.startDeferredPrefetches ?? noop,
     logSessionTelemetry: deps.logSessionTelemetry ?? noop,
     startBackgroundHousekeeping: deps.startBackgroundHousekeeping,
-    startSdkMemoryMonitor: deps.startSdkMemoryMonitor,
+    startProtocolMemoryMonitor: deps.startProtocolMemoryMonitor,
   }
 }
 
@@ -123,7 +123,7 @@ function normalizeHeadlessRunOptions(
     workload: options.workload,
     setupTrigger: options.setupTrigger,
     sessionStartHooksPromise: options.sessionStartHooksPromise,
-    setSDKStatus: options.setSDKStatus,
+    setProtocolStatus: options.setProtocolStatus,
     runtimeEventSink: options.runtimeEventSink,
   }
 }

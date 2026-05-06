@@ -4,7 +4,7 @@ import type { KernelEvent, KernelRuntimeEnvelopeBase } from '../runtime/contract
 import {
   getKernelRuntimeFailedError,
   getKernelRuntimeStopReason,
-  getSDKMessageFromKernelRuntimeEnvelope,
+  getProtocolMessageFromKernelRuntimeEnvelope,
   getTextOutputDeltaFromKernelRuntimeEnvelope,
 } from '../runtime/core/events/KernelRuntimeHostProjection.js'
 import {
@@ -174,11 +174,11 @@ export function normalizeKernelHeadlessEvent(
         envelope: input,
         error: getKernelRuntimeFailedError(input.payload),
       }
-    case 'headless.sdk_message':
+    case 'headless.protocol_message':
       return {
         type: 'sdk.message',
         envelope: input,
-        message: getSDKMessageFromKernelRuntimeEnvelope(input),
+        message: getProtocolMessageFromKernelRuntimeEnvelope(input),
       }
     default:
       return {

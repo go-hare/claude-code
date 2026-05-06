@@ -21,9 +21,9 @@ import { getRemoteSessionUrl } from '../constants/product.js'
 import { useNotifications } from '../context/notifications.js'
 import type {
   PermissionMode,
-  SDKMessage,
-} from '../entrypoints/agentSdkTypes.js'
-import type { SDKControlResponse } from '../entrypoints/sdk/controlTypes.js'
+  ProtocolMessage,
+} from 'src/types/protocol/index.js'
+import type { ProtocolControlResponse } from 'src/types/protocol/controlTypes.js'
 import type { KernelRuntimeEventSink } from '../runtime/contracts/events.js'
 import { Text } from '@anthropic/ink'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../services/analytics/growthbook.js'
@@ -244,7 +244,7 @@ export function useReplBridge(
           // disk write before we enqueue with the @path prefix. Caller doesn't
           // await — messages with attachments just land in the queue slightly
           // later, which is fine (web messages aren't rapid-fire).
-          async function handleInboundMessage(msg: SDKMessage): Promise<void> {
+          async function handleInboundMessage(msg: ProtocolMessage): Promise<void> {
             try {
               const fields = extractInboundMessageFields(msg)
               if (!fields) return
@@ -376,7 +376,7 @@ export function useReplBridge(
                 })
                 // Send system/init so remote clients (web/iOS/Android) get
                 // session metadata. REPL uses query() directly — never hits
-                // QueryEngine's SDKMessage layer — so this is the only path
+                // QueryEngine's ProtocolMessage layer — so this is the only path
                 // to put system/init on the REPL-bridge wire. Skills load is
                 // async (memoized, cheap after REPL startup); fire-and-forget
                 // so the connected-state transition isn't blocked.
@@ -391,13 +391,13 @@ export function useReplBridge(
                       const skills = await getSlashCommandToolSkills(getCwd())
                       if (cancelled) return
                       const state = store.getState()
-                      handleRef.current?.writeSdkMessages([
+                      handleRef.current?.writeProtocolMessages([
                         buildSystemInitMessage({
                           // tools/mcpClients/plugins redacted for REPL-bridge:
                           // MCP-prefixed tool names and server names leak which
                           // integrations the user has wired up; plugin paths leak
                           // raw filesystem paths (username, project structure).
-                          // CCR v2 persists SDK messages to Spanner — users who
+                          // CCR v2 persists protocol messages to Spanner — users who
                           // tap "Connect from phone" may not expect these on
                           // Anthropic's servers. QueryEngine (SDK) still emits
                           // full lists — SDK consumers expect full telemetry.
@@ -473,7 +473,7 @@ export function useReplBridge(
           >()
 
           // Dispatch incoming control_response messages to registered handlers
-          function handlePermissionResponse(msg: SDKControlResponse): void {
+          function handlePermissionResponse(msg: ProtocolControlResponse): void {
             const requestId = msg.response?.request_id
             if (!requestId) return
             const handler = pendingPermissionHandlers.get(requestId)
@@ -977,7 +977,7 @@ export function useReplBridge(
           ) {
             return
           }
-          handle.writeSdkMessages([buildTaskStateMessage(taskListId, tasks)])
+          handle.writeProtocolMessages([buildTaskStateMessage(taskListId, tasks)])
           lastPublishedSnapshotKey = snapshotKey
           lastPublishedHandle = handle
         } catch (err) {

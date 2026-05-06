@@ -6,12 +6,12 @@ import {
   HOOK_EVENTS,
   type HookInput,
   type PermissionUpdate,
-} from 'src/entrypoints/agentSdkTypes.js'
+} from 'src/types/protocol/index.js'
 import type {
   HookJSONOutput,
   AsyncHookJSONOutput,
   SyncHookJSONOutput,
-} from 'src/entrypoints/agentSdkTypes.js'
+} from 'src/types/protocol/index.js'
 import type { Message } from 'src/types/message.js'
 import type { PermissionResult } from 'src/utils/permissions/PermissionResult.js'
 import { permissionBehaviorSchema } from 'src/utils/permissions/PermissionRule.js'
@@ -20,7 +20,7 @@ import type { AppState } from '../state/AppState.js'
 import type { AttributionState } from '../utils/commitAttribution.js'
 
 export function isHookEvent(value: string): value is HookEvent {
-  return HOOK_EVENTS.includes(value as HookEvent)
+  return (HOOK_EVENTS as readonly string[]).includes(value)
 }
 
 // Prompt elicitation protocol types. The `prompt` key acts as discriminator

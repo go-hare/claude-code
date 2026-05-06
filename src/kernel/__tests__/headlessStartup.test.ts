@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
-import { filterAllowedSdkBetas } from '../../utils/betas.js'
+import { filterAllowedProtocolBetas } from '../../utils/betas.js'
 import type { RuntimeHeadlessStartupStateWriter } from '../../runtime/core/state/bootstrapProvider.js'
 
 const { prepareKernelHeadlessStartup } = await import('../headlessStartup.js')
@@ -14,24 +14,24 @@ const savedAuthEnv = {
 type TestDeps = {
   stateWriter: RuntimeHeadlessStartupStateWriter & {
     setSessionPersistenceDisabled: ReturnType<typeof mock>
-    setSdkBetas: ReturnType<typeof mock>
+    setProtocolBetas: ReturnType<typeof mock>
   }
   startDeferredPrefetches: ReturnType<typeof mock>
   logSessionTelemetry: ReturnType<typeof mock>
   startBackgroundHousekeeping: ReturnType<typeof mock>
-  startSdkMemoryMonitor: ReturnType<typeof mock>
+  startProtocolMemoryMonitor: ReturnType<typeof mock>
 }
 
 function createDeps(): TestDeps {
   return {
     stateWriter: {
       setSessionPersistenceDisabled: mock((_disabled: boolean) => {}),
-      setSdkBetas: mock((_betas: string[] | undefined) => {}),
+      setProtocolBetas: mock((_betas: string[] | undefined) => {}),
     },
     startDeferredPrefetches: mock(() => {}),
     logSessionTelemetry: mock(() => {}),
     startBackgroundHousekeeping: mock(() => {}),
-    startSdkMemoryMonitor: mock(() => {}),
+    startProtocolMemoryMonitor: mock(() => {}),
   }
 }
 
@@ -71,12 +71,12 @@ describe('prepareKernelHeadlessStartup', () => {
     expect(deps.stateWriter.setSessionPersistenceDisabled).toHaveBeenCalledWith(
       true,
     )
-    expect(deps.stateWriter.setSdkBetas).toHaveBeenCalledWith(
-      filterAllowedSdkBetas(betas),
+    expect(deps.stateWriter.setProtocolBetas).toHaveBeenCalledWith(
+      filterAllowedProtocolBetas(betas),
     )
     expect(deps.startDeferredPrefetches).toHaveBeenCalledTimes(1)
     expect(deps.startBackgroundHousekeeping).toHaveBeenCalledTimes(1)
-    expect(deps.startSdkMemoryMonitor).toHaveBeenCalledTimes(1)
+    expect(deps.startProtocolMemoryMonitor).toHaveBeenCalledTimes(1)
     expect(deps.logSessionTelemetry).toHaveBeenCalledTimes(1)
   })
 
@@ -94,12 +94,12 @@ describe('prepareKernelHeadlessStartup', () => {
     expect(
       deps.stateWriter.setSessionPersistenceDisabled,
     ).not.toHaveBeenCalled()
-    expect(deps.stateWriter.setSdkBetas).toHaveBeenCalledWith(
-      filterAllowedSdkBetas([]),
+    expect(deps.stateWriter.setProtocolBetas).toHaveBeenCalledWith(
+      filterAllowedProtocolBetas([]),
     )
     expect(deps.startDeferredPrefetches).not.toHaveBeenCalled()
     expect(deps.startBackgroundHousekeeping).not.toHaveBeenCalled()
-    expect(deps.startSdkMemoryMonitor).not.toHaveBeenCalled()
+    expect(deps.startProtocolMemoryMonitor).not.toHaveBeenCalled()
     expect(deps.logSessionTelemetry).toHaveBeenCalledTimes(1)
   })
 })

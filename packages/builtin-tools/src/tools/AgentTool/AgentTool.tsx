@@ -77,7 +77,7 @@ import {
   filterDeniedAgents,
   getDenyRuleForAgent,
 } from 'src/utils/permissions/permissions.js'
-import { enqueueSdkEvent } from 'src/utils/sdkEventQueue.js'
+import { enqueueProtocolQueuedEvent } from 'src/utils/protocolEventQueue.js'
 import { writeAgentMetadata } from 'src/utils/sessionStorage.js'
 import { sleep } from 'src/utils/sleep.js'
 import { buildEffectiveSystemPrompt } from 'src/utils/systemPrompt.js'
@@ -107,7 +107,7 @@ import { setAgentColor } from './agentColorManager.js'
 import {
   agentToolResultSchema,
   classifyHandoffIfNeeded,
-  emitLiveSubagentSdkMessages,
+  emitLiveSubagentProtocolMessages,
   emitTaskProgress,
   extractPartialResult,
   finalizeAgentTool,
@@ -1391,7 +1391,7 @@ export const AgentTool = buildTool({
                           : undefined,
                       })) {
                         agentMessages.push(msg)
-                        emitLiveSubagentSdkMessages(
+                        emitLiveSubagentProtocolMessages(
                           msg,
                           toolUseContext.toolUseId,
                         )
@@ -1702,11 +1702,11 @@ export const AgentTool = buildTool({
             if (foregroundTaskId) {
               unregisterAgentForeground(foregroundTaskId, rootSetAppState)
               // Notify SDK consumers (e.g. VS Code subagent panel) that this
-              // foreground agent is done. Goes through drainSdkEvents() — does
+              // foreground agent is done. Goes through drainProtocolEvents() — does
               // NOT trigger the print.ts XML task_notification parser or the LLM loop.
               if (!wasBackgrounded) {
                 const progress = getProgressUpdate(syncTracker)
-                enqueueSdkEvent({
+                enqueueProtocolQueuedEvent({
                   type: 'system',
                   subtype: 'task_notification',
                   task_id: foregroundTaskId,

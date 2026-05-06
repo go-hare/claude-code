@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import type { SDKMessage } from 'src/entrypoints/agentSdkTypes.js'
+import type { ProtocolMessage } from 'src/types/protocol/index.js'
 import type { Task } from './tasks.js'
 
 export type TaskStateItem = Pick<
@@ -14,7 +14,7 @@ export type TaskStateItem = Pick<
   | 'blockedBy'
 >
 
-export type TaskStateMessage = SDKMessage & {
+export type TaskStateMessage = ProtocolMessage & {
   type: 'task_state'
   uuid: string
   task_list_id: string

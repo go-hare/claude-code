@@ -1,9 +1,9 @@
 // Usage types for the model provider package.
-// Moved from src/entrypoints/sdk/sdkUtilityTypes.ts and src/services/api/emptyUsage.ts
+// Moved from src/types/protocol/protocolUtilityTypes.ts and src/services/api/emptyUsage.ts
 
 /**
  * Non-nullable usage object representing token consumption from an API response.
- * Moved from src/entrypoints/sdk/sdkUtilityTypes.ts
+ * Moved from src/types/protocol/protocolUtilityTypes.ts
  */
 export type NonNullableUsage = {
   inputTokens?: number

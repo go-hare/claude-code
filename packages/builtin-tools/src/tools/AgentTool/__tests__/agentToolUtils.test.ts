@@ -153,12 +153,12 @@ mock.module("src/utils/permissions/yoloClassifier.js", () => ({
   classifyYoloAction: () => null,
 }));
 
-mock.module("src/utils/task/sdkProgress.js", () => ({
+mock.module("src/utils/task/taskProgress.js", () => ({
   emitTaskProgress: noop,
 }));
 
-mock.module("src/utils/sdkEventQueue.js", () => ({
-  enqueueSdkCompatibilityMessages: (messages: any[]) => {
+mock.module("src/utils/protocolEventQueue.js", () => ({
+  enqueueProtocolCompatibilityMessages: (messages: any[]) => {
     queuedCompatibilityMessages.push(messages);
   },
 }));

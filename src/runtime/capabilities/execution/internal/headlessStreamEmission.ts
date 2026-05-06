@@ -1,31 +1,31 @@
-import type { StdoutMessage } from 'src/entrypoints/sdk/controlTypes.js'
+import type { ProtocolStdoutMessage } from 'src/types/protocol/controlTypes.js'
 
 export function emitHeadlessRuntimeMessage({
   message,
   output,
-  drainSdkEvents,
+  drainProtocolEvents,
   hasBackgroundTasks,
   heldBackResult,
   heldBackAssistantMessages = [],
   terminalResultEmitted = false,
 }: {
-  message: StdoutMessage
+  message: ProtocolStdoutMessage
   output: {
-    enqueue(message: StdoutMessage): void
+    enqueue(message: ProtocolStdoutMessage): void
   }
-  drainSdkEvents: () => StdoutMessage[]
+  drainProtocolEvents: () => ProtocolStdoutMessage[]
   hasBackgroundTasks: () => boolean
-  heldBackResult: StdoutMessage | null
-  heldBackAssistantMessages?: StdoutMessage[]
+  heldBackResult: ProtocolStdoutMessage | null
+  heldBackAssistantMessages?: ProtocolStdoutMessage[]
   terminalResultEmitted?: boolean
 }): {
-  heldBackResult: StdoutMessage | null
-  heldBackAssistantMessages: StdoutMessage[]
+  heldBackResult: ProtocolStdoutMessage | null
+  heldBackAssistantMessages: ProtocolStdoutMessage[]
   lastResultIsError?: boolean
   terminalResultEmitted?: boolean
 } {
-  const sdkEvents = drainSdkEvents()
-  for (const event of sdkEvents) {
+  const protocolEvents = drainProtocolEvents()
+  for (const event of protocolEvents) {
     output.enqueue(event)
   }
   const backgroundTasksPending = hasBackgroundTasks()
@@ -77,7 +77,7 @@ export function emitHeadlessRuntimeMessage({
 }
 
 function shouldHoldUntilBackgroundWorkCompletes(
-  message: StdoutMessage,
+  message: ProtocolStdoutMessage,
 ): boolean {
   return (
     message.type === 'assistant' ||
@@ -86,7 +86,7 @@ function shouldHoldUntilBackgroundWorkCompletes(
   )
 }
 
-function shouldSuppressAfterTerminalResult(message: StdoutMessage): boolean {
+function shouldSuppressAfterTerminalResult(message: ProtocolStdoutMessage): boolean {
   return (
     message.type === 'result' ||
     message.type === 'user' ||

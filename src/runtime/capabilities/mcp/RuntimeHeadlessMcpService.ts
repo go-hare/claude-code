@@ -1,14 +1,14 @@
 import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js'
-import type { McpServerStatus } from '../../../entrypoints/agentSdkTypes.js'
-import type { McpServerConfigForProcessTransport } from '../../../entrypoints/agentSdkTypes.js'
-import type { SDKControlMcpSetServersResponse } from '../../../entrypoints/sdk/controlTypes.js'
+import type { McpServerStatus } from 'src/types/protocol/index.js'
+import type { McpServerConfigForProcessTransport } from 'src/types/protocol/index.js'
+import type { ProtocolControlMcpSetServersResponse } from 'src/types/protocol/controlTypes.js'
 import type {
   MCPServerConnection,
   McpSdkServerConfig,
 } from '../../../services/mcp/types.js'
 import { setupSdkMcpClients } from '../../../services/mcp/client.js'
 import { getMcpPrefix } from '../../../services/mcp/mcpStringUtils.js'
-import { setupVscodeSdkMcp } from '../../../services/mcp/vscodeSdkMcp.js'
+import { setupVscodeProtocolMcp } from '../../../services/mcp/vscodeProtocolMcp.js'
 import type { AppState } from '../../../state/AppStateStore.js'
 import type { Tools } from '../../../Tool.js'
 import { uniq } from '../../../utils/array.js'
@@ -45,7 +45,7 @@ export type RuntimeHeadlessMcpService = {
   applyServerChanges(
     servers: Record<string, McpServerConfigForProcessTransport>,
   ): Promise<{
-    response: SDKControlMcpSetServersResponse
+    response: ProtocolControlMcpSetServersResponse
     sdkServersChanged: boolean
   }>
   replaceDynamicConnection(input: {
@@ -68,7 +68,7 @@ export function createRuntimeHeadlessMcpService(
     configs: {},
   }
   let mcpChangesPromise: Promise<{
-    response: SDKControlMcpSetServersResponse
+    response: ProtocolControlMcpSetServersResponse
     sdkServersChanged: boolean
   }> = Promise.resolve({
     response: {
@@ -130,17 +130,17 @@ export function createRuntimeHeadlessMcpService(
       },
     }))
 
-    setupVscodeSdkMcp(sdkClients)
+    setupVscodeProtocolMcp(sdkClients)
   }
 
   function applyServerChanges(
     servers: Record<string, McpServerConfigForProcessTransport>,
   ): Promise<{
-    response: SDKControlMcpSetServersResponse
+    response: ProtocolControlMcpSetServersResponse
     sdkServersChanged: boolean
   }> {
     const doWork = async (): Promise<{
-      response: SDKControlMcpSetServersResponse
+      response: ProtocolControlMcpSetServersResponse
       sdkServersChanged: boolean
     }> => {
       const oldSdkClientNames = new Set(sdkClients.map(c => c.name))

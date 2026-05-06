@@ -6,14 +6,14 @@ import { formatDescriptionWithSource, getCommandName } from 'src/commands.js'
 import type {
   HookEvent,
   ModelInfo,
-  SDKStatus,
-} from 'src/entrypoints/agentSdkTypes.js'
-import type { SDKUserMessage } from 'src/entrypoints/agentSdkTypes.js'
+  ProtocolStatus,
+} from 'src/types/protocol/index.js'
+import type { ProtocolUserMessage } from 'src/types/protocol/index.js'
 import type {
-  SDKControlInitializeRequest,
-  SDKControlInitializeResponse,
-  StdoutMessage,
-} from 'src/entrypoints/sdk/controlTypes.js'
+  ProtocolControlInitializeRequest,
+  ProtocolControlInitializeResponse,
+  ProtocolStdoutMessage,
+} from 'src/types/protocol/controlTypes.js'
 import {
   StructuredIO,
   createStructuredPermissionRequest,
@@ -122,7 +122,7 @@ export function getStructuredIO(
             content: inputPrompt,
           },
           parent_tool_use_id: null,
-        } satisfies SDKUserMessage),
+        } satisfies ProtocolUserMessage),
       ])
     } else {
       inputStream = fromArray([])
@@ -444,10 +444,10 @@ export function getCanUseToolFn(
 }
 
 export async function handleInitializeRequest(
-  request: SDKControlInitializeRequest,
+  request: ProtocolControlInitializeRequest,
   requestId: string,
   initialized: boolean,
-  output: Stream<StdoutMessage>,
+  output: Stream<ProtocolStdoutMessage>,
   commands: Command[],
   modelInfos: ModelInfo[],
   structuredIO: StructuredIO,
@@ -565,7 +565,7 @@ export async function handleInitializeRequest(
     })
   }
 
-  const initResponse: SDKControlInitializeResponse = {
+  const initResponse: ProtocolControlInitializeResponse = {
     commands: commands
       .filter(cmd => cmd.userInvocable !== false)
       .map(cmd => ({
@@ -580,7 +580,7 @@ export async function handleInitializeRequest(
     })),
     output_style: outputStyle,
     available_output_styles: Object.keys(availableOutputStyles),
-    models: modelInfos as unknown as SDKControlInitializeResponse['models'],
+    models: modelInfos as unknown as ProtocolControlInitializeResponse['models'],
     account: {
       email: accountInfo?.email,
       organization: accountInfo?.organization,

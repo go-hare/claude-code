@@ -8,7 +8,7 @@ import { AsyncLocalStorage } from 'async_hooks'
 import { realpathSync } from 'fs'
 import sumBy from 'lodash-es/sumBy.js'
 import { cwd } from 'process'
-import type { HookEvent, ModelUsage } from 'src/entrypoints/agentSdkTypes.js'
+import type { HookEvent, ModelUsage } from 'src/types/protocol/index.js'
 import type { AgentColorName } from '@go-hare/builtin-tools/tools/AgentTool/agentColorManager.js'
 import type { HookCallbackMatcher } from 'src/types/hooks.js'
 // Indirection for browser-sdk build (package.json "browser" field swaps
@@ -951,11 +951,11 @@ export function setInitialMainLoopModel(model: ModelSetting): void {
   STATE.initialMainLoopModel = model
 }
 
-export function getSdkBetas(): string[] | undefined {
+export function getProtocolBetas(): string[] | undefined {
   return STATE.sdkBetas
 }
 
-export function setSdkBetas(betas: string[] | undefined): void {
+export function setProtocolBetas(betas: string[] | undefined): void {
   STATE.sdkBetas = betas
 }
 

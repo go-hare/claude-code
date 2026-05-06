@@ -18,7 +18,7 @@ import type {
 } from '../../src/runtime/capabilities/server/contracts.js'
 import { noopSessionLogger } from '../../src/runtime/capabilities/server/contracts.js'
 import type { KernelRuntimeEnvelopeBase } from '../../src/runtime/contracts/events.js'
-import type { SDKMessage } from '../../src/entrypoints/agentSdkTypes.js'
+import type { ProtocolMessage } from '../../src/types/protocol/index.js'
 
 class FakeDirectConnectBackend implements SessionRuntimeBackend {
   readonly runtimes = new Map<string, FakeDirectConnectRuntime>()
@@ -137,7 +137,7 @@ describe('kernel direct-connect smoke', () => {
           cwd,
           dangerouslySkipPermissions: true,
         })
-        const sdkMessages: SDKMessage[] = []
+        const protocolMessages: ProtocolMessage[] = []
         const runtimeEnvelopes: KernelRuntimeEnvelopeBase[] = []
         let connectedResolve!: () => void
         let connectedReject!: (error: Error) => void
@@ -157,7 +157,7 @@ describe('kernel direct-connect smoke', () => {
           wsUrl: `${directSession.config.wsUrl}?auth=direct-smoke-token`,
         }, {
           onMessage: message => {
-            sdkMessages.push(message)
+            protocolMessages.push(message)
             if (message.type === 'result' && runtimeEnvelopes.length >= 4) {
               doneResolve()
             }
@@ -166,7 +166,7 @@ describe('kernel direct-connect smoke', () => {
           onRuntimeEvent: envelope => {
             runtimeEnvelopes.push(envelope)
             if (
-              sdkMessages.some(message => message.type === 'result') &&
+              protocolMessages.some(message => message.type === 'result') &&
               runtimeEnvelopes.length >= 4
             ) {
               doneResolve()
@@ -203,13 +203,13 @@ describe('kernel direct-connect smoke', () => {
             content: 'ping direct-connect',
           },
         })
-        expect(sdkMessages.map(message => message.type)).toEqual([
+        expect(protocolMessages.map(message => message.type)).toEqual([
           'assistant',
           'result',
         ])
         expect(
-          sdkMessages.find(
-            (message): message is SDKMessage & { type: 'result'; result: string } =>
+          protocolMessages.find(
+            (message): message is ProtocolMessage & { type: 'result'; result: string } =>
               message.type === 'result',
           )?.result,
         ).toBe('direct connect')

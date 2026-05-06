@@ -1,15 +1,15 @@
 import { feature } from 'bun:bundle'
 import { createStreamlinedTransformer } from 'src/utils/streamlinedTransform.js'
-import type { SDKMessage } from 'src/entrypoints/agentSdkTypes.js'
-import type { StdoutMessage } from 'src/entrypoints/sdk/controlTypes.js'
+import type { ProtocolMessage } from 'src/types/protocol/index.js'
+import type { ProtocolStdoutMessage } from 'src/types/protocol/controlTypes.js'
 import type { HeadlessRuntimeOptions } from '../HeadlessRuntime.js'
 import type { KernelRuntimeEnvelopeBase } from '../../../contracts/events.js'
 import type { RuntimeEventBus } from '../../../core/events/RuntimeEventBus.js'
 import type { StructuredIO } from './io/structuredIO.js'
 import {
-  createHeadlessSDKMessageRuntimeEvent,
-  projectRuntimeEnvelopeToLegacySDKStreamJsonMessages,
-  projectSDKMessageToLegacyStreamJsonMessages,
+  createHeadlessProtocolMessageRuntimeEvent,
+  projectRuntimeEnvelopeToLegacyProtocolStreamJsonMessages,
+  projectProtocolMessageToLegacyStreamJsonMessages,
 } from '../../../core/events/compatProjection.js'
 
 type HeadlessRuntimeStreamPublisherOptions = {
@@ -20,10 +20,12 @@ type HeadlessRuntimeStreamPublisherOptions = {
 }
 
 type HeadlessRuntimeStreamPublisher = {
-  publishSdkMessage(message: SDKMessage): KernelRuntimeEnvelopeBase | undefined
+  publishCompatibilityMessage(
+    message: ProtocolMessage,
+  ): KernelRuntimeEnvelopeBase | undefined
 }
 
-function shouldTrackHeadlessResultMessage(message: SDKMessage): boolean {
+function shouldTrackHeadlessResultMessage(message: ProtocolMessage): boolean {
   return !(
     message.type === 'control_response' ||
     message.type === 'control_request' ||
@@ -46,10 +48,10 @@ export function createHeadlessRuntimeStreamPublisher(
   options: HeadlessRuntimeStreamPublisherOptions,
 ): HeadlessRuntimeStreamPublisher {
   return {
-    publishSdkMessage(message) {
+    publishCompatibilityMessage(message) {
       try {
         return options.eventBus.emit(
-          createHeadlessSDKMessageRuntimeEvent({
+          createHeadlessProtocolMessageRuntimeEvent({
             conversationId: options.conversationId,
             turnId: options.getTurnId(),
             message,
@@ -69,14 +71,14 @@ export function createHeadlessStreamCollector(
 ): {
   handleMessage(
     structuredIO: StructuredIO,
-    message: SDKMessage,
+    message: ProtocolMessage,
   ): Promise<void>
-  getMessages(): SDKMessage[]
-  getLastMessage(): SDKMessage | undefined
+  getMessages(): ProtocolMessage[]
+  getLastMessage(): ProtocolMessage | undefined
 } {
   const needsFullArray = options.outputFormat === 'json' && options.verbose
-  const messages: SDKMessage[] = []
-  let lastMessage: SDKMessage | undefined
+  const messages: ProtocolMessage[] = []
+  let lastMessage: ProtocolMessage | undefined
   const transformToStreamlined =
     feature('STREAMLINED_OUTPUT') &&
     process.env.CLAUDE_CODE_STREAMLINED_OUTPUT &&
@@ -86,19 +88,20 @@ export function createHeadlessStreamCollector(
 
   return {
     async handleMessage(structuredIO, message) {
-      const runtimeEnvelope = runtimePublisher?.publishSdkMessage(message)
+      const runtimeEnvelope =
+        runtimePublisher?.publishCompatibilityMessage(message)
 
       if (transformToStreamlined) {
         const transformed = transformToStreamlined(
-          message as unknown as StdoutMessage,
+          message as unknown as ProtocolStdoutMessage,
         )
         if (transformed) {
           await structuredIO.write(transformed)
         }
       } else if (options.outputFormat === 'stream-json' && options.verbose) {
         const legacyMessages = runtimeEnvelope
-          ? projectRuntimeEnvelopeToLegacySDKStreamJsonMessages(runtimeEnvelope)
-          : projectSDKMessageToLegacyStreamJsonMessages(message)
+          ? projectRuntimeEnvelopeToLegacyProtocolStreamJsonMessages(runtimeEnvelope)
+          : projectProtocolMessageToLegacyStreamJsonMessages(message)
         for (const legacyMessage of legacyMessages) {
           await structuredIO.write(legacyMessage)
         }

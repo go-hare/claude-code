@@ -3,7 +3,7 @@ import type { UUID } from 'crypto'
 import { projectHeadlessTaskNotification } from '../headlessTaskNotificationProjection.js'
 
 describe('projectHeadlessTaskNotification', () => {
-  test('projects terminal XML task notifications to canonical runtime events and SDK messages', () => {
+  test('projects terminal XML task notifications to canonical runtime events and protocol messages', () => {
     const projection = projectHeadlessTaskNotification({
       value: `<task-notification>
 <task-id>agent-1</task-id>
@@ -37,7 +37,7 @@ describe('projectHeadlessTaskNotification', () => {
         compatibilityProjection: 'headless.sdk_task_notification',
       },
     })
-    expect(projection?.sdkMessage).toMatchObject({
+    expect(projection?.protocolMessage).toMatchObject({
       type: 'system',
       subtype: 'task_notification',
       task_id: 'agent-1',
@@ -86,7 +86,7 @@ describe('projectHeadlessTaskNotification', () => {
     expect(projection?.runtimeEvent.payload).toMatchObject({
       status: 'stopped',
     })
-    expect(projection?.sdkMessage).toMatchObject({
+    expect(projection?.protocolMessage).toMatchObject({
       status: 'stopped',
     })
   })

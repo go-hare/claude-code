@@ -1,5 +1,5 @@
 import axios, { type AxiosError } from 'axios'
-import type { StdoutMessage } from 'src/entrypoints/sdk/controlTypes.js'
+import type { ProtocolStdoutMessage } from 'src/types/protocol/controlTypes.js'
 import { logForDebugging } from 'src/utils/debug.js'
 import { rcLog } from 'src/bridge/rcDebugLog.js'
 import { logForDiagnosticsNoPII } from 'src/utils/diagLogs.js'
@@ -54,11 +54,11 @@ const CLOSE_GRACE_MS = 3000
  */
 export class HybridTransport extends WebSocketTransport {
   private postUrl: string
-  private uploader: SerialBatchEventUploader<StdoutMessage>
+  private uploader: SerialBatchEventUploader<ProtocolStdoutMessage>
 
   // stream_event delay buffer — accumulates content deltas for up to
   // BATCH_FLUSH_INTERVAL_MS before enqueueing (reduces POST count)
-  private streamEventBuffer: StdoutMessage[] = []
+  private streamEventBuffer: ProtocolStdoutMessage[] = []
   private streamEventTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(
@@ -74,7 +74,7 @@ export class HybridTransport extends WebSocketTransport {
     super(url, headers, sessionId, refreshHeaders, options)
     const { maxConsecutiveFailures, onBatchDropped } = options ?? {}
     this.postUrl = convertWsUrlToPostUrl(url)
-    this.uploader = new SerialBatchEventUploader<StdoutMessage>({
+    this.uploader = new SerialBatchEventUploader<ProtocolStdoutMessage>({
       // Large cap — session-ingress accepts arbitrary batch sizes. Events
       // naturally batch during in-flight POSTs; this just bounds the payload.
       maxBatchSize: 500,
@@ -115,7 +115,7 @@ export class HybridTransport extends WebSocketTransport {
    * callers (`void transport.write()`) are unaffected — they don't await,
    * so the later resolution doesn't add latency.
    */
-  override async write(message: StdoutMessage): Promise<void> {
+  override async write(message: ProtocolStdoutMessage): Promise<void> {
     if (message.type === 'stream_event') {
       // Delay: accumulate stream_events briefly before enqueueing.
       // Promise resolves immediately — callers don't await stream_events.
@@ -133,7 +133,7 @@ export class HybridTransport extends WebSocketTransport {
     return this.uploader.flush()
   }
 
-  async writeBatch(messages: StdoutMessage[]): Promise<void> {
+  async writeBatch(messages: ProtocolStdoutMessage[]): Promise<void> {
     await this.uploader.enqueue([...this.takeStreamEvents(), ...messages])
     return this.uploader.flush()
   }
@@ -153,7 +153,7 @@ export class HybridTransport extends WebSocketTransport {
   }
 
   /** Take ownership of buffered stream_events and clear the delay timer. */
-  private takeStreamEvents(): StdoutMessage[] {
+  private takeStreamEvents(): ProtocolStdoutMessage[] {
     if (this.streamEventTimer) {
       clearTimeout(this.streamEventTimer)
       this.streamEventTimer = null
@@ -200,7 +200,7 @@ export class HybridTransport extends WebSocketTransport {
    * so SerialBatchEventUploader re-queues and retries. Returns on success
    * and on permanent failures (4xx non-429, no token) so the uploader moves on.
    */
-  private async postOnce(events: StdoutMessage[]): Promise<void> {
+  private async postOnce(events: ProtocolStdoutMessage[]): Promise<void> {
     const sessionToken = getSessionIngressAuthToken()
     if (!sessionToken) {
       logForDebugging('HybridTransport: No session token available for POST')

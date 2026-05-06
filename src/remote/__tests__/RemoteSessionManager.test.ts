@@ -1,9 +1,9 @@
 import { describe, expect, mock, test } from 'bun:test'
 
 import type {
-  SDKControlRequest,
-  SDKControlResponse,
-} from '../../entrypoints/sdk/controlTypes.js'
+  ProtocolControlRequest,
+  ProtocolControlResponse,
+} from 'src/types/protocol/controlTypes.js'
 import type { KernelRuntimeEnvelopeBase } from '../../runtime/contracts/events.js'
 import type { SessionsWebSocketCallbacks } from '../SessionsWebSocket.js'
 
@@ -12,7 +12,7 @@ const actualTeleportApi = await import('../../utils/teleport/api.js')
 let lastSocket: FakeSessionsWebSocket | undefined
 
 class FakeSessionsWebSocket {
-  readonly sentControlResponses: SDKControlResponse[] = []
+  readonly sentControlResponses: ProtocolControlResponse[] = []
 
   constructor(
     _sessionId: string,
@@ -27,7 +27,7 @@ class FakeSessionsWebSocket {
     this.callbacks.onConnected?.()
   }
 
-  sendControlResponse(response: SDKControlResponse): void {
+  sendControlResponse(response: ProtocolControlResponse): void {
     this.sentControlResponses.push(response)
   }
 
@@ -87,7 +87,7 @@ function createRuntimeEventMessage() {
       conversationId: 'conversation-1',
       eventId: 'conversation-1:1',
       payload: {
-        type: 'headless.sdk_message',
+        type: 'headless.protocol_message',
         replayable: true,
       },
     },
@@ -99,7 +99,7 @@ describe('RemoteSessionManager', () => {
     const manager = createManager()
     manager.connect()
 
-    const request: SDKControlRequest = {
+    const request: ProtocolControlRequest = {
       type: 'control_request',
       request_id: 'request-1',
       request: {
@@ -146,7 +146,7 @@ describe('RemoteSessionManager', () => {
         input: { command: 'rm file' },
         tool_use_id: 'tool-use-2',
       },
-    } satisfies SDKControlRequest)
+    } satisfies ProtocolControlRequest)
 
     manager.respondToPermissionRequest('request-2', {
       behavior: 'deny',
@@ -168,7 +168,7 @@ describe('RemoteSessionManager', () => {
     })
   })
 
-  test('routes kernel runtime events without forwarding them as SDK messages', () => {
+  test('routes kernel runtime events without forwarding them as protocol messages', () => {
     const onMessage = mock((_message: unknown) => {})
     const onRuntimeEvent = mock((_envelope: KernelRuntimeEnvelopeBase) => {})
     const manager = createManager({ onMessage, onRuntimeEvent })

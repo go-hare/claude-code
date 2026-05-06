@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   hasHeadlessBackgroundWorkPending,
-  observeHeadlessBackgroundSdkMessage,
+  observeHeadlessBackgroundCompatibilityMessage,
 } from '../headlessBackgroundWork.js'
 
 const baseTask = {
@@ -83,14 +83,14 @@ describe('hasHeadlessBackgroundWorkPending', () => {
   })
 })
 
-describe('observeHeadlessBackgroundSdkMessage', () => {
+describe('observeHeadlessBackgroundCompatibilityMessage', () => {
   test('tracks direct task_started messages and their launching turn', () => {
     const tracking = {
       pendingTaskIds: new Set<string>(),
       handoffTurnIds: new Set<string>(),
     }
 
-    observeHeadlessBackgroundSdkMessage(
+    observeHeadlessBackgroundCompatibilityMessage(
       {
         type: 'system',
         subtype: 'task_started',
@@ -111,7 +111,7 @@ describe('observeHeadlessBackgroundSdkMessage', () => {
       handoffTurnIds: new Set<string>(['turn-1']),
     }
 
-    observeHeadlessBackgroundSdkMessage(
+    observeHeadlessBackgroundCompatibilityMessage(
       {
         type: 'system',
         subtype: 'task_notification',

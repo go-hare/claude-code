@@ -97,10 +97,10 @@ afterEach(() => {
 })
 
 describe('runConnectHeadlessRuntime', () => {
-  test('uses headless.sdk_message runtime events as direct-host result fallback', async () => {
+  test('uses headless.protocol_message runtime events as direct-host result fallback', async () => {
     FakeWebSocket.messagesToEmit = [
       createRuntimeEvent(1, {
-        type: 'headless.sdk_message',
+        type: 'headless.protocol_message',
         replayable: true,
         payload: {
           type: 'result',
@@ -127,7 +127,7 @@ describe('runConnectHeadlessRuntime', () => {
     expect(stdoutChunks.join('')).toBe('runtime result\n')
   })
 
-  test('uses semantic turn.output_delta runtime events when no SDK result arrives', async () => {
+  test('uses semantic turn.output_delta runtime events when no protocol result arrives', async () => {
     FakeWebSocket.messagesToEmit = [
       createRuntimeEvent(1, {
         type: 'turn.output_delta',

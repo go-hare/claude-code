@@ -7,11 +7,11 @@ import {
   LOCAL_COMMAND_STDOUT_TAG,
 } from '../../constants/xml.js'
 import type {
-  SDKAssistantMessage,
-  SDKCompactBoundaryMessage,
-  SDKMessage,
-  SDKRateLimitInfo,
-} from '../../entrypoints/agentSdkTypes.js'
+  ProtocolAssistantMessage,
+  ProtocolCompactBoundaryMessage,
+  ProtocolMessage,
+  ProtocolRateLimitInfo,
+} from 'src/types/protocol/index.js'
 import type { ClaudeAILimits } from '../../services/claudeAiLimits.js'
 import { EXIT_PLAN_MODE_V2_TOOL_NAME } from '../../../packages/builtin-tools/src/tools/ExitPlanModeTool/constants.js'
 import type {
@@ -26,7 +26,7 @@ import { createAssistantMessage } from '../messages.js'
 import { getPlan } from '../plans.js'
 
 export function toInternalMessages(
-  messages: readonly DeepImmutable<SDKMessage>[],
+  messages: readonly DeepImmutable<ProtocolMessage>[],
 ): Message[] {
   return messages.flatMap(message => {
     switch (message.type) {
@@ -59,8 +59,8 @@ export function toInternalMessages(
               content: 'Conversation compacted',
               level: 'info',
               subtype: 'compact_boundary',
-              compactMetadata: fromSDKCompactMetadata(
-                compactMsg.compact_metadata as SDKCompactMetadata,
+              compactMetadata: fromProtocolCompactMetadata(
+                compactMsg.compact_metadata as ProtocolCompactMetadata,
               ),
               uuid: message.uuid,
               timestamp: new Date().toISOString(),
@@ -74,11 +74,11 @@ export function toInternalMessages(
   })
 }
 
-type SDKCompactMetadata = SDKCompactBoundaryMessage['compact_metadata']
+type ProtocolCompactMetadata = ProtocolCompactBoundaryMessage['compact_metadata']
 
-export function toSDKCompactMetadata(
+export function toProtocolCompactMetadata(
   meta: CompactMetadata,
-): SDKCompactMetadata {
+): ProtocolCompactMetadata {
   const seg = meta.preservedSegment as { headUuid: UUID; anchorUuid: UUID; tailUuid: UUID } | undefined
   return {
     trigger: meta.trigger,
@@ -96,8 +96,8 @@ export function toSDKCompactMetadata(
 /**
  * Shared SDK→internal compact_metadata converter.
  */
-export function fromSDKCompactMetadata(
-  meta: SDKCompactMetadata,
+export function fromProtocolCompactMetadata(
+  meta: ProtocolCompactMetadata,
 ): CompactMetadata {
   const m = meta as { preserved_segment?: { head_uuid: string; anchor_uuid: string; tail_uuid: string }; trigger?: string; pre_tokens?: number; [key: string]: unknown }
   const seg = m.preserved_segment
@@ -114,8 +114,8 @@ export function fromSDKCompactMetadata(
   }
 }
 
-export function toSDKMessages(messages: Message[]): SDKMessage[] {
-  return messages.flatMap((message): SDKMessage[] => {
+export function toProtocolMessages(messages: Message[]): ProtocolMessage[] {
+  return messages.flatMap((message): ProtocolMessage[] => {
     switch (message.type) {
       case 'assistant':
         return [
@@ -155,7 +155,7 @@ export function toSDKMessages(messages: Message[]): SDKMessage[] {
               subtype: 'compact_boundary' as const,
               session_id: getSessionId(),
               uuid: message.uuid,
-              compact_metadata: toSDKCompactMetadata(message.compactMetadata as CompactMetadata),
+              compact_metadata: toProtocolCompactMetadata(message.compactMetadata as CompactMetadata),
             },
           ]
         }
@@ -169,7 +169,7 @@ export function toSDKMessages(messages: Message[]): SDKMessage[] {
             (message.content as string).includes(`<${LOCAL_COMMAND_STDERR_TAG}>`))
         ) {
           return [
-            localCommandOutputToSDKAssistantMessage(
+            localCommandOutputToProtocolAssistantMessage(
               message.content as string,
               message.uuid,
             ),
@@ -184,28 +184,28 @@ export function toSDKMessages(messages: Message[]): SDKMessage[] {
 
 /**
  * Converts local command output (e.g. /voice, /cost) to a well-formed
- * SDKAssistantMessage so downstream consumers (mobile apps, session-ingress
+ * ProtocolAssistantMessage so downstream consumers (mobile apps, session-ingress
  * v1alpha→v1beta converter) can parse it without schema changes.
  *
- * Emitted as assistant instead of the dedicated SDKLocalCommandOutputMessage
+ * Emitted as assistant instead of the dedicated ProtocolLocalCommandOutputMessage
  * because the system/local_command_output subtype is unknown to:
- *   - mobile-apps Android SdkMessageTypes.kt (no local_command_output handler)
+ *   - mobile-apps Android ProtocolMessageTypes.kt (no local_command_output handler)
  *   - api-go session-ingress convertSystemEvent (only init/compact_boundary)
  * See: https://anthropic.sentry.io/issues/7266299248/ (Android)
  *
  * Strips ANSI (e.g. chalk.dim() in /cost) then unwraps the XML wrapper tags.
  */
-export function localCommandOutputToSDKAssistantMessage(
+export function localCommandOutputToProtocolAssistantMessage(
   rawContent: string,
   uuid: UUID,
-): SDKAssistantMessage {
+): ProtocolAssistantMessage {
   const cleanContent = stripAnsi(rawContent)
     .replace(/<local-command-stdout>([\s\S]*?)<\/local-command-stdout>/, '$1')
     .replace(/<local-command-stderr>([\s\S]*?)<\/local-command-stderr>/, '$1')
     .trim()
   // createAssistantMessage builds a complete APIAssistantMessage with id, type,
   // model: SYNTHETIC_MODEL, role, stop_reason, usage — all fields required by
-  // downstream deserializers like Android's SdkAssistantMessage.
+  // downstream deserializers like Android's ProtocolAssistantMessage.
   const synthetic = createAssistantMessage({ content: cleanContent })
   return {
     type: 'assistant',
@@ -218,12 +218,12 @@ export function localCommandOutputToSDKAssistantMessage(
 }
 
 /**
- * Maps internal ClaudeAILimits to the SDK-facing SDKRateLimitInfo type,
+ * Maps internal ClaudeAILimits to the SDK-facing ProtocolRateLimitInfo type,
  * stripping internal-only fields like unifiedRateLimitFallbackAvailable.
  */
-export function toSDKRateLimitInfo(
+export function toProtocolRateLimitInfo(
   limits: ClaudeAILimits | undefined,
-): SDKRateLimitInfo | undefined {
+): ProtocolRateLimitInfo | undefined {
   if (!limits) {
     return undefined
   }

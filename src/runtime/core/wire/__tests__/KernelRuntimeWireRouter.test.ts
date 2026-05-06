@@ -1102,10 +1102,10 @@ describe('KernelRuntimeWireRouter', () => {
       prompt: 'hello process',
     })
 
-    const sdkMessage = await waitForObserved(observed, envelope => {
+    const protocolMessage = await waitForObserved(observed, envelope => {
       return (
         (envelope as { payload?: { type?: string } }).payload?.type ===
-        'headless.sdk_message'
+        'headless.protocol_message'
       )
     })
     const output = await waitForObserved(observed, envelope => {
@@ -1123,10 +1123,10 @@ describe('KernelRuntimeWireRouter', () => {
       )
     })
 
-    expect(sdkMessage).toMatchObject({
+    expect(protocolMessage).toMatchObject({
       kind: 'event',
       payload: {
-        type: 'headless.sdk_message',
+        type: 'headless.protocol_message',
       },
     })
     expect(output).toMatchObject({

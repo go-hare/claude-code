@@ -424,7 +424,7 @@ export async function initializeTelemetry() {
 
   // Console exporters call console.dir on a timer (5s logs/traces, 60s
   // metrics), writing pretty-printed objects to stdout. In stream-json
-  // mode stdout is the SDK message channel; the first line (`{`) breaks
+  // mode stdout is the protocol message channel; the first line (`{`) breaks
   // the SDK's line reader. Stripped here (not main.tsx) because init.ts
   // re-runs applyConfigEnvironmentVariables() inside initializeTelemetry-
   // AfterTrust for remote-managed-settings users, and bootstrapTelemetry

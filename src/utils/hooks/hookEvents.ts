@@ -3,10 +3,10 @@
  *
  * This module provides a generic event system that is separate from the
  * main message stream. Handlers can register to receive events and decide
- * what to do with them (e.g., convert to SDK messages, log, etc.).
+ * what to do with them (e.g., convert to protocol messages, log, etc.).
  */
 
-import { HOOK_EVENTS } from 'src/entrypoints/sdk/coreTypes.js'
+import { HOOK_EVENTS } from 'src/types/protocol/coreTypes.js'
 
 import { logForDebugging } from '../debug.js'
 

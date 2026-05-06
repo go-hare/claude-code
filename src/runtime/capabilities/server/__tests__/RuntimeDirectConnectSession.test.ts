@@ -45,7 +45,7 @@ function createRuntimeEnvelope(
       runtimeId: 'runtime-1',
       conversationId: 'conversation-1',
       eventId: `runtime-event-${sequence}`,
-      type: 'headless.sdk_message',
+      type: 'headless.protocol_message',
       replayable: true,
     },
     ...overrides,

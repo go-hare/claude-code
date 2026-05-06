@@ -5,9 +5,9 @@ import {
   writeToStdout,
 } from '../../../utils/process.js'
 import type {
-  SDKMessage,
-  SDKResultMessage,
-} from '../../../entrypoints/agentSdkTypes.js'
+  ProtocolMessage,
+  ProtocolResultMessage,
+} from 'src/types/protocol/index.js'
 import type {
   DirectConnectConfig,
   ServerConfig,
@@ -22,9 +22,9 @@ import {
   getKernelRuntimeFailedError,
   handleKernelRuntimeHostEvent,
   KernelRuntimeOutputDeltaDedupe,
-  KernelRuntimeSDKMessageDedupe,
+  KernelRuntimeProtocolMessageDedupe,
 } from '../../../remote/kernelRuntimeHostEvents.js'
-import { projectSDKMessageToLegacyStreamJsonMessages } from '../../core/events/compatProjection.js'
+import { projectProtocolMessageToLegacyStreamJsonMessages } from '../../core/events/compatProjection.js'
 
 type ServerSocketData = {
   sessionId: string
@@ -197,9 +197,9 @@ export async function runConnectHeadlessRuntime(
   let connected = false
   let settled = false
   let connectError: Error | null = null
-  let finalResult: SDKResultMessage | null = null
+  let finalResult: ProtocolResultMessage | null = null
   let semanticOutput = ''
-  const sdkMessageDedupe = new KernelRuntimeSDKMessageDedupe()
+  const protocolMessageDedupe = new KernelRuntimeProtocolMessageDedupe()
   const outputDeltaDedupe = new KernelRuntimeOutputDeltaDedupe()
 
   let connectedResolve!: () => void
@@ -222,27 +222,27 @@ export async function runConnectHeadlessRuntime(
     doneResolve()
   }
 
-  const handleSdkMessage = (sdkMessage: SDKMessage): void => {
-    if (!sdkMessageDedupe.shouldProcess(sdkMessage)) {
+  const handleProtocolMessage = (protocolMessage: ProtocolMessage): void => {
+    if (!protocolMessageDedupe.shouldProcess(protocolMessage)) {
       return
     }
 
     if (outputFormat === 'stream-json') {
-      for (const message of projectSDKMessageToLegacyStreamJsonMessages(
-        sdkMessage,
+      for (const message of projectProtocolMessageToLegacyStreamJsonMessages(
+        protocolMessage,
       )) {
         writeToStdout(`${jsonStringify(message)}\n`)
       }
     }
 
-    if (sdkMessage.type === 'result') {
-      finalResult = sdkMessage as SDKResultMessage
+    if (protocolMessage.type === 'result') {
+      finalResult = protocolMessage as ProtocolResultMessage
       settle()
     }
   }
 
   const manager = new DirectConnectSessionManager(config, {
-    onMessage: handleSdkMessage,
+    onMessage: handleProtocolMessage,
     onPermissionRequest: (request, requestId) => {
       const response: RemotePermissionResponse = {
         behavior: 'deny',
@@ -271,7 +271,7 @@ export async function runConnectHeadlessRuntime(
     },
     onRuntimeEvent: envelope => {
       handleKernelRuntimeHostEvent(envelope, {
-        onSDKMessage: handleSdkMessage,
+        onProtocolMessage: handleProtocolMessage,
         onOutputDelta: delta => {
           if (!outputDeltaDedupe.shouldProcess(envelope)) {
             return
@@ -292,7 +292,7 @@ export async function runConnectHeadlessRuntime(
                     ),
                   ]
                 : undefined,
-            } as SDKResultMessage
+            } as ProtocolResultMessage
           }
           settle()
         },

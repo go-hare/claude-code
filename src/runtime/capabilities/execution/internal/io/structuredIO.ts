@@ -8,17 +8,17 @@ import type { AssistantMessage } from 'src//types/message.js'
 import type {
   HookInput,
   HookJSONOutput,
-  PermissionUpdate as SDKPermissionUpdate,
-  SDKMessage,
-  SDKUserMessage,
-} from 'src/entrypoints/agentSdkTypes.js'
-import { SDKControlElicitationResponseSchema } from 'src/entrypoints/sdk/controlSchemas.js'
+  PermissionUpdate as ProtocolPermissionUpdate,
+  ProtocolMessage,
+  ProtocolUserMessage,
+} from 'src/types/protocol/index.js'
+import { ProtocolControlElicitationResponseSchema } from 'src/types/protocol/controlSchemas.js'
 import type {
-  SDKControlRequest,
-  SDKControlResponse,
-  StdinMessage,
-  StdoutMessage,
-} from 'src/entrypoints/sdk/controlTypes.js'
+  ProtocolControlRequest,
+  ProtocolControlResponse,
+  ProtocolStdinMessage,
+  ProtocolStdoutMessage,
+} from 'src/types/protocol/controlTypes.js'
 import type { PermissionUpdate as InternalPermissionUpdate } from 'src/types/permissions.js'
 import type { CanUseToolFn } from 'src/hooks/useCanUseTool.js'
 import type { Tool, ToolUseContext } from 'src/Tool.js'
@@ -128,7 +128,7 @@ type PendingRequest<T> = {
   resolve: (result: T) => void
   reject: (error: unknown) => void
   schema?: z.Schema
-  request: SDKControlRequest
+  request: ProtocolControlRequest
 }
 
 export type StructuredIOPermissionBroker = Pick<
@@ -154,7 +154,7 @@ function mergeStructuredIOPermissionOptions(
 }
 
 /**
- * Provides a structured way to read and write SDK messages from stdio,
+ * Provides a structured way to read and write protocol messages from stdio,
  * capturing the SDK protocol.
  */
 // Maximum number of resolved tool_use IDs to track. Once exceeded, the oldest
@@ -163,7 +163,7 @@ function mergeStructuredIOPermissionOptions(
 const MAX_RESOLVED_TOOL_USE_IDS = 1000
 
 export class StructuredIO {
-  readonly structuredInput: AsyncGenerator<StdinMessage | SDKMessage>
+  readonly structuredInput: AsyncGenerator<ProtocolStdinMessage | ProtocolMessage>
   private readonly pendingRequests = new Map<string, PendingRequest<unknown>>()
 
   // CCR external_metadata read back on worker start; null when the
@@ -173,7 +173,7 @@ export class StructuredIO {
 
   private inputClosed = false
   private unexpectedResponseCallback?: (
-    response: SDKControlResponse,
+    response: ProtocolControlResponse,
   ) => Promise<void>
 
   // Tracks tool_use IDs that have been resolved through the normal permission
@@ -184,13 +184,13 @@ export class StructuredIO {
   // error from the API.
   private readonly resolvedToolUseIds = new Set<string>()
   private prependedLines: string[] = []
-  private onControlRequestSent?: (request: SDKControlRequest) => void
+  private onControlRequestSent?: (request: ProtocolControlRequest) => void
   private onControlRequestResolved?: (requestId: string) => void
   private permissionOptions: StructuredIOPermissionOptions = {}
 
   // sendRequest() and print.ts both enqueue here; the drain loop is the
   // only writer. Prevents control_request from overtaking queued stream_events.
-  readonly outbound = new Stream<StdoutMessage>()
+  readonly outbound = new Stream<ProtocolStdoutMessage>()
 
   constructor(
     private readonly input: AsyncIterable<string>,
@@ -204,7 +204,7 @@ export class StructuredIO {
    * Records a tool_use ID as resolved so that late/duplicate control_response
    * messages for the same tool are ignored by the orphan handler.
    */
-  private trackResolvedToolUseId(request: SDKControlRequest): void {
+  private trackResolvedToolUseId(request: ProtocolControlRequest): void {
     const inner = request.request as { subtype?: string; tool_use_id?: string }
     if (inner.subtype === 'can_use_tool') {
       this.resolvedToolUseIds.add(inner.tool_use_id as string)
@@ -242,7 +242,7 @@ export class StructuredIO {
         session_id: '',
         message: { role: 'user', content },
         parent_tool_use_id: null,
-      } satisfies SDKUserMessage) + '\n',
+      } satisfies ProtocolUserMessage) + '\n',
     )
   }
 
@@ -303,7 +303,7 @@ export class StructuredIO {
   }
 
   setUnexpectedResponseCallback(
-    callback: (response: SDKControlResponse) => Promise<void>,
+    callback: (response: ProtocolControlResponse) => Promise<void>,
   ): void {
     this.unexpectedResponseCallback = callback
   }
@@ -316,7 +316,7 @@ export class StructuredIO {
    * Also sends a control_cancel_request to the SDK consumer so its canUseTool
    * callback is aborted via the signal — otherwise the callback hangs.
    */
-  injectControlResponse(response: SDKControlResponse): void {
+  injectControlResponse(response: ProtocolControlResponse): void {
     const responseInner = response.response as
       | {
           request_id?: string
@@ -358,7 +358,7 @@ export class StructuredIO {
    * requests to claude.ai.
    */
   setOnControlRequestSent(
-    callback: ((request: SDKControlRequest) => void) | undefined,
+    callback: ((request: ProtocolControlRequest) => void) | undefined,
   ): void {
     this.onControlRequestSent = callback
   }
@@ -376,15 +376,15 @@ export class StructuredIO {
 
   private async processLine(
     line: string,
-  ): Promise<StdinMessage | SDKMessage | undefined> {
+  ): Promise<ProtocolStdinMessage | ProtocolMessage | undefined> {
     // Skip empty lines (e.g. from double newlines in piped stdin)
     if (!line) {
       return undefined
     }
     try {
       const message = normalizeControlMessageKeys(jsonParse(line)) as
-        | StdinMessage
-        | SDKMessage
+        | ProtocolStdinMessage
+        | ProtocolMessage
       if (message.type === 'keep_alive') {
         // Silently ignore keep-alive messages
         return undefined
@@ -443,7 +443,7 @@ export class StructuredIO {
           }
           if (this.unexpectedResponseCallback) {
             await this.unexpectedResponseCallback(
-              message as SDKControlResponse & { uuid?: string },
+              message as ProtocolControlResponse & { uuid?: string },
             )
           }
           return undefined // Ignore responses for requests we don't know about
@@ -516,17 +516,17 @@ export class StructuredIO {
     }
   }
 
-  async write(message: StdoutMessage): Promise<void> {
+  async write(message: ProtocolStdoutMessage): Promise<void> {
     writeToStdout(ndjsonSafeStringify(message) + '\n')
   }
 
   private async sendRequest<Response>(
-    request: SDKControlRequest['request'],
+    request: ProtocolControlRequest['request'],
     schema: z.Schema,
     signal?: AbortSignal,
     requestId: string = randomUUID(),
   ): Promise<Response> {
-    const message: SDKControlRequest = {
+    const message: ProtocolControlRequest = {
       type: 'control_request',
       request_id: requestId,
       request,
@@ -689,7 +689,7 @@ export class StructuredIO {
         onPermissionPrompt?.(
           buildRequiresActionDetails(tool, input, toolUseID, requestId),
         )
-        const sdkPromise = this.sendRequest<PermissionToolOutput>(
+        const clientPromise = this.sendRequest<PermissionToolOutput>(
           {
             subtype: 'can_use_tool',
             tool_name: tool.name,
@@ -710,20 +710,20 @@ export class StructuredIO {
         // Race: hook completion vs SDK prompt response.
         // The hook promise always resolves (never rejects), returning
         // undefined if no hook made a decision.
-        const winner = await Promise.race([hookPromise, sdkPromise])
+        const winner = await Promise.race([hookPromise, clientPromise])
 
         if (winner.source === 'hook') {
           if (winner.decision) {
             // Hook decided — abort the pending SDK request.
-            // Suppress the expected AbortError rejection from sdkPromise.
-            sdkPromise.catch(() => {})
+            // Suppress the expected AbortError rejection from clientPromise.
+            clientPromise.catch(() => {})
             hookAbortController.abort()
             return winner.decision
           }
           // Hook passed through (no decision) — wait for the SDK prompt
-          const sdkResult = await sdkPromise
+          const protocolResult = await clientPromise
           return permissionPromptToolResultToPermissionDecision(
-            sdkResult.result,
+            protocolResult.result,
             tool,
             input,
             toolUseContext,
@@ -832,7 +832,7 @@ export class StructuredIO {
       onPermissionPrompt?.(
         buildRequiresActionDetails(tool, input, toolUseID, requestId),
       )
-      const sdkPromise = this.sendRequest<PermissionToolOutput>(
+      const clientPromise = this.sendRequest<PermissionToolOutput>(
         {
           subtype: 'can_use_tool',
           tool_name: tool.name,
@@ -865,13 +865,13 @@ export class StructuredIO {
 
       const winner = await Promise.race([
         hookPromise,
-        sdkPromise,
+        clientPromise,
         brokerDecisionPromise,
       ])
 
       if (winner.source === 'hook') {
         if (winner.decision) {
-          sdkPromise.catch(() => {})
+          clientPromise.catch(() => {})
           hookAbortController.abort()
           return winner.decision
         }
@@ -891,7 +891,7 @@ export class StructuredIO {
       }
 
       if (winner.source === 'broker') {
-        sdkPromise.catch(() => {})
+        clientPromise.catch(() => {})
         cancelPendingTransportIfExternal(
           winner.decision,
           hookAbortController,
@@ -992,7 +992,7 @@ export class StructuredIO {
           elicitation_id: elicitationId,
           requested_schema: requestedSchema,
         },
-        SDKControlElicitationResponseSchema(),
+        ProtocolControlElicitationResponseSchema(),
         signal,
       )
       return result
@@ -1071,7 +1071,7 @@ export class StructuredIO {
     const transportAbortController = new AbortController()
 
     try {
-      const sdkPromise = this.sendRequest<PermissionToolOutput>(
+      const clientPromise = this.sendRequest<PermissionToolOutput>(
         {
           subtype: 'can_use_tool',
           tool_name: SANDBOX_NETWORK_ACCESS_TOOL_NAME,
@@ -1097,9 +1097,9 @@ export class StructuredIO {
         decision,
       }))
 
-      const winner = await Promise.race([sdkPromise, brokerDecisionPromise])
+      const winner = await Promise.race([clientPromise, brokerDecisionPromise])
       if (winner.source === 'broker') {
-        sdkPromise.catch(() => {})
+        clientPromise.catch(() => {})
         cancelPendingTransportIfExternal(
           winner.decision,
           transportAbortController,
@@ -1533,7 +1533,7 @@ async function executePermissionRequestHooksForSDK(
     input,
     toolUseContext,
     permissionMode,
-    suggestions as unknown as SDKPermissionUpdate[] | undefined,
+    suggestions as unknown as ProtocolPermissionUpdate[] | undefined,
     toolUseContext.abortController.signal,
   )
 

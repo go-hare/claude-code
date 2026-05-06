@@ -16,8 +16,8 @@
 import { feature } from 'bun:bundle'
 import { hostname } from 'os'
 import { getOriginalCwd, getSessionId } from '../bootstrap/state.js'
-import type { SDKMessage } from '../entrypoints/agentSdkTypes.js'
-import type { SDKControlResponse } from '../entrypoints/sdk/controlTypes.js'
+import type { ProtocolMessage } from 'src/types/protocol/index.js'
+import type { ProtocolControlResponse } from 'src/types/protocol/controlTypes.js'
 import { getFeatureValue_CACHED_WITH_REFRESH } from '../services/analytics/growthbook.js'
 import { getOrganizationUUID } from '../services/oauth/client.js'
 import {
@@ -36,7 +36,7 @@ import { logForDebugging } from '../utils/debug.js'
 import { stripDisplayTagsAllowEmpty } from '../utils/displayTags.js'
 import { errorMessage } from '../utils/errors.js'
 import { getBranch, getRemoteUrl } from '../utils/git.js'
-import { toSDKMessages } from '../utils/messages/mappers.js'
+import { toProtocolMessages } from '../utils/messages/mappers.js'
 import {
   getContentText,
   getMessagesAfterCompactBoundary,
@@ -76,9 +76,9 @@ import type { BridgeWorkerType } from './types.js'
 import type { KernelRuntimeEventSink } from '../runtime/contracts/events.js'
 
 export type InitBridgeOptions = {
-  onInboundMessage?: (msg: SDKMessage) => void | Promise<void>
+  onInboundMessage?: (msg: ProtocolMessage) => void | Promise<void>
   onRuntimeEvent?: KernelRuntimeEventSink
-  onPermissionResponse?: (response: SDKControlResponse) => void
+  onPermissionResponse?: (response: ProtocolControlResponse) => void
   onInterrupt?: () => void
   onSetModel?: (model: string | undefined) => void
   onSetMaxThinkingTokens?: (maxTokens: number | null) => void
@@ -437,7 +437,7 @@ export async function initReplBridge(
       title,
       getAccessToken: getBridgeAccessToken,
       onAuth401: handleOAuth401Error,
-      toSDKMessages,
+      toProtocolMessages,
       initialHistoryCap,
       initialMessages,
       // v2 always creates a fresh server session (new cse_* id), so
@@ -492,7 +492,7 @@ export async function initReplBridge(
   }
 
   // 6. Delegate. BridgeCoreHandle is a structural superset of
-  // ReplBridgeHandle (adds writeSdkMessages which REPL callers don't use),
+  // ReplBridgeHandle (adds writeProtocolMessages which REPL callers don't use),
   // so no adapter needed — just the narrower type on the way out.
   return initBridgeCore({
     dir: getOriginalCwd(),
@@ -536,7 +536,7 @@ export async function initReplBridge(
     // `title` directly — both paths are picked up here.
     getCurrentTitle: () => getCurrentSessionTitle(getSessionId()) ?? title,
     onUserMessage,
-    toSDKMessages,
+    toProtocolMessages,
     onAuth401: handleOAuth401Error,
     getPollIntervalConfig,
     initialHistoryCap,

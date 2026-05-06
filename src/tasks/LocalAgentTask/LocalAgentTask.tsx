@@ -53,7 +53,7 @@ import {
   registerTask,
   updateTaskState,
 } from '../../utils/task/framework.js'
-import { emitTaskProgress } from '../../utils/task/sdkProgress.js'
+import { emitTaskProgress } from '../../utils/task/taskProgress.js'
 import { validateWorkerResult } from '../../coordinator/workerResultValidator.js'
 import type { TaskState } from '../types.js'
 

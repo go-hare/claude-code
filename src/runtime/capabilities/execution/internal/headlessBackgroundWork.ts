@@ -36,7 +36,7 @@ export function hasHeadlessBackgroundWorkPending(state: AppState): boolean {
   )
 }
 
-export function observeHeadlessBackgroundSdkMessage(
+export function observeHeadlessBackgroundCompatibilityMessage(
   message: unknown,
   tracking: HeadlessBackgroundEventTrackingState,
   activeTurnId?: string,

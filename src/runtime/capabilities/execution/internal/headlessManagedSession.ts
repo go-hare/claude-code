@@ -1,6 +1,6 @@
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/messages.mjs'
 import type { Message, NormalizedUserMessage } from 'src/types/message.js'
-import type { StdoutMessage } from 'src/entrypoints/sdk/controlTypes.js'
+import type { ProtocolStdoutMessage } from 'src/types/protocol/controlTypes.js'
 import { createAbortController } from 'src/utils/abortController.js'
 import {
   createFileStateCacheWithSizeLimit,
@@ -22,7 +22,7 @@ export type HeadlessManagedSession = RuntimeSessionLifecycle &
   IndexedRuntimeSession &
   AttachableRuntimeSession<HeadlessManagedSessionSink> & {
   readonly messages: Message[]
-  emitOutput(message: StdoutMessage): void
+  emitOutput(message: ProtocolStdoutMessage): void
   appendMessages(messages: Message[]): void
   resumeInterruptedTurn(
     interruptedUserMessage: NormalizedUserMessage,
@@ -36,7 +36,7 @@ export type HeadlessManagedSession = RuntimeSessionLifecycle &
   seedReadFileState(path: string, fileState: FileState): void
 }
 
-export type HeadlessManagedSessionSink = RuntimeSessionSink<StdoutMessage>
+export type HeadlessManagedSessionSink = RuntimeSessionSink<ProtocolStdoutMessage>
 
 export function createHeadlessManagedSession(
   initialMessages: Message[],

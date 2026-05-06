@@ -28,7 +28,7 @@ import { markAutonomyRunFailed } from '../autonomyRuns.js'
 import { formatAgentId } from '../agentId.js'
 import { registerCleanup } from '../cleanupRegistry.js'
 import { logForDebugging } from '../debug.js'
-import { emitTaskTerminatedSdk } from '../sdkEventQueue.js'
+import { emitTaskTerminatedSdk } from '../protocolEventQueue.js'
 import { evictTaskOutput } from '../task/diskOutput.js'
 import {
   evictTerminalTask,

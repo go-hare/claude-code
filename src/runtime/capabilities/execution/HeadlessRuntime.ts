@@ -1,5 +1,5 @@
 import type { Command } from '../../../commands.js'
-import type { SDKStatus } from '../../../entrypoints/agentSdkTypes.js'
+import type { ProtocolStatus } from 'src/types/protocol/index.js'
 import type { McpSdkServerConfig } from '../../../services/mcp/types.js'
 import type { AppState } from '../../../state/AppStateStore.js'
 import type { Tools } from '../../../Tool.js'
@@ -41,7 +41,7 @@ export type HeadlessRuntimeOptions = {
   workload: string | undefined
   setupTrigger?: 'init' | 'maintenance' | undefined
   sessionStartHooksPromise?: Promise<HookResultMessage[]>
-  setSDKStatus?: (status: SDKStatus) => void
+  setProtocolStatus?: (status: ProtocolStatus) => void
   runtimeEventSink?: KernelRuntimeEventSink
   bootstrapStateProvider?: HeadlessSessionStateProvider
 }

@@ -1,12 +1,12 @@
 import { feature } from 'bun:bundle'
 import { randomUUID } from 'crypto'
-import { getSdkBetas, getSessionId } from '../../bootstrap/state.js'
+import { getProtocolBetas, getSessionId } from '../../bootstrap/state.js'
 import { DEFAULT_OUTPUT_STYLE_NAME } from '../../constants/outputStyles.js'
 import type {
   ApiKeySource,
   PermissionMode,
-  SDKMessage,
-} from '../../entrypoints/agentSdkTypes.js'
+  ProtocolMessage,
+} from 'src/types/protocol/index.js'
 import {
   AGENT_TOOL_NAME,
   LEGACY_AGENT_TOOL_NAME,
@@ -20,7 +20,7 @@ import { getSettings_DEPRECATED } from '../settings/settings.js'
 // to the 'Agent' tool name. The wire name was renamed Task → Agent in #19647,
 // but emitting the new name in init/result events broke SDK consumers on a
 // patch-level release. Keep emitting 'Task' until the next minor.
-export function sdkCompatToolName(name: string): string {
+export function protocolCompatToolName(name: string): string {
   return name === AGENT_TOOL_NAME ? LEGACY_AGENT_TOOL_NAME : name
 }
 
@@ -39,27 +39,27 @@ export type SystemInitInputs = {
 }
 
 /**
- * Build the `system/init` SDKMessage — the first message on the SDK stream
+ * Build the `system/init` ProtocolMessage — the first message on the protocol stream
  * carrying session metadata (cwd, tools, model, commands, etc.) that remote
  * clients use to render pickers and gate UI.
  *
  * Called from two paths that must produce identical shapes:
  *   - QueryEngine (spawn-bridge / print-mode / SDK) — yielded as the first
  *     stream message per query turn
- *   - useReplBridge (REPL Remote Control) — sent via writeSdkMessages() on
+ *   - useReplBridge (REPL Remote Control) — sent via writeProtocolMessages() on
  *     bridge connect, since REPL uses query() directly and never hits the
- *     QueryEngine SDKMessage layer
+ *     QueryEngine ProtocolMessage layer
  */
-export function buildSystemInitMessage(inputs: SystemInitInputs): SDKMessage {
+export function buildSystemInitMessage(inputs: SystemInitInputs): ProtocolMessage {
   const settings = getSettings_DEPRECATED()
   const outputStyle = settings?.outputStyle ?? DEFAULT_OUTPUT_STYLE_NAME
 
-  const initMessage: SDKMessage = {
+  const initMessage: ProtocolMessage = {
     type: 'system',
     subtype: 'init',
     cwd: getCwd(),
     session_id: getSessionId(),
-    tools: inputs.tools.map(tool => sdkCompatToolName(tool.name)),
+    tools: inputs.tools.map(tool => protocolCompatToolName(tool.name)),
     mcp_servers: inputs.mcpClients.map(client => ({
       name: client.name,
       status: client.type,
@@ -70,7 +70,7 @@ export function buildSystemInitMessage(inputs: SystemInitInputs): SDKMessage {
       .filter(c => c.userInvocable !== false)
       .map(c => c.name),
     apiKeySource: getAnthropicApiKeyWithSource().source as ApiKeySource,
-    betas: getSdkBetas(),
+    betas: getProtocolBetas(),
     claude_code_version: MACRO.VERSION,
     output_style: outputStyle,
     agents: inputs.agents.map(agent => agent.agentType),

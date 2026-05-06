@@ -13,9 +13,9 @@ import {
   ULTRAPLAN_TAG,
 } from '../../constants/xml.js'
 import type {
-  SDKAssistantMessage,
-  SDKMessage,
-} from '../../entrypoints/agentSdkTypes.js'
+  ProtocolAssistantMessage,
+  ProtocolMessage,
+} from 'src/types/protocol/index.js'
 import type { MessageContent } from '../../types/message.js'
 import type {
   SetAppState,
@@ -34,7 +34,7 @@ import { logForDebugging } from '../../utils/debug.js'
 import { logError } from '../../utils/log.js'
 import { enqueuePendingNotification } from '../../utils/messageQueueManager.js'
 import { extractTag, extractTextContent } from '../../utils/messages.js'
-import { emitTaskTerminatedSdk } from '../../utils/sdkEventQueue.js'
+import { emitTaskTerminatedSdk } from '../../utils/protocolEventQueue.js'
 import {
   deleteRemoteAgentMetadata,
   listRemoteAgentMetadata,
@@ -66,7 +66,7 @@ export type RemoteAgentTaskState = TaskStateBase & {
   command: string
   title: string
   todoList: TodoList
-  log: SDKMessage[]
+  log: ProtocolMessage[]
   /**
    * Long-running agent that will not be marked as complete after the first `result`.
    */
@@ -272,10 +272,10 @@ function markTaskNotified(taskId: string, setAppState: SetAppState): boolean {
  * Extract the plan content from the remote session log.
  * Searches all assistant messages for <ultraplan>...</ultraplan> tags.
  */
-export function extractPlanFromLog(log: SDKMessage[]): string | null {
+export function extractPlanFromLog(log: ProtocolMessage[]): string | null {
   // Walk backwards through assistant messages to find <ultraplan> content
   for (let i = log.length - 1; i >= 0; i--) {
-    const msg = log[i] as SDKAssistantMessage
+    const msg = log[i] as ProtocolAssistantMessage
     if (msg?.type !== 'assistant') continue
     const content = msg.message?.content as MessageContent | undefined
     if (!content) continue
@@ -327,7 +327,7 @@ The remote Ultraplan session did not produce a plan (${reason}). Inspect the ses
  * and prompt mode is the dev/fallback. Newest-first in both cases — the tag
  * appears once at the end of the run so reverse iteration short-circuits.
  */
-function extractReviewFromLog(log: SDKMessage[]): string | null {
+function extractReviewFromLog(log: ProtocolMessage[]): string | null {
   for (let i = log.length - 1; i >= 0; i--) {
     const msg = log[i]
     // The final echo before hook exit may land in either the last
@@ -345,7 +345,7 @@ function extractReviewFromLog(log: SDKMessage[]): string | null {
   for (let i = log.length - 1; i >= 0; i--) {
     const msg = log[i]
     if (msg?.type !== 'assistant') continue
-    const content = (msg as SDKAssistantMessage).message?.content as MessageContent | undefined
+    const content = (msg as ProtocolAssistantMessage).message?.content as MessageContent | undefined
     if (!content) continue
     const fullText = extractTextContent(
       typeof content === 'string' ? [{ type: 'text' as const, text: content }] : content,
@@ -371,7 +371,7 @@ function extractReviewFromLog(log: SDKMessage[]): string | null {
 
   // Fallback: concatenate all assistant text in chronological order.
   const allText = log
-    .filter((msg): msg is SDKAssistantMessage => msg.type === 'assistant')
+    .filter((msg): msg is ProtocolAssistantMessage => msg.type === 'assistant')
     .map(msg => {
       const content = msg.message?.content as MessageContent | undefined
       if (!content) return ''
@@ -396,7 +396,7 @@ function extractReviewFromLog(log: SDKMessage[]): string | null {
  * would trigger the fallback and prematurely set cachedReviewContent,
  * completing the review before the actual tagged output arrives.
  */
-function extractReviewTagFromLog(log: SDKMessage[]): string | null {
+function extractReviewTagFromLog(log: ProtocolMessage[]): string | null {
   // hook_progress / hook_response per-message scan (bughunter path)
   for (let i = log.length - 1; i >= 0; i--) {
     const msg = log[i]
@@ -413,7 +413,7 @@ function extractReviewTagFromLog(log: SDKMessage[]): string | null {
   for (let i = log.length - 1; i >= 0; i--) {
     const msg = log[i]
     if (msg?.type !== 'assistant') continue
-    const content = (msg as SDKAssistantMessage).message?.content as MessageContent | undefined
+    const content = (msg as ProtocolAssistantMessage).message?.content as MessageContent | undefined
     if (!content) continue
     const fullText = extractTextContent(
       typeof content === 'string' ? [{ type: 'text' as const, text: content }] : content,
@@ -486,14 +486,14 @@ Remote review did not produce output (${reason}). Tell the user to retry /ultrar
 }
 
 /**
- * Extract todo list from SDK messages (finds last TodoWrite tool use).
+ * Extract todo list from protocol messages (finds last TodoWrite tool use).
  */
-function extractTodoListFromLog(log: SDKMessage[]): TodoList {
+function extractTodoListFromLog(log: ProtocolMessage[]): TodoList {
   const todoListMessage = log.findLast(
-    (msg): msg is SDKAssistantMessage =>
+    (msg): msg is ProtocolAssistantMessage =>
       msg.type === 'assistant' &&
-      (Array.isArray((msg as SDKAssistantMessage).message?.content)) &&
-      (((msg as SDKAssistantMessage).message?.content ?? []) as Array<{ type: string; name?: string }>).some(
+      (Array.isArray((msg as ProtocolAssistantMessage).message?.content)) &&
+      (((msg as ProtocolAssistantMessage).message?.content ?? []) as Array<{ type: string; name?: string }>).some(
         block => block.type === 'tool_use' && block.name === TodoWriteTool.name,
       ),
   )
@@ -710,7 +710,7 @@ function startRemoteSessionPolling(
   const STABLE_IDLE_POLLS = 5
   let consecutiveIdlePolls = 0
   let lastEventId: string | null = null
-  let accumulatedLog: SDKMessage[] = []
+  let accumulatedLog: ProtocolMessage[] = []
   // Cached across ticks so we don't re-scan the full log. Tag appears once
   // at end of run; scanning only the delta (response.newEvents) is O(new).
   let cachedReviewContent: string | null = null
@@ -740,7 +740,7 @@ function startRemoteSessionPolling(
         const deltaText = response.newEvents
           .map(msg => {
             if (msg.type === 'assistant') {
-              const content = (msg as SDKAssistantMessage).message?.content
+              const content = (msg as ProtocolAssistantMessage).message?.content
               if (!content || typeof content === 'string') return ''
               return (content as Array<{ type: string; text?: string }>)
                 .filter(block => block.type === 'text')

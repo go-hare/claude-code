@@ -165,7 +165,7 @@ export function createKernelRuntimeAgentProcessExecutor(
         if (line.trim().length === 0) {
           continue
         }
-        const message = parseAgentStdoutMessage(line)
+        const message = parseAgentProtocolStdoutMessage(line)
         const text = extractAgentOutputText(message)
         if (text) {
           emittedOutput = true
@@ -372,7 +372,7 @@ function parseArgsEnv(
   return parsed
 }
 
-function parseAgentStdoutMessage(line: string): Record<string, unknown> {
+function parseAgentProtocolStdoutMessage(line: string): Record<string, unknown> {
   try {
     const parsed = JSON.parse(line) as unknown
     if (typeof parsed === 'object' && parsed !== null) {

@@ -1,10 +1,10 @@
 /* eslint-disable eslint-plugin-n/no-unsupported-features/node-builtins */
 
-import type { SDKMessage } from '../entrypoints/agentSdkTypes.js'
+import type { ProtocolMessage } from 'src/types/protocol/index.js'
 import type {
-  SDKControlPermissionRequest,
-  StdoutMessage,
-} from '../entrypoints/sdk/controlTypes.js'
+  ProtocolControlPermissionRequest,
+  ProtocolStdoutMessage,
+} from 'src/types/protocol/controlTypes.js'
 import type { RemotePermissionResponse } from '../remote/RemoteSessionManager.js'
 import type { KernelRuntimeEventSink } from '../runtime/contracts/events.js'
 import { consumeKernelRuntimeEventMessage } from '../utils/kernelRuntimeEventMessage.js'
@@ -21,9 +21,9 @@ export type DirectConnectConfig = {
 }
 
 export type DirectConnectCallbacks = {
-  onMessage: (message: SDKMessage) => void
+  onMessage: (message: ProtocolMessage) => void
   onPermissionRequest: (
-    request: SDKControlPermissionRequest,
+    request: ProtocolControlPermissionRequest,
     requestId: string,
   ) => void
   onPermissionCancelled?: (
@@ -36,7 +36,7 @@ export type DirectConnectCallbacks = {
   onError?: (error: Error) => void
 }
 
-function isStdoutMessage(value: unknown): value is StdoutMessage {
+function isProtocolStdoutMessage(value: unknown): value is ProtocolStdoutMessage {
   return (
     typeof value === 'object' &&
     value !== null &&
@@ -51,7 +51,7 @@ export class DirectConnectSessionManager {
   private callbacks: DirectConnectCallbacks
   private pendingPermissionRequests = new Map<
     string,
-    SDKControlPermissionRequest
+    ProtocolControlPermissionRequest
   >()
 
   constructor(config: DirectConnectConfig, callbacks: DirectConnectCallbacks) {
@@ -86,7 +86,7 @@ export class DirectConnectSessionManager {
           continue
         }
 
-        if (!isStdoutMessage(raw)) {
+        if (!isProtocolStdoutMessage(raw)) {
           continue
         }
         const parsed = raw
@@ -137,7 +137,7 @@ export class DirectConnectSessionManager {
           continue
         }
 
-        // Forward SDK messages (assistant, result, system, etc.)
+        // Forward protocol messages (assistant, result, system, etc.)
         if (
           parsed.type !== 'control_response' &&
           parsed.type !== 'keep_alive' &&
@@ -164,7 +164,7 @@ export class DirectConnectSessionManager {
       return false
     }
 
-    // Must match SDKUserMessage format expected by `--input-format stream-json`
+    // Must match ProtocolUserMessage format expected by `--input-format stream-json`
     const message = jsonStringify({
       type: 'user',
       message: {
@@ -195,7 +195,7 @@ export class DirectConnectSessionManager {
 
     this.pendingPermissionRequests.delete(requestId)
 
-    // Must match SDKControlResponse format expected by StructuredIO
+    // Must match ProtocolControlResponse format expected by StructuredIO
     const response = jsonStringify({
       type: 'control_response',
       response: {
@@ -243,7 +243,7 @@ export class DirectConnectSessionManager {
       return
     }
 
-    // Must match SDKControlRequest format expected by StructuredIO
+    // Must match ProtocolControlRequest format expected by StructuredIO
     const request = jsonStringify({
       type: 'control_request',
       request_id: crypto.randomUUID(),

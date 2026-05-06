@@ -3,7 +3,7 @@
  * Ported from claude-agent-acp-main/src/utils.ts and acp-agent.ts helpers.
  */
 import { Readable, Writable } from 'node:stream'
-import type { PermissionMode } from '../../entrypoints/sdk/coreTypes.generated.js'
+import type { PermissionMode } from 'src/types/protocol/coreTypes.generated.js'
 
 // ── Pushable ──────────────────────────────────────────────────────
 

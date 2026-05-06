@@ -321,20 +321,21 @@ export async function* query(
     thrownError = error
     throw error
   } finally {
-    await finalizeAutonomyCommandsForTurn({
-      commands: consumedAutonomyCommands,
-      outcome: getAutonomyTurnOutcome({
-        terminal,
-        ...(didThrow ? { thrownError } : {}),
-      }),
-      priority: 'later',
-    })
-      .then(nextCommands => {
-        for (const command of nextCommands) {
-          enqueue(command)
-        }
+    try {
+      const nextCommands = await finalizeAutonomyCommandsForTurn({
+        commands: consumedAutonomyCommands,
+        outcome: getAutonomyTurnOutcome({
+          terminal,
+          ...(didThrow ? { thrownError } : {}),
+        }),
+        priority: 'later',
       })
-      .catch(logError)
+      for (const command of nextCommands ?? []) {
+        enqueue(command)
+      }
+    } catch (error) {
+      logError(error)
+    }
   }
 
   return terminal!
@@ -890,7 +891,7 @@ async function* queryLoop(
               }
             }
             // Backfill tool_use inputs on a cloned message before yield so
-            // SDK stream output and transcript serialization see legacy/derived
+            // protocol stream output and transcript serialization see legacy/derived
             // fields. The original `message` is left untouched for
             // assistantMessages.push below — it flows back to the API and
             // mutating it would break prompt caching (byte mismatch).
@@ -918,7 +919,7 @@ async function* queryLoop(
                     // it only OVERWROTE existing ones (e.g. file tools
                     // expanding file_path). Overwrites change the serialized
                     // transcript and break VCR fixture hashes on resume,
-                    // while adding nothing the SDK stream needs — hooks get
+                    // while adding nothing the protocol stream needs — hooks get
                     // the expanded path via toolExecution.ts separately.
                     const addedFields = Object.keys(inputCopy).some(
                       k => !(k in originalInput),

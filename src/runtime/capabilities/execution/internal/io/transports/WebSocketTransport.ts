@@ -1,4 +1,4 @@
-import type { StdoutMessage } from 'src/entrypoints/sdk/controlTypes.js'
+import type { ProtocolStdoutMessage } from 'src/types/protocol/controlTypes.js'
 import type WsWebSocket from 'ws'
 import { logEvent } from 'src/services/analytics/index.js'
 import { CircularBuffer } from 'src/utils/CircularBuffer.js'
@@ -104,7 +104,7 @@ export class WebSocketTransport implements Transport {
   private keepAliveInterval: NodeJS.Timeout | null = null
 
   // Message buffering for replay on reconnection
-  private messageBuffer: CircularBuffer<StdoutMessage>
+  private messageBuffer: CircularBuffer<ProtocolStdoutMessage>
   // Track which runtime's WS we're using so we can detach listeners
   // with the matching API (removeEventListener vs. off).
   private isBunWs = false
@@ -665,7 +665,7 @@ export class WebSocketTransport implements Transport {
     return this.state
   }
 
-  async write(message: StdoutMessage): Promise<void> {
+  async write(message: ProtocolStdoutMessage): Promise<void> {
     if ('uuid' in message && typeof message.uuid === 'string') {
       this.messageBuffer.add(message)
       this.lastSentId = message.uuid
@@ -688,7 +688,7 @@ export class WebSocketTransport implements Transport {
     this.sendLine(line)
   }
 
-  private getControlMessageDetailLabel(message: StdoutMessage): string {
+  private getControlMessageDetailLabel(message: ProtocolStdoutMessage): string {
     if (message.type === 'control_request') {
       const { request_id, request } = message
       const toolName =

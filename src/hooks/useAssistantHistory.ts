@@ -15,7 +15,7 @@ import {
 } from '../assistant/sessionHistory.js'
 import type { ScrollBoxHandle } from '@anthropic/ink'
 import type { RemoteSessionConfig } from '../remote/RemoteSessionManager.js'
-import { convertSDKMessage } from '../remote/sdkMessageAdapter.js'
+import { convertProtocolMessage } from '../remote/protocolMessageAdapter.js'
 import type { Message, SystemInformationalMessage } from '../types/message.js'
 import { logForDebugging } from '../utils/debug.js'
 
@@ -50,7 +50,7 @@ const SENTINEL_START = 'start of session'
 function pageToMessages(page: HistoryPage): Message[] {
   const out: Message[] = []
   for (const ev of page.events) {
-    const c = convertSDKMessage(ev, {
+    const c = convertProtocolMessage(ev, {
       convertUserTextMessages: true,
       convertToolResults: true,
     })

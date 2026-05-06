@@ -78,7 +78,7 @@ export type {
 
 import type { SpinnerMode } from './components/Spinner.js'
 import type { QuerySource } from './constants/querySource.js'
-import type { SDKStatus } from './entrypoints/agentSdkTypes.js'
+import type { ProtocolStatus } from 'src/types/protocol/index.js'
 import type { AppState } from './state/AppState.js'
 import type { LangfuseSpan } from './services/langfuse/index.js'
 import type {
@@ -240,7 +240,7 @@ export type ToolUseContext = {
   pushApiMetricsEntry?: (ttftMs: number) => void
   setStreamMode?: (mode: SpinnerMode) => void
   onCompactProgress?: (event: CompactProgressEvent) => void
-  setSDKStatus?: (status: SDKStatus) => void
+  setProtocolStatus?: (status: ProtocolStatus) => void
   openMessageSelector?: () => void
   updateFileHistoryState: (
     updater: (prev: FileHistoryState) => FileHistoryState,
@@ -529,7 +529,7 @@ export type Tool<
   readonly strict?: boolean
 
   /**
-   * Called on copies of tool_use input before observers see it (SDK stream,
+   * Called on copies of tool_use input before observers see it (protocol stream,
    * transcript, canUseTool, PreToolUse/PostToolUse hooks). Mutate in place
    * to add legacy/derived fields. Must be idempotent. The original API-bound
    * input is never mutated (preserves prompt cache). Not re-applied when a

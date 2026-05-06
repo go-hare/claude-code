@@ -1,33 +1,33 @@
 /** SDK 消息类型 — 与 CC CLI bridge 模块兼容 */
-export interface SDKMessage {
+export interface ProtocolMessage {
   type: string;
   content?: unknown;
   [key: string]: unknown;
 }
 
-export interface UserMessage extends SDKMessage {
+export interface UserMessage extends ProtocolMessage {
   type: "user";
   content: string;
 }
 
-export interface AssistantMessage extends SDKMessage {
+export interface AssistantMessage extends ProtocolMessage {
   type: "assistant";
   content: string;
 }
 
-export interface PermissionRequest extends SDKMessage {
+export interface PermissionRequest extends ProtocolMessage {
   type: "permission_request";
   tool_name: string;
   tool_input: unknown;
 }
 
-export interface PermissionResponse extends SDKMessage {
+export interface PermissionResponse extends ProtocolMessage {
   type: "permission_response";
   approved: boolean;
   request_id: string;
 }
 
-export interface ControlRequest extends SDKMessage {
+export interface ControlRequest extends ProtocolMessage {
   type: "control_request";
   action: string;
   [key: string]: unknown;

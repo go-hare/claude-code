@@ -125,7 +125,7 @@ mock.module('../runtimeDeps.js', () => ({
       })
       let sawTerminalResult = false
       for (const message of mockQueryEngineMessages) {
-        yield makeMockRuntimeEnvelope('headless.sdk_message', message)
+        yield makeMockRuntimeEnvelope('headless.protocol_message', message)
         if (
           typeof message === 'object' &&
           message !== null &&
@@ -491,13 +491,13 @@ describe('AcpAgent', () => {
         ),
       ).toEqual([
         'turn.started',
-        'headless.sdk_message',
-        'headless.sdk_message',
+        'headless.protocol_message',
+        'headless.protocol_message',
         'turn.completed',
       ])
       expect(observedEnvelopes[1]).toMatchObject({
         payload: {
-          type: 'headless.sdk_message',
+          type: 'headless.protocol_message',
           payload: {
             type: 'assistant',
             uuid: 'sdk-agent-1',

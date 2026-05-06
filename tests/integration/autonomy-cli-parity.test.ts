@@ -30,36 +30,29 @@ function runCli(args: string[]): {
     CLAUDE_CODE_DISABLE_TERMINAL_TITLE: '1',
     CLAUDE_CONFIG_DIR: configDir,
   }
-  const runner = [
-    'import json, subprocess, sys',
-    `cmd = ${JSON.stringify(['bun', 'run', 'scripts/dev.ts', '--', ...args])}`,
-    `cwd = ${JSON.stringify(repoRoot)}`,
-    'try:',
-    '    result = subprocess.run(cmd, cwd=cwd, text=True, capture_output=True, timeout=30)',
-    "    payload = {'code': result.returncode, 'stdout': result.stdout, 'stderr': result.stderr}",
-    'except subprocess.TimeoutExpired as err:',
-    "    payload = {'code': None, 'stdout': err.stdout or '', 'stderr': err.stderr or ''}",
-    'sys.stdout.write(json.dumps(payload))',
-  ].join('\n')
-  const result = spawnSync('python3', ['-c', runner], {
-    cwd: repoRoot,
-    encoding: 'utf8',
-    env: childEnv,
-    timeout: 35_000,
-  })
+  const result = spawnSync(
+    'bun',
+    ['run', 'scripts/dev.ts', '--', ...args],
+    {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      env: childEnv,
+      timeout: 30_000,
+    },
+  )
 
-  if (result.status !== 0) {
+  if (result.error) {
     return {
       code: result.status,
-      stderr: result.stderr,
-      stdout: result.stdout,
+      stderr: result.error.message,
+      stdout: result.stdout ?? '',
     }
   }
 
-  return JSON.parse(result.stdout) as {
-    code: number | null
-    stderr: string
-    stdout: string
+  return {
+    code: result.status,
+    stderr: result.stderr ?? '',
+    stdout: result.stdout ?? '',
   }
 }
 

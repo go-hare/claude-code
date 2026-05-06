@@ -1,7 +1,7 @@
 import { feature } from 'bun:bundle'
 import { z } from 'zod/v4'
 import { clearInvokedSkillsForAgent, getSessionId } from 'src/bootstrap/state.js'
-import type { SDKMessage } from 'src/entrypoints/agentSdkTypes.js'
+import type { ProtocolMessage } from 'src/types/protocol/index.js'
 import {
   createRuntimeAgentToolCapabilityPlane,
   filterToolsByRuntimeAgentCapabilityPlane,
@@ -56,19 +56,19 @@ import {
   getLastAssistantMessage,
 } from 'src/utils/messages.js'
 import {
-  projectAssistantMessageToSDKMessages,
-  projectUserMessageToSDKMessages,
+  projectAssistantMessageToProtocolMessages,
+  projectUserMessageToProtocolMessages,
 } from 'src/utils/queryHelpers.js'
 import type { PermissionMode } from 'src/utils/permissions/PermissionMode.js'
 import { permissionRuleValueFromString } from 'src/utils/permissions/permissionRuleParser.js'
-import { enqueueSdkCompatibilityMessages } from 'src/utils/sdkEventQueue.js'
+import { enqueueProtocolCompatibilityMessages } from 'src/utils/protocolEventQueue.js'
 import { isTranscriptPersistenceDisabled } from 'src/utils/sessionStorage.js'
 import { writeTaskOutputSnapshot } from 'src/utils/task/diskOutput.js'
 import {
   buildTranscriptForClassifier,
   classifyYoloAction,
 } from 'src/utils/permissions/yoloClassifier.js'
-import { emitTaskProgress as emitTaskProgressEvent } from 'src/utils/task/sdkProgress.js'
+import { emitTaskProgress as emitTaskProgressEvent } from 'src/utils/task/taskProgress.js'
 import { isInProcessTeammate } from 'src/utils/teammateContext.js'
 import { getTokenCountFromUsage } from 'src/utils/tokens.js'
 import { AGENT_TOOL_NAME, LEGACY_AGENT_TOOL_NAME } from './constants.js'
@@ -378,7 +378,7 @@ export function getLastToolUseName(message: MessageType): string | undefined {
   return block?.type === 'tool_use' ? block.name : undefined
 }
 
-export function emitLiveSubagentSdkMessages(
+export function emitLiveSubagentProtocolMessages(
   message: MessageType,
   parentToolUseId: string | undefined,
 ): void {
@@ -388,15 +388,15 @@ export function emitLiveSubagentSdkMessages(
 
   switch (message.type) {
     case 'assistant':
-      enqueueSdkCompatibilityMessages(
-        projectAssistantMessageToSDKMessages(message as AssistantMessage, {
+      enqueueProtocolCompatibilityMessages(
+        projectAssistantMessageToProtocolMessages(message as AssistantMessage, {
           parentToolUseId,
         }),
       )
       return
     case 'user':
-      enqueueSdkCompatibilityMessages(
-        projectUserMessageToSDKMessages(message as UserMessage, {
+      enqueueProtocolCompatibilityMessages(
+        projectUserMessageToProtocolMessages(message as UserMessage, {
           parentToolUseId,
         }),
       )
@@ -425,7 +425,7 @@ export function emitLiveSubagentToolUseStart(
     return
   }
 
-  const compatibilityMessage: SDKMessage = {
+  const compatibilityMessage: ProtocolMessage = {
     type: 'stream_event',
     event: message.event,
     parent_tool_use_id: parentToolUseId,
@@ -434,7 +434,7 @@ export function emitLiveSubagentToolUseStart(
   if (message.uuid) {
     compatibilityMessage.uuid = message.uuid
   }
-  enqueueSdkCompatibilityMessages([compatibilityMessage])
+  enqueueProtocolCompatibilityMessages([compatibilityMessage])
 }
 
 export function emitTaskProgress(
@@ -641,7 +641,7 @@ export async function runAsyncAgentLifecycle({
       : undefined
     for await (const message of makeStream(onCacheSafeParams)) {
       agentMessages.push(message)
-      emitLiveSubagentSdkMessages(message, toolUseContext.toolUseId)
+      emitLiveSubagentProtocolMessages(message, toolUseContext.toolUseId)
       // Append immediately when UI holds the task (retain). Bootstrap reads
       // disk in parallel and UUID-merges the prefix — disk-write-before-yield
       // means live is always a suffix of disk, so merge is order-correct.

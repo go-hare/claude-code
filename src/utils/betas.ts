@@ -4,7 +4,7 @@ import {
   checkStatsigFeatureGate_CACHED_MAY_BE_STALE,
   getFeatureValue_CACHED_MAY_BE_STALE,
 } from 'src/services/analytics/growthbook.js'
-import { getIsNonInteractiveSession, getSdkBetas } from '../bootstrap/state.js'
+import { getIsNonInteractiveSession, getProtocolBetas } from '../bootstrap/state.js'
 import {
   BEDROCK_EXTRA_PARAMS_HEADERS,
   CLAUDE_CODE_20250219_BETA_HEADER,
@@ -63,7 +63,7 @@ function partitionBetasByAllowlist(betas: string[]): {
  * Warns about disallowed betas and subscriber restrictions.
  * Returns undefined if no valid betas remain or if user is a subscriber.
  */
-export function filterAllowedSdkBetas(
+export function filterAllowedProtocolBetas(
   sdkBetas: string[] | undefined,
 ): string[] | undefined {
   if (!sdkBetas || sdkBetas.length === 0) {
@@ -373,8 +373,8 @@ export const getBedrockExtraBodyParamsBetas = memoize(
 
 /**
  * Merge SDK-provided betas with auto-detected model betas.
- * SDK betas are read from global state (set via setSdkBetas in main.tsx).
- * The betas are pre-filtered by filterAllowedSdkBetas which handles
+ * SDK betas are read from global state (set via setProtocolBetas in main.tsx).
+ * The betas are pre-filtered by filterAllowedProtocolBetas which handles
  * subscriber checks and allowlist validation with warnings.
  *
  * @param options.isAgenticQuery - When true, ensures the beta headers needed
@@ -405,13 +405,13 @@ export function getMergedBetas(
     }
   }
 
-  const sdkBetas = getSdkBetas()
+  const sdkBetas = getProtocolBetas()
 
   if (!sdkBetas || sdkBetas.length === 0) {
     return baseBetas
   }
 
-  // Merge SDK betas without duplicates (already filtered by filterAllowedSdkBetas)
+  // Merge SDK betas without duplicates (already filtered by filterAllowedProtocolBetas)
   return [...baseBetas, ...sdkBetas.filter(b => !baseBetas.includes(b))]
 }
 

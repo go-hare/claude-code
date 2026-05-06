@@ -118,10 +118,10 @@ describe('bridge ingress runtime envelopes', () => {
     expect(onInboundMessage).not.toHaveBeenCalled()
   })
 
-  test('falls back headless.sdk_message payloads into the SDK ingress path', () => {
+  test('falls back headless.protocol_message payloads into the SDK ingress path', () => {
     const onInboundMessage = mock((_message: unknown) => {})
     const onRuntimeEvent = mock((_envelope: KernelRuntimeEnvelopeBase) => {})
-    const sdkMessage = {
+    const protocolMessage = {
       type: 'user',
       uuid: 'runtime-user-1',
       session_id: 'session-1',
@@ -130,7 +130,7 @@ describe('bridge ingress runtime envelopes', () => {
         content: 'hello through runtime',
       },
     }
-    const message = createRuntimeEventMessage(sdkMessage)
+    const message = createRuntimeEventMessage(protocolMessage)
 
     handleIngressMessage(
       JSON.stringify(message),
@@ -143,11 +143,11 @@ describe('bridge ingress runtime envelopes', () => {
     )
 
     expect(onRuntimeEvent).toHaveBeenCalledWith(message.envelope)
-    expect(onInboundMessage).toHaveBeenCalledWith(sdkMessage)
+    expect(onInboundMessage).toHaveBeenCalledWith(protocolMessage)
   })
 })
 
-function createRuntimeEventMessage(sdkMessage?: unknown) {
+function createRuntimeEventMessage(protocolMessage?: unknown) {
   return {
     type: 'kernel_runtime_event',
     uuid: 'message-1',
@@ -163,9 +163,9 @@ function createRuntimeEventMessage(sdkMessage?: unknown) {
       conversationId: 'conversation-1',
       eventId: 'conversation-1:1',
       payload: {
-        type: 'headless.sdk_message',
+        type: 'headless.protocol_message',
         replayable: true,
-        ...(sdkMessage === undefined ? {} : { payload: sdkMessage }),
+        ...(protocolMessage === undefined ? {} : { payload: protocolMessage }),
       },
     },
   } as const

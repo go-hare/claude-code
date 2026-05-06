@@ -79,7 +79,7 @@ describe('SessionRuntime contracts', () => {
       'for await (const envelope of this.submitRuntimeTurn(prompt, options))',
     )
     expect(content).toContain('for await (const envelope of askRuntime(options))')
-    expect(content).toContain('getSDKMessageFromRuntimeEnvelope(envelope)')
+    expect(content).toContain('getProtocolMessageFromRuntimeEnvelope(envelope)')
     expect(content).toContain('for await (const sidecar of this.bindBootstrapState(')
     expect(queryEngineEntryContent).not.toContain('ask,')
     expect(acpAgentContent).toContain(
@@ -88,35 +88,40 @@ describe('SessionRuntime contracts', () => {
     expect(acpAgentContent).not.toContain('queryEngine.submitMessage')
   })
 
-  test('runtime turns emit canonical event semantics before compatibility projection', () => {
+  test('runtime turns emit canonical event semantics without compatibility sidecars', () => {
     expect(content).toContain('createQueryTurnEventAdapter')
     expect(content).toContain(
+      'turnEventAdapter.projectQueryMessage(',
+    )
+    expect(content).not.toContain(
       'turnEventAdapter.projectQueryMessageWithCompatibility(',
     )
     expect(content).toContain('type QueryTurnSidecarOutput')
     expect(content).toContain('AsyncGenerator<QueryTurnSidecarOutput')
     expect(content).toContain("type: 'query_sidecar'")
+    expect(content).toContain('messages: []')
+    expect(content).not.toContain('compatibilityMessages')
     expect(content).toContain('yield projectQuerySidecar(')
     expect(content).toContain('const emitTerminalResult')
     expect(content).toContain("type: 'query_result'")
-    expect(content).toContain('sdkMessage: result')
+    expect(content).toContain('protocolMessage: result')
     expect(content).toContain("type: 'query_system_init'")
     expect(content).not.toContain('buildSystemInitMessage')
     expect(content).toContain('yield projectQuerySidecar(compactMsg)')
     expect(content).toContain('yield projectQuerySidecar(msg)')
     expect(content).toContain("type: 'query_user_replay'")
     expect(content).toContain('yield projectQuerySidecar(apiErrorMsg)')
-    expect(content).not.toContain('includeCompatibility: false')
+    expect(queryTurnEventAdapterContent).toContain('includeCompatibility: false')
     expect(content).not.toContain('emitQueryRuntimeEvents?.(msg) ?? []')
     expect(content).not.toContain('emitQueryRuntimeEvents?.(message) ?? []')
     expect(content).not.toContain('yield* normalizeMessage(msg)')
     expect(content).not.toContain("type: 'query_sdk_message'")
-    expect(content).not.toContain('turnEventAdapter.projectSDKMessage(message)')
+    expect(content).not.toContain('turnEventAdapter.projectProtocolMessage(message)')
     expect(queryTurnEventAdapterContent).not.toContain(
-      'projectSDKMessage(message: SDKMessage)',
+      'projectProtocolMessage(message: ProtocolMessage)',
     )
     expect(queryTurnEventAdapterContent).not.toContain(
-      'getSDKResultTurnOutcome',
+      'getProtocolResultTurnOutcome',
     )
     expect(queryTurnEventAdapterContent).toContain(
       "from './QueryTurnCompatibilityProjector.js'",
@@ -124,10 +129,10 @@ describe('SessionRuntime contracts', () => {
     expect(queryTurnEventAdapterContent).not.toContain('normalizeMessages')
     expect(queryTurnEventAdapterContent).not.toContain('buildSystemInitMessage')
     expect(queryTurnEventAdapterContent).not.toContain(
-      'projectProgressMessageToSDKMessageProjection',
+      'projectProgressMessageToProtocolMessageProjection',
     )
     expect(queryTurnCompatibilityProjectorContent).toContain(
-      'queryMessageToCompatibilitySDKMessages',
+      'queryMessageToCompatibilityProtocolMessages',
     )
     expect(content).toContain(
       'turnEventAdapter.createFallbackTerminalEvent()',
@@ -160,7 +165,7 @@ describe('SessionRuntime contracts', () => {
       'projectHeadlessTaskNotification',
     )
     expect(headlessRuntimeLoopContent).toContain(
-      'projectCoordinatorLifecycleFromSdkMessage',
+      'projectCoordinatorLifecycleFromCompatibilityMessage',
     )
     expect(headlessRuntimeLoopContent).toContain(
       "type: 'team.shutdown_requested'",
@@ -239,10 +244,10 @@ describe('SessionRuntime contracts', () => {
       'export function extractLoadedNestedMemoryPathsFromMessages(',
     )
     expect(queryHelpersContent).toContain(
-      'export function projectProgressMessageToSDKMessages(',
+      'export function projectProgressMessageToProtocolMessages(',
     )
     expect(queryHelpersContent).toContain(
-      'export function projectProgressMessageToSDKMessageProjection(',
+      'export function projectProgressMessageToProtocolMessageProjection(',
     )
     expect(queryHelpersContent).toContain(
       '): AsyncGenerator<Message, void, unknown> {',
@@ -281,7 +286,7 @@ describe('SessionRuntime contracts', () => {
       'AttachableRuntimeSession<HeadlessManagedSessionSink> & {',
     )
     expect(headlessManagedSessionContent).toContain(
-      'export type HeadlessManagedSessionSink = RuntimeSessionSink<StdoutMessage>',
+      'export type HeadlessManagedSessionSink = RuntimeSessionSink<ProtocolStdoutMessage>',
     )
   })
 
@@ -340,7 +345,7 @@ describe('SessionRuntime contracts', () => {
         source: 'kernel_runtime',
         kind: 'event',
         payload: {
-          type: 'headless.sdk_message',
+          type: 'headless.protocol_message',
           replayable: true,
           payload: {
             type: 'result',

@@ -38,7 +38,7 @@ import {
   getPromptCache1hAllowlist,
   getPromptCache1hEligible,
   getPromptId,
-  getSdkBetas,
+  getProtocolBetas,
   getSdkAgentProgressSummariesEnabled,
   getSessionId,
   getSessionProjectDir,
@@ -105,7 +105,7 @@ import {
   setPromptId,
   setCostStateForRestore,
   setSessionTrustAccepted,
-  setSdkBetas,
+  setProtocolBetas,
   setSdkAgentProgressSummariesEnabled,
   setSessionPersistenceDisabled,
   setTeleportedSessionInfo,
@@ -166,7 +166,7 @@ export function createRuntimePathStateWriter(): RuntimePathStateWriter {
 
 export type RuntimeHeadlessStartupStateWriter = {
   setSessionPersistenceDisabled(disabled: boolean): void
-  setSdkBetas(betas: string[] | undefined): void
+  setProtocolBetas(betas: string[] | undefined): void
 }
 
 export function createRuntimeHeadlessStartupStateWriter(
@@ -177,7 +177,7 @@ export function createRuntimeHeadlessStartupStateWriter(
       runWithState,
       setSessionPersistenceDisabled,
     ),
-    setSdkBetas: bindBootstrapState(runWithState, setSdkBetas),
+    setProtocolBetas: bindBootstrapState(runWithState, setProtocolBetas),
   }
 }
 
@@ -274,7 +274,7 @@ export function createRuntimePromptStateProvider(
         fastModeHeaderLatched: getFastModeHeaderLatched(),
         cacheEditingHeaderLatched: getCacheEditingHeaderLatched(),
         thinkingClearLatched: getThinkingClearLatched(),
-        sdkBetas: getSdkBetas(),
+        sdkBetas: getProtocolBetas(),
       }))
     },
     patchPromptState(patch: RuntimeExecutionPromptStatePatch) {
@@ -340,7 +340,7 @@ export function createRuntimePromptStateProvider(
           setThinkingClearLatched(patch.thinkingClearLatched)
         }
         if ('sdkBetas' in patch) {
-          setSdkBetas(patch.sdkBetas)
+          setProtocolBetas(patch.sdkBetas)
         }
       })
     },

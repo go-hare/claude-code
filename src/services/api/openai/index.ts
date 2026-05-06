@@ -38,7 +38,7 @@ import {
   createUserMessage,
   normalizeContentFromAPI,
 } from '../../../utils/messages.js'
-import type { SDKAssistantMessageError } from '../../../entrypoints/agentSdkTypes.js'
+import type { ProtocolAssistantMessageError } from 'src/types/protocol/index.js'
 import {
   isToolSearchEnabled,
   extractDiscoveredToolNames,
@@ -460,7 +460,7 @@ export async function* queryModelOpenAI(
     yield createAssistantAPIErrorMessage({
       content: `API Error: ${errorMessage}`,
       apiError: 'api_error',
-      error: (error instanceof Error ? error : new Error(String(error))) as unknown as SDKAssistantMessageError,
+      error: (error instanceof Error ? error : new Error(String(error))) as unknown as ProtocolAssistantMessageError,
     })
   }
 }

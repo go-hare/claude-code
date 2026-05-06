@@ -6,7 +6,7 @@ import {
   getCurrentTurnTokenBudget,
   getPromptId,
   getRegisteredHooks,
-  getSdkBetas,
+  getProtocolBetas,
   getSessionId,
   getTeleportedSessionInfo,
   incrementBudgetContinuationCount,
@@ -14,7 +14,7 @@ import {
   resetStateForTests,
   setAllowedChannels,
   setPromptId,
-  setSdkBetas,
+  setProtocolBetas,
   setTeleportedSessionInfo,
   snapshotOutputTokensForTurn,
 } from 'src/bootstrap/state.js'
@@ -66,7 +66,7 @@ describe('createBootstrapStateProvider', () => {
     })
     expect(providerB.getTeleportedSessionInfo()).toBeNull()
     expect(getAllowedChannels()).toEqual([])
-    expect(getSdkBetas()).toBeUndefined()
+    expect(getProtocolBetas()).toBeUndefined()
     expect(getPromptId()).toBeNull()
     expect(getTeleportedSessionInfo()).toBeNull()
   })
@@ -76,18 +76,18 @@ describe('createBootstrapStateProvider', () => {
 
     provider.runWithState(() => {
       setAllowedChannels([{ kind: 'server', name: 'local-only' }])
-      setSdkBetas(['beta-local'])
+      setProtocolBetas(['beta-local'])
       setPromptId('prompt-local')
 
       expect(getAllowedChannels()).toEqual([
         { kind: 'server', name: 'local-only' },
       ])
-      expect(getSdkBetas()).toEqual(['beta-local'])
+      expect(getProtocolBetas()).toEqual(['beta-local'])
       expect(getPromptId()).toBe('prompt-local')
     })
 
     expect(getAllowedChannels()).toEqual([])
-    expect(getSdkBetas()).toBeUndefined()
+    expect(getProtocolBetas()).toBeUndefined()
     expect(getPromptId()).toBeNull()
   })
 

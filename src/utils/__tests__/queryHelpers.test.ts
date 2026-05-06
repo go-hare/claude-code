@@ -8,8 +8,8 @@ import {
 import {
   applyToolProgressTrackingUpdate,
   createToolProgressTrackingState,
-  projectProgressMessageToSDKMessageProjection,
-  projectProgressMessageToSDKMessages,
+  projectProgressMessageToProtocolMessageProjection,
+  projectProgressMessageToProtocolMessages,
 } from "../queryHelpers";
 
 function createProgressMessage(
@@ -26,10 +26,10 @@ function createProgressMessage(
   } as unknown as Message;
 }
 
-describe("projectProgressMessageToSDKMessages", () => {
+describe("projectProgressMessageToProtocolMessages", () => {
   test("projects agent progress assistant payloads with parent tool use id", () => {
     const nested = createAssistantMessage({ content: "agent update" });
-    const messages = projectProgressMessageToSDKMessages(
+    const messages = projectProgressMessageToProtocolMessages(
       createProgressMessage({
         type: "agent_progress",
         message: nested,
@@ -57,7 +57,7 @@ describe("projectProgressMessageToSDKMessages", () => {
       content: "user progress",
       isMeta: true,
     });
-    const messages = projectProgressMessageToSDKMessages(
+    const messages = projectProgressMessageToProtocolMessages(
       createProgressMessage({
         type: "skill_progress",
         message: nested,
@@ -95,19 +95,19 @@ describe("projectProgressMessageToSDKMessages", () => {
       },
     );
 
-    const first = projectProgressMessageToSDKMessages(progressMessage, {
+    const first = projectProgressMessageToProtocolMessages(progressMessage, {
       now: 30_000,
       remoteEnabled: true,
       sessionId: "session-3",
       trackingState,
     });
-    const second = projectProgressMessageToSDKMessages(progressMessage, {
+    const second = projectProgressMessageToProtocolMessages(progressMessage, {
       now: 31_000,
       remoteEnabled: true,
       sessionId: "session-3",
       trackingState,
     });
-    const third = projectProgressMessageToSDKMessages(progressMessage, {
+    const third = projectProgressMessageToProtocolMessages(progressMessage, {
       now: 60_001,
       remoteEnabled: true,
       sessionId: "session-3",
@@ -133,7 +133,7 @@ describe("projectProgressMessageToSDKMessages", () => {
       message: createAssistantMessage({ content: "ignored" }),
     });
 
-    const messages = projectProgressMessageToSDKMessages(progressMessage, {
+    const messages = projectProgressMessageToProtocolMessages(progressMessage, {
       remoteEnabled: false,
       sessionId: "session-4",
       trackingState,
@@ -154,7 +154,7 @@ describe("projectProgressMessageToSDKMessages", () => {
       message: createAssistantMessage({ content: "ignored" }),
     });
 
-    const projection = projectProgressMessageToSDKMessageProjection(
+    const projection = projectProgressMessageToProtocolMessageProjection(
       progressMessage,
       {
         now: 30_000,

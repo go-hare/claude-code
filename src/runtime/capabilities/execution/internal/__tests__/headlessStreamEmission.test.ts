@@ -14,7 +14,7 @@ describe('emitHeadlessRuntimeMessage', () => {
           emitted.push(message)
         },
       },
-      drainSdkEvents: () =>
+      drainProtocolEvents: () =>
         [
           {
             type: 'system',
@@ -54,7 +54,7 @@ describe('emitHeadlessRuntimeMessage', () => {
           emitted.push(message)
         },
       },
-      drainSdkEvents: () => [] as never,
+      drainProtocolEvents: () => [] as never,
       hasBackgroundTasks: () => true,
       heldBackResult: {
         type: 'result',
@@ -95,7 +95,7 @@ describe('emitHeadlessRuntimeMessage', () => {
           emitted.push(message)
         },
       },
-      drainSdkEvents: () => [] as never,
+      drainProtocolEvents: () => [] as never,
       hasBackgroundTasks: () => true,
       heldBackResult: null,
       heldBackAssistantMessages: [],
@@ -118,7 +118,7 @@ describe('emitHeadlessRuntimeMessage', () => {
           emitted.push(message)
         },
       },
-      drainSdkEvents: () => [] as never,
+      drainProtocolEvents: () => [] as never,
       hasBackgroundTasks: () => true,
       heldBackResult: null,
       heldBackAssistantMessages: [],
@@ -145,7 +145,7 @@ describe('emitHeadlessRuntimeMessage', () => {
           emitted.push(message)
         },
       },
-      drainSdkEvents: () =>
+      drainProtocolEvents: () =>
         [
           {
             type: 'system',
@@ -193,7 +193,7 @@ describe('emitHeadlessRuntimeMessage', () => {
           emitted.push(message)
         },
       },
-      drainSdkEvents: () => [] as never,
+      drainProtocolEvents: () => [] as never,
       hasBackgroundTasks: () => false,
       heldBackResult: null,
       heldBackAssistantMessages: [],
@@ -223,7 +223,7 @@ describe('emitHeadlessRuntimeMessage', () => {
           emitted.push(message)
         },
       },
-      drainSdkEvents: () => {
+      drainProtocolEvents: () => {
         pending = true
         return [
           {

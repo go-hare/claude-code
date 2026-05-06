@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import type { StdoutMessage } from 'src/entrypoints/sdk/controlTypes.js'
+import type { ProtocolStdoutMessage } from 'src/types/protocol/controlTypes.js'
 
 type PendingSuggestionState = {
   lastEmitted: {
@@ -28,14 +28,14 @@ export function flushHeldBackResultAndSuggestion({
   suggestionState,
   now = Date.now,
 }: {
-  output: { enqueue(message: StdoutMessage): void }
-  heldBackResult: StdoutMessage | null
-  heldBackAssistantMessages?: StdoutMessage[]
+  output: { enqueue(message: ProtocolStdoutMessage): void }
+  heldBackResult: ProtocolStdoutMessage | null
+  heldBackAssistantMessages?: ProtocolStdoutMessage[]
   suggestionState: PendingSuggestionState
   now?: () => number
 }): {
-  heldBackResult: StdoutMessage | null
-  heldBackAssistantMessages: StdoutMessage[]
+  heldBackResult: ProtocolStdoutMessage | null
+  heldBackAssistantMessages: ProtocolStdoutMessage[]
 } {
   if (!heldBackResult && heldBackAssistantMessages.length === 0) {
     return {
@@ -54,7 +54,7 @@ export function flushHeldBackResultAndSuggestion({
 
   if (suggestionState.pendingSuggestion) {
     output.enqueue(
-      suggestionState.pendingSuggestion as unknown as StdoutMessage,
+      suggestionState.pendingSuggestion as unknown as ProtocolStdoutMessage,
     )
     if (suggestionState.pendingLastEmittedEntry) {
       suggestionState.lastEmitted = {
@@ -83,7 +83,7 @@ export function createFilesPersistedMessage({
   }
   sessionId: string
   processedAt?: () => string
-}): StdoutMessage {
+}): ProtocolStdoutMessage {
   return {
     type: 'system',
     subtype: 'files_persisted',
@@ -92,5 +92,5 @@ export function createFilesPersistedMessage({
     processed_at: processedAt(),
     uuid: randomUUID(),
     session_id: sessionId,
-  } as StdoutMessage
+  } as ProtocolStdoutMessage
 }

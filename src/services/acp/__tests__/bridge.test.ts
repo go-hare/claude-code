@@ -7,7 +7,7 @@ import {
 } from '../bridge.js'
 import { markdownEscape, toDisplayPath } from '../utils.js'
 import type { AgentSideConnection, ToolKind } from '@agentclientprotocol/sdk'
-import type { SDKMessage } from '../../../entrypoints/sdk/coreTypes.js'
+import type { ProtocolMessage } from 'src/types/protocol/coreTypes.js'
 import type {
   KernelEvent,
   KernelRuntimeEnvelopeBase,
@@ -24,9 +24,9 @@ function makeConn(overrides: Partial<AgentSideConnection> = {}): AgentSideConnec
 }
 
 async function* makeStream(
-  msgs: SDKMessage[],
+  msgs: ProtocolMessage[],
 ): AsyncGenerator<KernelRuntimeEnvelopeBase, void, unknown> {
-  for (const m of msgs) yield makeRuntimeEnvelope('headless.sdk_message', m)
+  for (const m of msgs) yield makeRuntimeEnvelope('headless.protocol_message', m)
 }
 
 async function* makeRuntimeStream(
@@ -564,15 +564,15 @@ describe('forwardSessionUpdates', () => {
     ac.abort()
     const conn = makeConn()
     const result = await forwardSessionUpdates('s1', makeStream([
-      { type: 'assistant', message: { content: [{ type: 'text', text: 'hi' }] } } as unknown as SDKMessage,
+      { type: 'assistant', message: { content: [{ type: 'text', text: 'hi' }] } } as unknown as ProtocolMessage,
     ]), conn, ac.signal, {})
     expect(result.stopReason).toBe('cancelled')
   })
 
   test('forwards assistant text message as agent_message_chunk', async () => {
     const conn = makeConn()
-    const msgs: SDKMessage[] = [
-      { type: 'assistant', message: { content: [{ type: 'text', text: 'Hello!' }], role: 'assistant' } } as unknown as SDKMessage,
+    const msgs: ProtocolMessage[] = [
+      { type: 'assistant', message: { content: [{ type: 'text', text: 'Hello!' }], role: 'assistant' } } as unknown as ProtocolMessage,
     ]
     const result = await forwardSessionUpdates('s1', makeStream(msgs), conn, new AbortController().signal, {})
     const calls = (conn.sessionUpdate as ReturnType<typeof mock>).mock.calls
@@ -584,18 +584,18 @@ describe('forwardSessionUpdates', () => {
     expect(result.stopReason).toBe('end_turn')
   })
 
-  test('forwards headless.sdk_message runtime envelopes through SDK conversion', async () => {
+  test('forwards headless.protocol_message runtime envelopes through protocol conversion', async () => {
     const conn = makeConn()
-    const sdkMessage = {
+    const protocolMessage = {
       type: 'assistant',
       uuid: 'sdk-runtime-1',
       message: { content: [{ type: 'text', text: 'Runtime hello!' }], role: 'assistant' },
-    } as unknown as SDKMessage
+    } as unknown as ProtocolMessage
 
     const result = await forwardSessionUpdates(
       's1',
       makeRuntimeStream([
-        makeRuntimeEnvelope('headless.sdk_message', sdkMessage),
+        makeRuntimeEnvelope('headless.protocol_message', protocolMessage),
       ]),
       conn,
       new AbortController().signal,
@@ -616,19 +616,19 @@ describe('forwardSessionUpdates', () => {
     ])
   })
 
-  test('dedupes SDK messages repeated through runtime envelopes', async () => {
+  test('dedupes protocol messages repeated through runtime envelopes', async () => {
     const conn = makeConn()
-    const sdkMessage = {
+    const protocolMessage = {
       type: 'assistant',
       uuid: 'sdk-duplicate-1',
       message: { content: [{ type: 'text', text: 'Only once' }], role: 'assistant' },
-    } as unknown as SDKMessage
+    } as unknown as ProtocolMessage
 
     await forwardSessionUpdates(
       's1',
       makeRuntimeStream([
-        makeRuntimeEnvelope('headless.sdk_message', sdkMessage),
-        makeRuntimeEnvelope('headless.sdk_message', sdkMessage),
+        makeRuntimeEnvelope('headless.protocol_message', protocolMessage),
+        makeRuntimeEnvelope('headless.protocol_message', protocolMessage),
       ]),
       conn,
       new AbortController().signal,
@@ -678,19 +678,19 @@ describe('forwardSessionUpdates', () => {
     ])
   })
 
-  test('does not duplicate SDK stream deltas that already have canonical runtime output', async () => {
+  test('does not duplicate protocol stream deltas that already have canonical runtime output', async () => {
     const conn = makeConn()
-    const sdkMessage = {
+    const protocolMessage = {
       type: 'stream_event',
       event: {
         type: 'content_block_delta',
         delta: { type: 'text_delta', text: 'semantic text' },
       },
       parent_tool_use_id: null,
-    } as unknown as SDKMessage
-    const sdkEnvelope = makeRuntimeEnvelope('headless.sdk_message', sdkMessage)
-    const sdkEvent = sdkEnvelope.payload as KernelEvent
-    sdkEvent.metadata = {
+    } as unknown as ProtocolMessage
+    const protocolEnvelope = makeRuntimeEnvelope('headless.protocol_message', protocolMessage)
+    const protocolEvent = protocolEnvelope.payload as KernelEvent
+    protocolEvent.metadata = {
       canonicalProjection: 'turn.output_delta',
     }
 
@@ -698,7 +698,7 @@ describe('forwardSessionUpdates', () => {
       's1',
       makeRuntimeStream([
         makeRuntimeEnvelope('turn.output_delta', { text: 'semantic text' }),
-        sdkEnvelope,
+        protocolEnvelope,
       ]),
       conn,
       new AbortController().signal,
@@ -736,13 +736,13 @@ describe('forwardSessionUpdates', () => {
     expect(result.stopReason).toBe('cancelled')
   })
 
-  test('keeps canonical runtime terminal stopReason ahead of SDK result fallback', async () => {
+  test('keeps canonical runtime terminal stopReason ahead of protocol result fallback', async () => {
     const conn = makeConn()
-    const sdkResult = {
+    const protocolResult = {
       type: 'result',
       subtype: 'error_max_turns',
       is_error: true,
-    } as unknown as SDKMessage
+    } as unknown as ProtocolMessage
 
     const result = await forwardSessionUpdates(
       's1',
@@ -751,7 +751,7 @@ describe('forwardSessionUpdates', () => {
           state: 'completed',
           stopReason: null,
         }),
-        makeRuntimeEnvelope('headless.sdk_message', sdkResult),
+        makeRuntimeEnvelope('headless.protocol_message', protocolResult),
       ]),
       conn,
       new AbortController().signal,
@@ -763,7 +763,7 @@ describe('forwardSessionUpdates', () => {
 
   test('does not duplicate assistant text already emitted by stream_event', async () => {
     const conn = makeConn()
-    const msgs: SDKMessage[] = [
+    const msgs: ProtocolMessage[] = [
       {
         type: 'stream_event',
         event: {
@@ -771,7 +771,7 @@ describe('forwardSessionUpdates', () => {
           message: { id: 'msg-streamed' },
         },
         parent_tool_use_id: null,
-      } as unknown as SDKMessage,
+      } as unknown as ProtocolMessage,
       {
         type: 'stream_event',
         event: {
@@ -780,7 +780,7 @@ describe('forwardSessionUpdates', () => {
           content_block: { type: 'text', text: 'Hello!' },
         },
         parent_tool_use_id: null,
-      } as unknown as SDKMessage,
+      } as unknown as ProtocolMessage,
       {
         type: 'stream_event',
         event: {
@@ -789,7 +789,7 @@ describe('forwardSessionUpdates', () => {
           delta: { type: 'text_delta', text: 'Hello!' },
         },
         parent_tool_use_id: null,
-      } as unknown as SDKMessage,
+      } as unknown as ProtocolMessage,
       {
         type: 'assistant',
         message: {
@@ -798,7 +798,7 @@ describe('forwardSessionUpdates', () => {
           role: 'assistant',
         },
         parent_tool_use_id: null,
-      } as unknown as SDKMessage,
+      } as unknown as ProtocolMessage,
     ]
 
     await forwardSessionUpdates('s1', makeStream(msgs), conn, new AbortController().signal, {})
@@ -818,7 +818,7 @@ describe('forwardSessionUpdates', () => {
 
   test('still forwards tool_use completion details after stream_event start', async () => {
     const conn = makeConn()
-    const msgs: SDKMessage[] = [
+    const msgs: ProtocolMessage[] = [
       {
         type: 'stream_event',
         event: {
@@ -826,7 +826,7 @@ describe('forwardSessionUpdates', () => {
           message: { id: 'msg-tool' },
         },
         parent_tool_use_id: null,
-      } as unknown as SDKMessage,
+      } as unknown as ProtocolMessage,
       {
         type: 'stream_event',
         event: {
@@ -840,7 +840,7 @@ describe('forwardSessionUpdates', () => {
           },
         },
         parent_tool_use_id: null,
-      } as unknown as SDKMessage,
+      } as unknown as ProtocolMessage,
       {
         type: 'assistant',
         message: {
@@ -854,7 +854,7 @@ describe('forwardSessionUpdates', () => {
           role: 'assistant',
         },
         parent_tool_use_id: null,
-      } as unknown as SDKMessage,
+      } as unknown as ProtocolMessage,
     ]
 
     await forwardSessionUpdates('s1', makeStream(msgs), conn, new AbortController().signal, {})
@@ -881,7 +881,7 @@ describe('forwardSessionUpdates', () => {
 
   test('still forwards a later assistant message with a different message id', async () => {
     const conn = makeConn()
-    const msgs: SDKMessage[] = [
+    const msgs: ProtocolMessage[] = [
       {
         type: 'stream_event',
         event: {
@@ -889,7 +889,7 @@ describe('forwardSessionUpdates', () => {
           message: { id: 'msg-streamed' },
         },
         parent_tool_use_id: null,
-      } as unknown as SDKMessage,
+      } as unknown as ProtocolMessage,
       {
         type: 'stream_event',
         event: {
@@ -898,7 +898,7 @@ describe('forwardSessionUpdates', () => {
           delta: { type: 'text_delta', text: 'Hello!' },
         },
         parent_tool_use_id: null,
-      } as unknown as SDKMessage,
+      } as unknown as ProtocolMessage,
       {
         type: 'assistant',
         message: {
@@ -907,7 +907,7 @@ describe('forwardSessionUpdates', () => {
           role: 'assistant',
         },
         parent_tool_use_id: null,
-      } as unknown as SDKMessage,
+      } as unknown as ProtocolMessage,
       {
         type: 'assistant',
         message: {
@@ -916,7 +916,7 @@ describe('forwardSessionUpdates', () => {
           role: 'assistant',
         },
         parent_tool_use_id: null,
-      } as unknown as SDKMessage,
+      } as unknown as ProtocolMessage,
     ]
 
     await forwardSessionUpdates('s1', makeStream(msgs), conn, new AbortController().signal, {})
@@ -938,8 +938,8 @@ describe('forwardSessionUpdates', () => {
 
   test('forwards thinking block as agent_thought_chunk', async () => {
     const conn = makeConn()
-    const msgs: SDKMessage[] = [
-      { type: 'assistant', message: { content: [{ type: 'thinking', thinking: 'reasoning...' }], role: 'assistant' } } as unknown as SDKMessage,
+    const msgs: ProtocolMessage[] = [
+      { type: 'assistant', message: { content: [{ type: 'thinking', thinking: 'reasoning...' }], role: 'assistant' } } as unknown as ProtocolMessage,
     ]
     await forwardSessionUpdates('s1', makeStream(msgs), conn, new AbortController().signal, {})
     const calls = (conn.sessionUpdate as ReturnType<typeof mock>).mock.calls
@@ -948,7 +948,7 @@ describe('forwardSessionUpdates', () => {
 
   test('forwards tool_use block as tool_call', async () => {
     const conn = makeConn()
-    const msgs: SDKMessage[] = [
+    const msgs: ProtocolMessage[] = [
       {
         type: 'assistant',
         message: {
@@ -960,7 +960,7 @@ describe('forwardSessionUpdates', () => {
           }],
           role: 'assistant',
         },
-      } as unknown as SDKMessage,
+      } as unknown as ProtocolMessage,
     ]
     await forwardSessionUpdates('s1', makeStream(msgs), conn, new AbortController().signal, {})
     const update = (conn.sessionUpdate as ReturnType<typeof mock>).mock.calls[0][0].update as Record<string, unknown>
@@ -972,7 +972,7 @@ describe('forwardSessionUpdates', () => {
 
   test('sends usage_update on result message with correct tokens', async () => {
     const conn = makeConn()
-    const msgs: SDKMessage[] = [
+    const msgs: ProtocolMessage[] = [
       {
         type: 'result',
         subtype: 'success',
@@ -980,7 +980,7 @@ describe('forwardSessionUpdates', () => {
         result: '',
         usage: { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 10, cache_creation_input_tokens: 5 },
         total_cost_usd: 0.01,
-      } as unknown as SDKMessage,
+      } as unknown as ProtocolMessage,
     ]
     const result = await forwardSessionUpdates('s1', makeStream(msgs), conn, new AbortController().signal, {})
     expect(result.stopReason).toBe('end_turn')
@@ -989,7 +989,7 @@ describe('forwardSessionUpdates', () => {
     expect(result.usage!.outputTokens).toBe(50)
   })
 
-  test('maps SDK result stop reasons through shared runtime host projection', async () => {
+  test('maps protocol result stop reasons through shared runtime host projection', async () => {
     const conn = makeConn()
 
     const result = await forwardSessionUpdates(
@@ -999,7 +999,7 @@ describe('forwardSessionUpdates', () => {
           type: 'result',
           subtype: 'error_max_turns',
           is_error: true,
-        } as unknown as SDKMessage,
+        } as unknown as ProtocolMessage,
       ]),
       conn,
       new AbortController().signal,
@@ -1009,7 +1009,7 @@ describe('forwardSessionUpdates', () => {
     expect(result.stopReason).toBe('max_turn_requests')
   })
 
-  test('maps SDK result max_tokens through shared runtime host projection', async () => {
+  test('maps protocol result max_tokens through shared runtime host projection', async () => {
     const conn = makeConn()
 
     const result = await forwardSessionUpdates(
@@ -1020,7 +1020,7 @@ describe('forwardSessionUpdates', () => {
           subtype: 'success',
           is_error: false,
           stop_reason: 'max_tokens',
-        } as unknown as SDKMessage,
+        } as unknown as ProtocolMessage,
       ]),
       conn,
       new AbortController().signal,
@@ -1032,7 +1032,7 @@ describe('forwardSessionUpdates', () => {
 
   test('sends usage_update with context window from modelUsage', async () => {
     const conn = makeConn()
-    const msgs: SDKMessage[] = [
+    const msgs: ProtocolMessage[] = [
       {
         type: 'assistant',
         message: {
@@ -1042,7 +1042,7 @@ describe('forwardSessionUpdates', () => {
           usage: { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 10, cache_creation_input_tokens: 5 },
         },
         parent_tool_use_id: null,
-      } as unknown as SDKMessage,
+      } as unknown as ProtocolMessage,
       {
         type: 'result',
         subtype: 'success',
@@ -1052,7 +1052,7 @@ describe('forwardSessionUpdates', () => {
         modelUsage: {
           'claude-opus-4-20250514': { contextWindow: 1000000 },
         },
-      } as unknown as SDKMessage,
+      } as unknown as ProtocolMessage,
     ]
     await forwardSessionUpdates('s1', makeStream(msgs), conn, new AbortController().signal, {})
     const calls = (conn.sessionUpdate as ReturnType<typeof mock>).mock.calls
@@ -1063,7 +1063,7 @@ describe('forwardSessionUpdates', () => {
 
   test('sends usage_update with prefix-matched modelUsage', async () => {
     const conn = makeConn()
-    const msgs: SDKMessage[] = [
+    const msgs: ProtocolMessage[] = [
       {
         type: 'assistant',
         message: {
@@ -1073,7 +1073,7 @@ describe('forwardSessionUpdates', () => {
           usage: { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
         },
         parent_tool_use_id: null,
-      } as unknown as SDKMessage,
+      } as unknown as ProtocolMessage,
       {
         type: 'result',
         subtype: 'success',
@@ -1083,7 +1083,7 @@ describe('forwardSessionUpdates', () => {
         modelUsage: {
           'claude-opus-4-6': { contextWindow: 2000000 },
         },
-      } as unknown as SDKMessage,
+      } as unknown as ProtocolMessage,
     ]
     await forwardSessionUpdates('s1', makeStream(msgs), conn, new AbortController().signal, {})
     const calls = (conn.sessionUpdate as ReturnType<typeof mock>).mock.calls
@@ -1094,8 +1094,8 @@ describe('forwardSessionUpdates', () => {
 
   test('resets usage on compact_boundary', async () => {
     const conn = makeConn()
-    const msgs: SDKMessage[] = [
-      { type: 'system', subtype: 'compact_boundary' } as unknown as SDKMessage,
+    const msgs: ProtocolMessage[] = [
+      { type: 'system', subtype: 'compact_boundary' } as unknown as ProtocolMessage,
     ]
     await forwardSessionUpdates('s1', makeStream(msgs), conn, new AbortController().signal, {})
     const calls = (conn.sessionUpdate as ReturnType<typeof mock>).mock.calls
@@ -1108,8 +1108,8 @@ describe('forwardSessionUpdates', () => {
     const conn = makeConn()
     const msgs = [
       null,
-      { type: 'system', subtype: 'compact_boundary' } as unknown as SDKMessage,
-    ] as SDKMessage[]
+      { type: 'system', subtype: 'compact_boundary' } as unknown as ProtocolMessage,
+    ] as ProtocolMessage[]
 
     await expect(
       forwardSessionUpdates('s1', makeStream(msgs), conn, new AbortController().signal, {}),

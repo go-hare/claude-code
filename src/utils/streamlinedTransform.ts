@@ -1,5 +1,5 @@
 /**
- * Transforms SDK messages for streamlined output mode.
+ * Transforms protocol messages for streamlined output mode.
  *
  * Streamlined mode is a compact output format that:
  * - Keeps text messages intact
@@ -8,8 +8,8 @@
  * - Strips tool list and model info from init messages
  */
 
-import type { SDKAssistantMessage } from 'src/entrypoints/agentSdkTypes.js'
-import type { StdoutMessage } from 'src/entrypoints/sdk/controlTypes.js'
+import type { ProtocolAssistantMessage } from 'src/types/protocol/index.js'
+import type { ProtocolStdoutMessage } from 'src/types/protocol/controlTypes.js'
 import { FILE_EDIT_TOOL_NAME } from '@go-hare/builtin-tools/tools/FileEditTool/constants.js'
 import { FILE_READ_TOOL_NAME } from '@go-hare/builtin-tools/tools/FileReadTool/prompt.js'
 import { FILE_WRITE_TOOL_NAME } from '@go-hare/builtin-tools/tools/FileWriteTool/prompt.js'
@@ -107,7 +107,7 @@ function getToolSummaryText(counts: ToolCounts): string | undefined {
  * Count tool uses in an assistant message and add to existing counts.
  */
 function accumulateToolUses(
-  message: SDKAssistantMessage,
+  message: ProtocolAssistantMessage,
   counts: ToolCounts,
 ): void {
   const content = message.message!.content
@@ -128,23 +128,23 @@ function accumulateToolUses(
  * Tool counts reset when a message with text content is encountered.
  */
 export function createStreamlinedTransformer(): (
-  message: StdoutMessage,
-) => StdoutMessage | null {
+  message: ProtocolStdoutMessage,
+) => ProtocolStdoutMessage | null {
   let cumulativeCounts = createEmptyToolCounts()
 
   return function transformToStreamlined(
-    message: StdoutMessage,
-  ): StdoutMessage | null {
+    message: ProtocolStdoutMessage,
+  ): ProtocolStdoutMessage | null {
     switch (message.type) {
       case 'assistant': {
-        const messageContent = (message as unknown as SDKAssistantMessage).message
+        const messageContent = (message as unknown as ProtocolAssistantMessage).message
         const content = messageContent?.content
         const text = Array.isArray(content)
           ? extractTextContent(content, '\n').trim()
           : ''
 
         // Accumulate tool counts from this message
-        accumulateToolUses(message as unknown as SDKAssistantMessage, cumulativeCounts)
+        accumulateToolUses(message as unknown as ProtocolAssistantMessage, cumulativeCounts)
 
         if (text.length > 0) {
           // Text message: emit text only, reset counts
@@ -197,6 +197,6 @@ export function createStreamlinedTransformer(): (
  * Check if a message should be included in streamlined output.
  * Useful for filtering before transformation.
  */
-export function shouldIncludeInStreamlined(message: StdoutMessage): boolean {
+export function shouldIncludeInStreamlined(message: ProtocolStdoutMessage): boolean {
   return message.type === 'assistant' || message.type === 'result'
 }

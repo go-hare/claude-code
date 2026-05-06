@@ -1,12 +1,12 @@
 import { randomUUID } from 'crypto'
 import { getOauthConfig } from '../constants/oauth.js'
-import type { SDKMessage } from '../entrypoints/agentSdkTypes.js'
+import type { ProtocolMessage } from 'src/types/protocol/index.js'
 import type {
-  SDKControlCancelRequest,
-  SDKControlRequest,
-  SDKControlRequestInner,
-  SDKControlResponse,
-} from '../entrypoints/sdk/controlTypes.js'
+  ProtocolControlCancelRequest,
+  ProtocolControlRequest,
+  ProtocolControlRequestInner,
+  ProtocolControlResponse,
+} from 'src/types/protocol/controlTypes.js'
 import { logForDebugging } from '../utils/debug.js'
 import { errorMessage } from '../utils/errors.js'
 import { logError } from '../utils/log.js'
@@ -38,17 +38,17 @@ const PERMANENT_CLOSE_CODES = new Set([
 type WebSocketState = 'connecting' | 'connected' | 'closed'
 
 type SessionsMessage =
-  | SDKMessage
-  | SDKControlRequest
-  | SDKControlResponse
-  | SDKControlCancelRequest
+  | ProtocolMessage
+  | ProtocolControlRequest
+  | ProtocolControlResponse
+  | ProtocolControlCancelRequest
 
 function isSessionsMessage(value: unknown): value is SessionsMessage {
   if (typeof value !== 'object' || value === null || !('type' in value)) {
     return false
   }
   // Accept any message with a string `type` field. Downstream handlers
-  // (sdkMessageAdapter, RemoteSessionManager) decide what to do with
+  // (protocolMessageAdapter, RemoteSessionManager) decide what to do with
   // unknown types. A hardcoded allowlist here would silently drop new
   // message types the backend starts sending before the client is updated.
   return typeof value.type === 'string'
@@ -77,7 +77,7 @@ type WebSocketLike = {
  * Protocol:
  * 1. Connect to wss://api.anthropic.com/v1/sessions/ws/{sessionId}/subscribe?organization_uuid=...
  * 2. Send auth message: { type: 'auth', credential: { type: 'oauth', token: '...' } }
- * 3. Receive SDKMessage stream from the session
+ * 3. Receive ProtocolMessage stream from the session
  */
 export class SessionsWebSocket {
   private ws: WebSocketLike | null = null
@@ -211,7 +211,7 @@ export class SessionsWebSocket {
     try {
       const message: unknown = jsonParse(data)
 
-      // Forward SDK messages to callback
+      // Forward protocol messages to callback
       if (isSessionsMessage(message)) {
         this.callbacks.onMessage(message)
       } else {
@@ -325,7 +325,7 @@ export class SessionsWebSocket {
   /**
    * Send a control response back to the session
    */
-  sendControlResponse(response: SDKControlResponse): void {
+  sendControlResponse(response: ProtocolControlResponse): void {
     if (!this.ws || this.state !== 'connected') {
       logError(new Error('[SessionsWebSocket] Cannot send: not connected'))
       return
@@ -338,13 +338,13 @@ export class SessionsWebSocket {
   /**
    * Send a control request to the session (e.g., interrupt)
    */
-  sendControlRequest(request: SDKControlRequestInner): void {
+  sendControlRequest(request: ProtocolControlRequestInner): void {
     if (!this.ws || this.state !== 'connected') {
       logError(new Error('[SessionsWebSocket] Cannot send: not connected'))
       return
     }
 
-    const controlRequest: SDKControlRequest = {
+    const controlRequest: ProtocolControlRequest = {
       type: 'control_request',
       request_id: randomUUID(),
       request,

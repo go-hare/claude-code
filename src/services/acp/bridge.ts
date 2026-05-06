@@ -1,9 +1,9 @@
 /**
  * Bridge module: converts Claude Code runtime envelopes into ACP
- * SessionUpdate notifications. Legacy SDKMessage payloads are handled only when
- * projected from headless.sdk_message envelopes by the runtime host event path.
+ * SessionUpdate notifications. Legacy ProtocolMessage payloads are handled only when
+ * projected from headless.protocol_message envelopes by the runtime host event path.
  *
- * Handles all SDKMessage types:
+ * Handles all ProtocolMessage types:
  *  - system (compact_boundary, api_retry, local_command_output)
  *  - user (message replay)
  *  - assistant (full messages with content blocks)
@@ -24,7 +24,7 @@ import type {
   ToolCallLocation,
   ToolKind,
 } from '@agentclientprotocol/sdk'
-import type { SDKMessage } from '../../entrypoints/sdk/coreTypes.generated.js'
+import type { ProtocolMessage } from 'src/types/protocol/coreTypes.generated.js'
 import type {
   KernelEvent,
   KernelRuntimeEnvelopeBase,
@@ -32,12 +32,12 @@ import type {
 import {
   hasCanonicalProjection,
   getKernelRuntimeTerminalProjection,
-  getKernelRuntimeTerminalProjectionFromSDKResultMessage,
-  getSDKMessageFromKernelRuntimeEnvelope,
+  getKernelRuntimeTerminalProjectionFromProtocolResultMessage,
+  getProtocolMessageFromKernelRuntimeEnvelope,
   getTextOutputDeltaFromKernelRuntimeEnvelope,
   isKernelTurnTerminalEvent,
   KernelRuntimeOutputDeltaDedupe,
-  KernelRuntimeSDKMessageDedupe,
+  KernelRuntimeProtocolMessageDedupe,
 } from '../../remote/kernelRuntimeHostEvents.js'
 import { getKernelEventFromEnvelope } from '../../runtime/core/events/KernelRuntimeEventFacade.js'
 import { promptToQueryInput } from './promptConversion.js'
@@ -65,13 +65,13 @@ export type SessionUsage = {
 
 type StreamedAssistantContentKind = 'image' | 'text' | 'thinking'
 
-type SDKMessageProjection = {
-  message: SDKMessage
+type ProtocolMessageProjection = {
+  message: ProtocolMessage
   event: KernelEvent
 }
 
 type AcpRuntimeEnvelopeProjection = {
-  sdkMessages: SDKMessageProjection[]
+  protocolMessages: ProtocolMessageProjection[]
   stopReason?: StopReason
 }
 // ── Tool info conversion ──────────────────────────────────────────
@@ -587,7 +587,7 @@ export async function forwardSessionUpdates(
     Set<StreamedAssistantContentKind>
   >()
   const scopeToStreamedMessageId = new Map<string, string>()
-  const sdkMessageDedupe = new KernelRuntimeSDKMessageDedupe()
+  const protocolMessageDedupe = new KernelRuntimeProtocolMessageDedupe()
   const outputDeltaDedupe = new KernelRuntimeOutputDeltaDedupe()
   const runtimeEnvelopeIterator = runtimeEnvelopes[Symbol.asyncIterator]()
   let runtimeTerminalSeen = false
@@ -624,8 +624,8 @@ export async function forwardSessionUpdates(
         runtimeTerminalSeen = true
       }
 
-      for (const { message: msg, event: sourceEvent } of projection.sdkMessages) {
-        if (!sdkMessageDedupe.shouldProcess(msg)) {
+      for (const { message: msg, event: sourceEvent } of projection.protocolMessages) {
+        if (!protocolMessageDedupe.shouldProcess(msg)) {
           continue
         }
 
@@ -711,12 +711,12 @@ export async function forwardSessionUpdates(
             },
           })
 
-          const sdkTerminalProjection =
-            getKernelRuntimeTerminalProjectionFromSDKResultMessage(msg, {
+          const protocolTerminalProjection =
+            getKernelRuntimeTerminalProjectionFromProtocolResultMessage(msg, {
               aborted: abortSignal.aborted,
             })
-          if (sdkTerminalProjection && !runtimeTerminalSeen) {
-            stopReason = sdkTerminalProjection.hostStopReason as StopReason
+          if (protocolTerminalProjection && !runtimeTerminalSeen) {
+            stopReason = protocolTerminalProjection.hostStopReason as StopReason
           }
           break
         }
@@ -925,7 +925,7 @@ async function projectRuntimeEnvelopeToAcpSessionUpdates({
 }): Promise<AcpRuntimeEnvelopeProjection> {
   const event = getKernelEventFromEnvelope(runtimeEnvelope)
   if (!event) {
-    return { sdkMessages: [] }
+    return { protocolMessages: [] }
   }
 
   const outputDelta = getTextOutputDeltaFromKernelRuntimeEnvelope(runtimeEnvelope)
@@ -940,17 +940,17 @@ async function projectRuntimeEnvelopeToAcpSessionUpdates({
   }
 
   const projection: AcpRuntimeEnvelopeProjection = {
-    sdkMessages: [],
+    protocolMessages: [],
   }
   if (isKernelTurnTerminalEvent(event)) {
     const terminalProjection = getKernelRuntimeTerminalProjection(event)
     projection.stopReason = terminalProjection.hostStopReason as StopReason
   }
 
-  const sdkMessage = getSDKMessageFromKernelRuntimeEnvelope(runtimeEnvelope)
-  if (sdkMessage) {
-    projection.sdkMessages.push({
-      message: sdkMessage as SDKMessage,
+  const protocolMessage = getProtocolMessageFromKernelRuntimeEnvelope(runtimeEnvelope)
+  if (protocolMessage) {
+    projection.protocolMessages.push({
+      message: protocolMessage as ProtocolMessage,
       event,
     })
   }
@@ -960,7 +960,7 @@ async function projectRuntimeEnvelopeToAcpSessionUpdates({
 // ── Assistant message conversion ──────────────────────────────────
 
 function assistantMessageToAcpNotifications(
-  msg: SDKMessage,
+  msg: ProtocolMessage,
   sessionId: string,
   toolUseCache: ToolUseCache,
   conn: AgentSideConnection,
@@ -999,7 +999,7 @@ function assistantMessageToAcpNotifications(
 // ── Stream event conversion ───────────────────────────────────────
 
 function streamEventToAcpNotifications(
-  msg: SDKMessage,
+  msg: ProtocolMessage,
   sessionId: string,
   toolUseCache: ToolUseCache,
   conn: AgentSideConnection,

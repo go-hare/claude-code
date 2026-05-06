@@ -1,13 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 import {
   createCoordinatorLifecycleEvent,
-  projectCoordinatorLifecycleFromSdkMessage,
+  projectCoordinatorLifecycleFromCompatibilityMessage,
 } from '../headlessCoordinatorLifecycleEvents.js'
 
 describe('headless coordinator lifecycle events', () => {
-  test('projects task_started SDK bookends to handoff.started events', () => {
+  test('projects task_started compatibility bookends to handoff.started events', () => {
     expect(
-      projectCoordinatorLifecycleFromSdkMessage(
+      projectCoordinatorLifecycleFromCompatibilityMessage(
         {
           type: 'system',
           subtype: 'task_started',
@@ -36,7 +36,7 @@ describe('headless coordinator lifecycle events', () => {
 
   test('projects terminal task notifications to handoff terminal events', () => {
     expect(
-      projectCoordinatorLifecycleFromSdkMessage(
+      projectCoordinatorLifecycleFromCompatibilityMessage(
         {
           type: 'system',
           subtype: 'task_notification',

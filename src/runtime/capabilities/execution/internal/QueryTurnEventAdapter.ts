@@ -1,19 +1,21 @@
-import type { SDKMessage } from '../../../../entrypoints/agentSdkTypes.js'
+import type { ProtocolMessage } from 'src/types/protocol/index.js'
 import {
   createToolProgressTrackingState,
   type ToolProgressTrackingState,
 } from '../../../../utils/queryHelpers.js'
 import type { KernelEvent } from '../../../contracts/events.js'
 import {
-  createHeadlessSDKMessageRuntimeEvent,
-  projectSemanticRuntimeEventsFromSDKMessage,
-  createTurnOutputDeltaRuntimeEventFromSDKMessage,
-  getCanonicalProjectionForSDKMessage,
+  createHeadlessProtocolMessageRuntimeEvent,
+  projectSemanticRuntimeEventsFromProtocolMessage as
+    projectSemanticRuntimeEventsFromCompatibilityMessage,
+  createTurnOutputDeltaRuntimeEventFromProtocolMessage as
+    createTurnOutputDeltaRuntimeEventFromCompatibilityMessage,
+  getCanonicalProjectionForProtocolMessage,
 } from '../../../core/events/compatProjection.js'
 import {
   isQueryStreamEvent,
-  queryMessageToCompatibilitySDKMessages,
-  queryStreamEventToSDKMessage,
+  queryMessageToCompatibilityProtocolMessages,
+  queryStreamEventToProtocolMessage,
 } from './QueryTurnCompatibilityProjector.js'
 import type {
   QueryStreamEventMessage,
@@ -63,15 +65,15 @@ export function createQueryTurnEventAdapter(
   const projectedCompatibilityMessageKeys = new Set<string>()
   const progressTrackingState =
     options.progressTrackingState ?? createToolProgressTrackingState()
-  const projectCompatibilitySDKMessage = (
-    message: SDKMessage,
+  const projectCompatibilityProtocolMessage = (
+    message: ProtocolMessage,
     projectOptions: {
       includeCompatibility?: boolean
     } = {},
   ): KernelEvent[] => {
     const events: KernelEvent[] = []
     const outputDeltaEvent =
-      createTurnOutputDeltaRuntimeEventFromSDKMessage({
+      createTurnOutputDeltaRuntimeEventFromCompatibilityMessage({
         conversationId: options.conversationId,
         turnId: options.turnId,
         message,
@@ -80,7 +82,7 @@ export function createQueryTurnEventAdapter(
       events.push(outputDeltaEvent)
     }
     events.push(
-      ...projectSemanticRuntimeEventsFromSDKMessage({
+      ...projectSemanticRuntimeEventsFromCompatibilityMessage({
         conversationId: options.conversationId,
         turnId: options.turnId,
         message,
@@ -88,7 +90,7 @@ export function createQueryTurnEventAdapter(
     )
 
     const canonicalProjection =
-      getCanonicalProjectionForSDKMessage(message)
+      getCanonicalProjectionForProtocolMessage(message)
     if (
       projectOptions.includeCompatibility !== false &&
       !shouldSkipCompatibilityProjection(
@@ -97,7 +99,7 @@ export function createQueryTurnEventAdapter(
       )
     ) {
       events.push(
-        createHeadlessSDKMessageRuntimeEvent({
+        createHeadlessProtocolMessageRuntimeEvent({
           conversationId: options.conversationId,
           turnId: options.turnId,
           message,
@@ -119,17 +121,17 @@ export function createQueryTurnEventAdapter(
       const includeCompatibility =
         projectOptions?.includeCompatibility ?? true
       const compatibilityMessages =
-        includeCompatibility && message.sdkMessage
-          ? [message.sdkMessage]
+        includeCompatibility && message.protocolMessage
+          ? [message.protocolMessage]
           : []
-      const compatibilityEvents = message.sdkMessage
-        ? projectCompatibilitySDKMessage(message.sdkMessage, {
+      const compatibilityEvents = message.protocolMessage
+        ? projectCompatibilityProtocolMessage(message.protocolMessage, {
             includeCompatibility,
           })
         : []
-      if (includeCompatibility && message.sdkMessage) {
+      if (includeCompatibility && message.protocolMessage) {
         markProjectedCompatibilityMessage(
-          message.sdkMessage,
+          message.protocolMessage,
           projectedCompatibilityMessageKeys,
         )
       }
@@ -149,7 +151,7 @@ export function createQueryTurnEventAdapter(
       }
     }
     if (!isQueryStreamEvent(message)) {
-      const compatibilityMessages = queryMessageToCompatibilitySDKMessages({
+      const compatibilityMessages = queryMessageToCompatibilityProtocolMessages({
         conversationId: options.conversationId,
         getProgressProjectionEnvironment:
           options.getProgressProjectionEnvironment,
@@ -162,7 +164,7 @@ export function createQueryTurnEventAdapter(
       const includeCompatibility =
         projectOptions?.includeCompatibility ?? true
       const events = compatibilityMessages.flatMap(compatibilityMessage =>
-        projectCompatibilitySDKMessage(compatibilityMessage, {
+        projectCompatibilityProtocolMessage(compatibilityMessage, {
           includeCompatibility,
         }),
       )
@@ -182,11 +184,11 @@ export function createQueryTurnEventAdapter(
       }
     }
 
-    const compatibilityMessage = queryStreamEventToSDKMessage({
+    const compatibilityMessage = queryStreamEventToProtocolMessage({
       conversationId: options.conversationId,
       message,
     })
-    const events = projectCompatibilitySDKMessage(compatibilityMessage, {
+    const events = projectCompatibilityProtocolMessage(compatibilityMessage, {
       includeCompatibility: projectOptions?.includeCompatibility ?? true,
     })
     if (projectOptions?.includeCompatibility !== false) {
@@ -208,7 +210,10 @@ export function createQueryTurnEventAdapter(
     projectQueryMessage(message, projectOptions) {
       return projectQueryMessageWithCompatibility(
         message,
-        projectOptions,
+        {
+          ...projectOptions,
+          includeCompatibility: false,
+        },
       ).events
     },
 
@@ -232,7 +237,7 @@ export function createQueryTurnEventAdapter(
 }
 
 function shouldSkipCompatibilityProjection(
-  message: SDKMessage,
+  message: ProtocolMessage,
   projectedCompatibilityMessageKeys: Set<string>,
 ): boolean {
   const key = getCompatibilityProjectionKey(message)
@@ -240,7 +245,7 @@ function shouldSkipCompatibilityProjection(
 }
 
 function markProjectedCompatibilityMessage(
-  message: SDKMessage,
+  message: ProtocolMessage,
   projectedCompatibilityMessageKeys: Set<string>,
 ): void {
   const key = getCompatibilityProjectionKey(message)
@@ -249,7 +254,7 @@ function markProjectedCompatibilityMessage(
   }
 }
 
-function getCompatibilityProjectionKey(message: SDKMessage): string | undefined {
+function getCompatibilityProjectionKey(message: ProtocolMessage): string | undefined {
   return typeof message.uuid === 'string' && message.uuid.length > 0
     ? `uuid:${message.uuid}`
     : undefined

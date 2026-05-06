@@ -6,7 +6,7 @@ import { getFeatureValue_CACHED_MAY_BE_STALE } from 'src/services/analytics/grow
 import { diagnosticTracker } from 'src/services/diagnosticTracking.js'
 import { clearDeliveredDiagnosticsForFile } from 'src/services/lsp/LSPDiagnosticRegistry.js'
 import { getLspServerManager } from 'src/services/lsp/manager.js'
-import { notifyVscodeFileUpdated } from 'src/services/mcp/vscodeSdkMcp.js'
+import { notifyVscodeFileUpdated } from 'src/services/mcp/vscodeProtocolMcp.js'
 import { checkTeamMemSecrets } from 'src/services/teamMemorySync/teamMemSecretGuard.js'
 import {
   activateConditionalSkillsForPaths,

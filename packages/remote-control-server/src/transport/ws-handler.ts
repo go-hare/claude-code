@@ -32,9 +32,9 @@ function getClientActivityTimeoutMs(): number {
 }
 
 /**
- * Convert internal EventBus event -> SDK message for bridge client.
+ * Convert internal EventBus event -> protocol message for bridge client.
  */
-function toSDKMessage(event: SessionEvent): string {
+function toProtocolMessage(event: SessionEvent): string {
   // NDJSON format: each message MUST end with \n so the child process's
   // line-based parser can split messages correctly.
   return JSON.stringify(toClientPayload(event)) + "\n";
@@ -67,7 +67,7 @@ export function handleWebSocketOpen(ws: WSContext, sessionId: string) {
     for (const event of missed) {
       if (ws.readyState !== 1) break;
       try {
-        ws.send(toSDKMessage(event));
+        ws.send(toProtocolMessage(event));
       } catch {
         // ignore send errors during replay
       }
@@ -78,9 +78,9 @@ export function handleWebSocketOpen(ws: WSContext, sessionId: string) {
     if (ws.readyState !== 1) return;
     if (event.direction !== "outbound") return;
     try {
-      const sdkMsg = toSDKMessage(event);
-      log(`[RC-DEBUG] [WS] -> bridge (outbound): type=${event.type} len=${sdkMsg.length} msg=${sdkMsg.slice(0, 300)}`);
-      ws.send(sdkMsg);
+      const protocolMsg = toProtocolMessage(event);
+      log(`[RC-DEBUG] [WS] -> bridge (outbound): type=${event.type} len=${protocolMsg.length} msg=${protocolMsg.slice(0, 300)}`);
+      ws.send(protocolMsg);
     } catch (err) {
       logError("[RC-DEBUG] [WS] send error:", err);
     }
@@ -186,7 +186,7 @@ function deriveEventType(msg: Record<string, unknown>): string {
 }
 
 /**
- * Parse a single SDK message from bridge -> publish to EventBus as inbound.
+ * Parse a single protocol message from bridge -> publish to EventBus as inbound.
  */
 export function ingestBridgeMessage(sessionId: string, msg: Record<string, unknown>) {
   if (msg.type === "keep_alive") return;

@@ -97,23 +97,23 @@ import {
 import { registerCleanup } from 'src/utils/cleanupRegistry.js'
 import { createIdleTimeoutManager } from 'src/utils/idleTimeout.js'
 import type {
-  SDKStatus,
+  ProtocolStatus,
   ModelInfo,
-  SDKMessage,
-  SDKUserMessage,
-  SDKUserMessageReplay,
+  ProtocolMessage,
+  ProtocolUserMessage,
+  ProtocolUserMessageReplay,
   PermissionResult,
+  PermissionMode,
   McpServerConfigForProcessTransport,
   RewindFilesResult,
-} from 'src/entrypoints/agentSdkTypes.js'
+} from 'src/types/protocol/index.js'
 import type {
-  StdoutMessage,
-  SDKControlInitializeRequest,
-  SDKControlInitializeResponse,
-  SDKControlRequest,
-  SDKControlResponse,
-} from 'src/entrypoints/sdk/controlTypes.js'
-import type { PermissionMode } from '@anthropic-ai/claude-agent-sdk'
+  ProtocolStdoutMessage,
+  ProtocolControlInitializeRequest,
+  ProtocolControlInitializeResponse,
+  ProtocolControlRequest,
+  ProtocolControlResponse,
+} from 'src/types/protocol/controlTypes.js'
 import type { PermissionMode as InternalPermissionMode } from 'src/types/permissions.js'
 import { cwd } from 'process'
 import { getCwd } from 'src/utils/cwd.js'
@@ -178,7 +178,7 @@ import { installOAuthTokens } from 'src/services/oauth/installOAuthTokens.js'
 import { getAPIProvider } from 'src/utils/model/providers.js'
 import type { HookCallbackMatcher } from 'src/types/hooks.js'
 import { AwsAuthStatusManager } from 'src/utils/awsAuthStatusManager.js'
-import type { HookEvent } from 'src/entrypoints/agentSdkTypes.js'
+import type { HookEvent } from 'src/types/protocol/index.js'
 import { createSyntheticOutputTool } from '@go-hare/builtin-tools/tools/SyntheticOutputTool/SyntheticOutputTool.js'
 import { parseSessionIdentifier } from 'src/utils/sessionUrl.js'
 import {
@@ -217,7 +217,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js'
 import { getMcpPrefix } from 'src/services/mcp/mcpStringUtils.js'
 import { commandBelongsToServer } from 'src/services/mcp/utils.js'
-import { setupVscodeSdkMcp } from 'src/services/mcp/vscodeSdkMcp.js'
+import { setupVscodeProtocolMcp } from 'src/services/mcp/vscodeProtocolMcp.js'
 import {
   isQualifiedForGrove,
   checkGroveForNonInteractive,
@@ -229,7 +229,7 @@ import {
 import { extractLoadedNestedMemoryPathsFromMessages } from 'src/utils/queryHelpers.js'
 import {
   toInternalMessages,
-  toSDKRateLimitInfo,
+  toProtocolRateLimitInfo,
 } from 'src/utils/messages/mappers.js'
 import { createModelSwitchBreadcrumbs } from 'src/utils/messages.js'
 import { collectContextData } from 'src/commands/context/context-noninteractive.js'
@@ -316,10 +316,10 @@ import {
   flushHeldBackResultAndSuggestion,
 } from './headlessPostTurn.js'
 import { emitHeadlessRuntimeMessage } from './headlessStreamEmission.js'
-import { projectRuntimeEnvelopeToLegacySDKMessage } from '../../../core/events/compatProjection.js'
+import { projectRuntimeEnvelopeToLegacyProtocolMessage } from '../../../core/events/compatProjection.js'
 import {
   hasHeadlessBackgroundWorkPending,
-  observeHeadlessBackgroundSdkMessage,
+  observeHeadlessBackgroundCompatibilityMessage,
 } from './headlessBackgroundWork.js'
 import {
   projectHeadlessTaskNotification,
@@ -327,7 +327,7 @@ import {
 } from './headlessTaskNotificationProjection.js'
 import {
   createCoordinatorLifecycleEvent,
-  projectCoordinatorLifecycleFromSdkMessage,
+  projectCoordinatorLifecycleFromCompatibilityMessage,
   type CoordinatorLifecycleRuntimeEvent,
 } from './headlessCoordinatorLifecycleEvents.js'
 import {
@@ -396,7 +396,7 @@ import {
 import { getRunningTasks } from '../../../../utils/task/framework.js'
 import { isBackgroundTask } from '../../../../tasks/types.js'
 import { stopTask } from '../../../../tasks/stopTask.js'
-import { drainSdkEvents } from '../../../../utils/sdkEventQueue.js'
+import { drainProtocolEvents } from '../../../../utils/protocolEventQueue.js'
 import { initializeGrowthBook } from '../../../../services/analytics/growthbook.js'
 import { errorMessage, toError } from '../../../../utils/errors.js'
 import { sleep } from '../../../../utils/sleep.js'
@@ -474,7 +474,7 @@ export async function runHeadlessRuntimeLoop(
     workload: string | undefined
     setupTrigger?: 'init' | 'maintenance' | undefined
     sessionStartHooksPromise?: ReturnType<typeof processSessionStartHooks>
-    setSDKStatus?: (status: SDKStatus) => void
+    setProtocolStatus?: (status: ProtocolStatus) => void
     runtimeEventSink?: HeadlessRuntimeEventSink
   },
   bootstrapStateProvider: HeadlessSessionStateProvider,
@@ -619,7 +619,7 @@ export async function runHeadlessRuntimeLoop(
 
     if (options.outputFormat === 'stream-json' && options.verbose) {
       registerHookEventHandler(event => {
-        const message: StdoutMessage = (() => {
+        const message: ProtocolStdoutMessage = (() => {
           switch (event.type) {
             case 'started':
               return {
@@ -921,7 +921,7 @@ export async function runHeadlessRuntimeLoop(
         getTurnId: () => headlessConversation.activeTurnId,
         onPublishError(error) {
           logForDebugging(
-            `[headless] Failed to publish runtime SDK message event: ${error instanceof Error ? error.message : String(error)}`,
+            `[headless] Failed to publish runtime protocol message event: ${error instanceof Error ? error.message : String(error)}`,
           )
         },
       }),
@@ -998,7 +998,7 @@ function runHeadlessStreaming(
     resumeInterruptedTurn?: boolean | undefined
     enableAuthStatus?: boolean | undefined
     agent?: string | undefined
-    setSDKStatus?: (status: SDKStatus) => void
+    setProtocolStatus?: (status: ProtocolStatus) => void
     promptSuggestions?: boolean | undefined
     workload?: string | undefined
     forkSession?: boolean | undefined
@@ -1007,7 +1007,7 @@ function runHeadlessStreaming(
   headlessConversation: HeadlessConversation,
   initialContentReplacements?: ContentReplacementRecord[],
   turnInterruptionState?: TurnInterruptionState,
-): AsyncIterable<StdoutMessage> {
+): AsyncIterable<ProtocolStdoutMessage> {
   let running = false
   let runPhase:
     | 'draining_commands'
@@ -1019,8 +1019,8 @@ function runHeadlessStreaming(
   let shutdownPromptInjected = false
   let shutdownRequestEventEmitted = false
   let shutdownCompletedEventEmitted = false
-  let heldBackResult: StdoutMessage | null = null
-  let heldBackAssistantMessages: StdoutMessage[] = []
+  let heldBackResult: ProtocolStdoutMessage | null = null
+  let heldBackAssistantMessages: ProtocolStdoutMessage[] = []
   let terminalResultEmitted = false
   const backgroundEventTracking = {
     pendingTaskIds: new Set<string>(),
@@ -1048,7 +1048,7 @@ function runHeadlessStreaming(
   let loadedNestedMemoryPaths = extractLoadedNestedMemoryPathsFromMessages(
     initialMessages,
   )
-  const emitOutput = (message: StdoutMessage) => {
+  const emitOutput = (message: ProtocolStdoutMessage) => {
     if (
       terminalResultEmitted &&
       (message.type === 'assistant' ||
@@ -1062,12 +1062,12 @@ function runHeadlessStreaming(
     managedSession.emitOutput(message)
   }
   const sessionOutput = {
-    enqueue(message: StdoutMessage) {
+    enqueue(message: ProtocolStdoutMessage) {
       emitOutput(message)
     },
   }
   const outputSink = {
-    send(message: StdoutMessage) {
+    send(message: ProtocolStdoutMessage) {
       output.enqueue(message)
     },
   }
@@ -1246,11 +1246,11 @@ function runHeadlessStreaming(
     })
   }
 
-  const observeHeadlessBackgroundSdkEvent = (
-    message: StdoutMessage,
+  const observeHeadlessBackgroundCompatibilityEvent = (
+    message: ProtocolStdoutMessage,
     options: { emitLifecycle?: boolean } = {},
   ) => {
-    observeHeadlessBackgroundSdkMessage(
+    observeHeadlessBackgroundCompatibilityMessage(
       message,
       backgroundEventTracking,
       headlessConversation.activeTurnId,
@@ -1258,7 +1258,7 @@ function runHeadlessStreaming(
     if (options.emitLifecycle === false) {
       return
     }
-    const lifecycleEvent = projectCoordinatorLifecycleFromSdkMessage(
+    const lifecycleEvent = projectCoordinatorLifecycleFromCompatibilityMessage(
       message,
       headlessConversation.activeTurnId,
     )
@@ -1267,10 +1267,10 @@ function runHeadlessStreaming(
     }
   }
 
-  const drainTrackedSdkEvents = (): StdoutMessage[] => {
-    const events = drainSdkEvents()
+  const drainTrackedCompatibilityEvents = (): ProtocolStdoutMessage[] => {
+    const events = drainProtocolEvents()
     for (const event of events) {
-      observeHeadlessBackgroundSdkEvent(event)
+      observeHeadlessBackgroundCompatibilityEvent(event)
     }
     return events
   }
@@ -1318,11 +1318,11 @@ function runHeadlessStreaming(
     })
   }
 
-  // Set up rate limit status listener to emit SDKRateLimitEvent for all status changes.
+  // Set up rate limit status listener to emit ProtocolRateLimitEvent for all status changes.
   // Emitting for all statuses (including 'allowed') ensures consumers can clear warnings
   // when rate limits reset. The upstream emitStatusChange already deduplicates via isEqual.
   const rateLimitListener = (limits: ClaudeAILimits) => {
-    const rateLimitInfo = toSDKRateLimitInfo(limits)
+    const rateLimitInfo = toProtocolRateLimitInfo(limits)
     if (rateLimitInfo) {
       emitOutput({
         type: 'rate_limit_event',
@@ -1418,7 +1418,7 @@ function runHeadlessStreaming(
           uuid: crumb.uuid,
           timestamp: crumb.timestamp,
           isReplay: true,
-        } as unknown as StdoutMessage)
+        } as unknown as ProtocolStdoutMessage)
       }
     }
   }
@@ -1429,7 +1429,7 @@ function runHeadlessStreaming(
   /**
    * Register elicitation request/completion handlers on connected MCP clients
    * that haven't been registered yet. SDK MCP servers are excluded because they
-   * route through SdkControlClientTransport. Hooks run first (matching REPL
+   * route through ProtocolControlClientTransport. Hooks run first (matching REPL
    * behavior); if no hook responds, the request is forwarded to the SDK
    * consumer via the control protocol.
    */
@@ -1441,7 +1441,7 @@ function runHeadlessStreaming(
       ) {
         continue
       }
-      // Skip SDK MCP servers — elicitation flows through SdkControlClientTransport
+      // Skip SDK MCP servers — elicitation flows through ProtocolControlClientTransport
       if (connection.config.type === 'sdk') {
         continue
       }
@@ -1877,7 +1877,7 @@ function runHeadlessStreaming(
                   parent_tool_use_id: null,
                   uuid: c.uuid as string,
                   isReplay: true,
-                } as unknown as StdoutMessage)
+                } as unknown as ProtocolStdoutMessage)
               }
             }
           }
@@ -1928,11 +1928,11 @@ function runHeadlessStreaming(
             if (taskNotificationProjection) {
               preludeEvents.push(taskNotificationProjection.runtimeEvent)
               preludeEvents.push(taskNotificationProjection.handoffEvent)
-              observeHeadlessBackgroundSdkEvent(
-                taskNotificationProjection.sdkMessage,
+              observeHeadlessBackgroundCompatibilityEvent(
+                taskNotificationProjection.protocolMessage,
                 { emitLifecycle: false },
               )
-              emitOutput(taskNotificationProjection.sdkMessage)
+              emitOutput(taskNotificationProjection.protocolMessage)
             }
             // No continue -- fall through so the runtime turn processes the result.
           }
@@ -2115,7 +2115,7 @@ function runHeadlessStreaming(
                   executionMode: toolState.executionMode ?? 'headless',
                   capabilityPlane: toolState.capabilityPlane,
                   preludeEvents,
-                  setSDKStatus: status => {
+                  setProtocolStatus: status => {
                     emitOutput({
                       type: 'system',
                       subtype: 'status',
@@ -2127,17 +2127,17 @@ function runHeadlessStreaming(
                     })
                   },
                 })) {
-                  const sdkMessage =
-                    projectRuntimeEnvelopeToLegacySDKMessage(envelope)
-                  if (!sdkMessage) {
+                  const protocolMessage =
+                    projectRuntimeEnvelopeToLegacyProtocolMessage(envelope)
+                  if (!protocolMessage) {
                     continue
                   }
-                  const message = sdkMessage as unknown as StdoutMessage
+                  const message = protocolMessage as unknown as ProtocolStdoutMessage
                   // Runtime-first execution can surface task bookends as the
-                  // current SDK message, not only through the side SDK queue.
+                  // current protocol message, not only through the side SDK queue.
                   // Track both sources before deciding whether headless can
                   // drain/cleanup or must wait for background completion.
-                  observeHeadlessBackgroundSdkEvent(message)
+                  observeHeadlessBackgroundCompatibilityEvent(message)
                   // Forward messages to bridge incrementally (mid-turn) so
                   // claude.ai sees progress and the connection stays alive
                   // while blocked on permission requests.
@@ -2146,7 +2146,7 @@ function runHeadlessStreaming(
                   const emission = emitHeadlessRuntimeMessage({
                     message,
                     output: sessionOutput,
-                    drainSdkEvents: drainTrackedSdkEvents,
+                    drainProtocolEvents: drainTrackedCompatibilityEvents,
                     hasBackgroundTasks: hasPendingHeadlessBackgroundWork,
                     heldBackResult,
                     heldBackAssistantMessages,
@@ -2349,7 +2349,7 @@ function runHeadlessStreaming(
       do {
         // Drain SDK events (task_started, task_progress) before command queue
         // so progress events precede task_notification on the stream.
-        for (const event of drainTrackedSdkEvents()) {
+        for (const event of drainTrackedCompatibilityEvents()) {
           emitOutput(event)
         }
         flushHeldBackIfNoBackgroundWork()
@@ -2428,7 +2428,7 @@ function runHeadlessStreaming(
         // command. The do-while drain above only runs while
         // waitingForAgents; once we're here the next drain would be the
         // top of the next run(), which won't come if input is idle.
-        for (const event of drainTrackedSdkEvents()) {
+        for (const event of drainTrackedCompatibilityEvents()) {
           emitOutput(event)
         }
         flushHeldBackIfNoBackgroundWork()
@@ -2796,7 +2796,7 @@ function runHeadlessStreaming(
   }
 
   const sendControlResponseSuccess = function (
-    message: { request_id: string } | SDKControlRequest,
+    message: { request_id: string } | ProtocolControlRequest,
     response?: Record<string, unknown>,
   ) {
     emitOutput({
@@ -2810,7 +2810,7 @@ function runHeadlessStreaming(
   }
 
   const sendControlResponseError = function (
-    message: { request_id: string } | SDKControlRequest,
+    message: { request_id: string } | ProtocolControlRequest,
     errorMessage: string,
   ) {
     emitOutput({
@@ -2886,12 +2886,12 @@ function runHeadlessStreaming(
       }
 
       if (message.type === 'control_request') {
-        // Type assertion: structuredInput yields StdinMessage | SDKMessage, but
+        // Type assertion: structuredInput yields ProtocolStdinMessage | ProtocolMessage, but
         // when type === 'control_request' the object has request_id and request.
-        // The union with SDKMessage (typed as `any`) causes request to be `unknown`.
-        // Cast to SDKControlRequest (via unknown) for type safety on known subtypes,
+        // The union with ProtocolMessage (typed as `any`) causes request to be `unknown`.
+        // Cast to ProtocolControlRequest (via unknown) for type safety on known subtypes,
         // and use Record<string, unknown> for subtypes not in the zod schema union.
-        const msg = message as unknown as SDKControlRequest
+        const msg = message as unknown as ProtocolControlRequest
         // Wider-typed alias for request properties on subtypes not in the zod schema.
         // The schema union doesn't include end_session, channel_enable, mcp_authenticate,
         // claude_authenticate, etc. so accessing their properties narrows to `never`.
@@ -4002,7 +4002,7 @@ function runHeadlessStreaming(
                       `[bridge:sdk] State change: ${state}${detail ? ` — ${detail}` : ''}`,
                     )
                     emitOutput({
-                      type: 'system' as StdoutMessage['type'],
+                      type: 'system' as ProtocolStdoutMessage['type'],
                       subtype: 'bridge_state' as string,
                       state,
                       detail,
@@ -4010,7 +4010,7 @@ function runHeadlessStreaming(
                       session_id:
                         session.bootstrapStateProvider.getSessionIdentity()
                           .sessionId,
-                    } as StdoutMessage)
+                    } as ProtocolStdoutMessage)
                   },
                   initialMessages:
                     mutableMessages.length > 0 ? mutableMessages : undefined,
@@ -4071,7 +4071,7 @@ function runHeadlessStreaming(
       } else if (message.type === 'control_response') {
         // Replay control_response messages when replay mode is enabled
         if (options.replayUserMessages) {
-          emitOutput(message as StdoutMessage)
+          emitOutput(message as ProtocolStdoutMessage)
         }
         continue
       } else if (message.type === 'keep_alive') {
@@ -4083,11 +4083,11 @@ function runHeadlessStreaming(
       } else if (message.type === 'assistant' || message.type === 'system') {
         // History replay from bridge: inject into mutableMessages as
         // conversation context so the model sees prior turns.
-        const internalMsgs = toInternalMessages([message as SDKMessage])
+        const internalMsgs = toInternalMessages([message as ProtocolMessage])
         managedSession.appendMessages(internalMsgs)
         // Echo assistant messages back so CCR displays them
         if (message.type === 'assistant' && options.replayUserMessages) {
-          emitOutput(message as StdoutMessage)
+          emitOutput(message as ProtocolStdoutMessage)
         }
         continue
       }
@@ -4097,8 +4097,8 @@ function runHeadlessStreaming(
         continue
       }
       // Type assertion: after the type guard, message is a user message.
-      // The union with SDKMessage (any) prevents proper narrowing.
-      const userMsg = message as SDKUserMessage
+      // The union with ProtocolMessage (any) prevents proper narrowing.
+      const userMsg = message as ProtocolUserMessage
 
       // First prompt message implicitly initializes if not already done.
       initialized = true
@@ -4132,7 +4132,7 @@ function runHeadlessStreaming(
               uuid: userMsg.uuid as string,
               timestamp: (userMsg as { timestamp?: string }).timestamp,
               isReplay: true,
-            } as unknown as StdoutMessage)
+            } as unknown as ProtocolStdoutMessage)
           }
           // Historical dup = transcript already has this turn's output, so it
           // ran but its lifecycle was never closed (interrupted before ack).

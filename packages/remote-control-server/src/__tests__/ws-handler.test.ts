@@ -49,7 +49,7 @@ function createRuntimeEnvelope(sequence = 1) {
     source: "kernel_runtime",
     kind: "event",
     conversationId: "conversation-1",
-    payload: { type: "headless.sdk_message" },
+    payload: { type: "headless.protocol_message" },
   };
 }
 
@@ -327,7 +327,7 @@ describe("ws-handler", () => {
     });
   });
 
-  describe("toSDKMessage (via handleWebSocketOpen outbound delivery)", () => {
+  describe("toProtocolMessage (via handleWebSocketOpen outbound delivery)", () => {
     test("converts permission_response with approved=true", () => {
       const bus = getEventBus("pr1");
       const ws = createMockWs();

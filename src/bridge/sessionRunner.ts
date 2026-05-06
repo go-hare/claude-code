@@ -200,7 +200,7 @@ function extractActivities(
 }
 
 /**
- * Extract plain text from a replayed SDKUserMessage NDJSON line. Returns the
+ * Extract plain text from a replayed ProtocolUserMessage NDJSON line. Returns the
  * trimmed text if this looks like a real human-authored message, otherwise
  * undefined so the caller keeps waiting for the first real message.
  */

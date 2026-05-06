@@ -157,7 +157,7 @@ import {
 import { markClaudeAiMcpConnected } from './claudeai.js'
 import { getAllMcpConfigs, isMcpServerDisabled } from './config.js'
 import { getMcpServerHeaders } from './headersHelper.js'
-import { SdkControlClientTransport } from './SdkControlTransport.js'
+import { ProtocolControlClientTransport } from './ProtocolControlTransport.js'
 import type {
   ConnectedMCPServer,
   MCPServerConnection,
@@ -3025,15 +3025,15 @@ async function callMCPTool({
           signal,
           timeout: timeoutMs,
           onprogress: onProgress
-            ? sdkProgress => {
+            ? taskProgress => {
                 onProgress({
                   type: 'mcp_progress',
                   status: 'progress',
                   serverName: name,
                   toolName: tool,
-                  progress: sdkProgress.progress,
-                  total: sdkProgress.total,
-                  progressMessage: sdkProgress.message,
+                  progress: taskProgress.progress,
+                  total: taskProgress.total,
+                  progressMessage: taskProgress.message,
                 })
               }
             : undefined,
@@ -3201,7 +3201,7 @@ export async function setupSdkMcpClients(
   // Connect to all servers in parallel
   const results = await Promise.allSettled(
     Object.entries(sdkMcpConfigs).map(async ([name, config]) => {
-      const transport = new SdkControlClientTransport(name, sendMcpMessage)
+      const transport = new ProtocolControlClientTransport(name, sendMcpMessage)
 
       const client = new Client(
         {

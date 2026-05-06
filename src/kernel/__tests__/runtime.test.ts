@@ -157,10 +157,10 @@ describe('createKernelRuntime', () => {
       runtimeEvents.isKnownKernelRuntimeEventType('turn.output_delta'),
     ).toBe(true)
     expect(
-      runtimeEvents.isKnownKernelRuntimeEventType('headless.sdk_message'),
+      runtimeEvents.isKnownKernelRuntimeEventType('headless.protocol_message'),
     ).toBe(false)
     expect(
-      runtimeEvents.getKernelRuntimeEventCategory('headless.sdk_message'),
+      runtimeEvents.getKernelRuntimeEventCategory('headless.protocol_message'),
     ).toBe('compatibility')
     expect(
       runtimeEvents.isKernelRuntimeEventOfType(

@@ -228,7 +228,7 @@ describe('kernel index surface', () => {
       ),
     ).toBe(true)
     expect(kernel.KERNEL_RUNTIME_EVENT_TYPES).not.toContain(
-      'headless.sdk_message',
+      'headless.protocol_message',
     )
     expect(
       Object.is(

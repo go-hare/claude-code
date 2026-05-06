@@ -1,16 +1,16 @@
-import type { SDKMessage } from '../entrypoints/agentSdkTypes.js'
-import type { StdoutMessage } from '../entrypoints/sdk/controlTypes.js'
+import type { ProtocolMessage } from 'src/types/protocol/index.js'
+import type { ProtocolStdoutMessage } from 'src/types/protocol/controlTypes.js'
 import {
-  createHeadlessSDKMessageRuntimeEvent,
-  getSDKMessageFromRuntimeEnvelope,
-  getSDKResultTurnOutcome,
+  createHeadlessProtocolMessageRuntimeEvent,
+  getProtocolMessageFromRuntimeEnvelope,
+  getProtocolResultTurnOutcome,
   KernelRuntimeOutputDeltaDedupe,
-  KernelRuntimeSDKMessageDedupe,
-  projectRuntimeEnvelopeToLegacySDKMessage,
+  KernelRuntimeProtocolMessageDedupe,
+  projectRuntimeEnvelopeToLegacyProtocolMessage,
   projectRuntimeEnvelopeToLegacyStreamJsonMessages,
-  projectSDKMessageToLegacyStreamJsonMessages,
+  projectProtocolMessageToLegacyStreamJsonMessages,
   type LegacyStreamJsonProjectionOptions,
-  type SDKResultTurnOutcome,
+  type ProtocolResultTurnOutcome,
 } from '../runtime/core/events/compatProjection.js'
 export {
   getCanonicalProjectionFromKernelEvent,
@@ -19,7 +19,7 @@ export {
   getKernelRuntimeLifecycleProjection,
   getKernelRuntimeTaskNotificationProjection,
   getKernelRuntimeTerminalProjection,
-  getKernelRuntimeTerminalProjectionFromSDKResultMessage,
+  getKernelRuntimeTerminalProjectionFromProtocolResultMessage,
   getTextOutputDeltaFromKernelRuntimeEnvelope,
   handleKernelRuntimeHostEvent,
   hasCanonicalProjection,
@@ -37,42 +37,42 @@ export {
 import { emitHeadlessRuntimeMessage } from '../runtime/capabilities/execution/internal/headlessStreamEmission.js'
 
 // Host-internal transitional bridge. Root `./kernel` intentionally does not
-// re-export SDKMessage / legacy stream-json adapters; new hosts should consume
+// re-export ProtocolMessage / legacy stream-json adapters; new hosts should consume
 // KernelRuntimeEnvelope / KernelEvent contracts instead.
-export type KernelLegacySDKMessage = SDKMessage
-export type KernelLegacyStdoutMessage = StdoutMessage
+export type KernelLegacyProtocolMessage = ProtocolMessage
+export type KernelLegacyProtocolStdoutMessage = ProtocolStdoutMessage
 export type KernelLegacyStreamJsonProjectionOptions =
   LegacyStreamJsonProjectionOptions
-export type KernelSDKResultTurnOutcome = SDKResultTurnOutcome
+export type KernelProtocolResultTurnOutcome = ProtocolResultTurnOutcome
 
 export type KernelHeadlessRuntimeMessageEmissionOptions = {
-  message: KernelLegacyStdoutMessage
+  message: KernelLegacyProtocolStdoutMessage
   output: {
-    enqueue(message: KernelLegacyStdoutMessage): void
+    enqueue(message: KernelLegacyProtocolStdoutMessage): void
   }
-  drainSdkEvents: () => KernelLegacyStdoutMessage[]
+  drainProtocolEvents: () => KernelLegacyProtocolStdoutMessage[]
   hasBackgroundTasks: () => boolean
-  heldBackResult: KernelLegacyStdoutMessage | null
-  heldBackAssistantMessages?: KernelLegacyStdoutMessage[]
+  heldBackResult: KernelLegacyProtocolStdoutMessage | null
+  heldBackAssistantMessages?: KernelLegacyProtocolStdoutMessage[]
   terminalResultEmitted?: boolean
 }
 
 export type KernelHeadlessRuntimeMessageEmissionResult = {
-  heldBackResult: KernelLegacyStdoutMessage | null
-  heldBackAssistantMessages: KernelLegacyStdoutMessage[]
+  heldBackResult: KernelLegacyProtocolStdoutMessage | null
+  heldBackAssistantMessages: KernelLegacyProtocolStdoutMessage[]
   lastResultIsError?: boolean
   terminalResultEmitted?: boolean
 }
 
 export {
-  createHeadlessSDKMessageRuntimeEvent,
-  getSDKMessageFromRuntimeEnvelope,
-  getSDKResultTurnOutcome,
+  createHeadlessProtocolMessageRuntimeEvent,
+  getProtocolMessageFromRuntimeEnvelope,
+  getProtocolResultTurnOutcome,
   KernelRuntimeOutputDeltaDedupe,
-  KernelRuntimeSDKMessageDedupe,
-  projectRuntimeEnvelopeToLegacySDKMessage,
+  KernelRuntimeProtocolMessageDedupe,
+  projectRuntimeEnvelopeToLegacyProtocolMessage,
   projectRuntimeEnvelopeToLegacyStreamJsonMessages,
-  projectSDKMessageToLegacyStreamJsonMessages,
+  projectProtocolMessageToLegacyStreamJsonMessages,
 }
 
 export function emitKernelHeadlessRuntimeMessage(

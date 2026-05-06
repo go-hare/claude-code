@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import { EMPTY_USAGE } from '@ant/model-provider'
 import type { AppState } from 'src/state/AppStateStore.js'
-import type { RewindFilesResult } from 'src/entrypoints/agentSdkTypes.js'
+import type { RewindFilesResult } from 'src/types/protocol/index.js'
 import type { SessionExternalMetadata } from 'src/utils/sessionState.js'
 import type { Message, NormalizedUserMessage } from 'src/types/message.js'
 import { logEvent } from 'src/services/analytics/index.js'

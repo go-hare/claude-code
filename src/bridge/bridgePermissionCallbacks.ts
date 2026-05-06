@@ -1,5 +1,5 @@
 import type { PermissionUpdate } from '../utils/permissions/PermissionUpdateSchema.js'
-import type { SDKControlResponse } from '../entrypoints/sdk/controlTypes.js'
+import type { ProtocolControlResponse } from 'src/types/protocol/controlTypes.js'
 
 type BridgePermissionResponse = {
   behavior: 'allow' | 'deny'
@@ -63,7 +63,7 @@ function toBridgePermissionMessage(
  * allow/deny shape used by interactive permission handlers.
  */
 function parseBridgePermissionResponse(
-  message: SDKControlResponse,
+  message: ProtocolControlResponse,
 ): BridgePermissionResponse | null {
   const controlResponse = message.response
   if (!controlResponse || typeof controlResponse !== 'object') return null

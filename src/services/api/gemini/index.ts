@@ -14,7 +14,7 @@ import {
   normalizeContentFromAPI,
   normalizeMessagesForAPI,
 } from '../../../utils/messages.js'
-import type { SDKAssistantMessageError } from '../../../entrypoints/agentSdkTypes.js'
+import type { ProtocolAssistantMessageError } from 'src/types/protocol/index.js'
 import type { SystemPrompt } from '../../../utils/systemPromptType.js'
 import type { ThinkingConfig } from '../../../utils/thinking.js'
 import type { Options } from '../claude.js'
@@ -200,7 +200,7 @@ export async function* queryModelGemini(
     yield createAssistantAPIErrorMessage({
       content: `API Error: ${errorMessage}`,
       apiError: 'api_error',
-      error: (error instanceof Error ? error : new Error(String(error))) as unknown as SDKAssistantMessageError,
+      error: (error instanceof Error ? error : new Error(String(error))) as unknown as ProtocolAssistantMessageError,
     })
   }
 }

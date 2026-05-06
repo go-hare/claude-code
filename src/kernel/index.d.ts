@@ -3867,7 +3867,7 @@ export type KernelHeadlessRunOptions = {
   workload: string | undefined
   setupTrigger?: 'init' | 'maintenance' | undefined
   sessionStartHooksPromise?: Promise<unknown[]>
-  setSDKStatus?: (status: unknown) => void
+  setProtocolStatus?: (status: unknown) => void
   runtimeEventSink?: KernelRuntimeEventSink
 }
 
@@ -4054,7 +4054,7 @@ export type KernelHeadlessMcpConnectOptions = {
 
 export type KernelHeadlessStartupStateWriter = {
   setSessionPersistenceDisabled(disabled: boolean): void
-  setSdkBetas(betas: string[]): void
+  setProtocolBetas(betas: string[]): void
 }
 
 export type PrepareKernelHeadlessStartupOptions = {
@@ -4069,7 +4069,7 @@ export type PrepareKernelHeadlessStartupDeps = {
   startDeferredPrefetches(): void
   logSessionTelemetry(): void
   startBackgroundHousekeeping?(): void
-  startSdkMemoryMonitor?(): void
+  startProtocolMemoryMonitor?(): void
 }
 
 export type KernelHeadlessLaunchStartupOptions =

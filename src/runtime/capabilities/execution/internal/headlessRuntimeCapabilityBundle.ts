@@ -4,7 +4,7 @@ import {
   formatDescriptionWithSource,
   getCommandName,
 } from '../../../../commands.js'
-import type { SDKControlReloadPluginsResponse } from '../../../../entrypoints/sdk/controlTypes.js'
+import type { ProtocolControlReloadPluginsResponse } from 'src/types/protocol/controlTypes.js'
 import type { AppState } from '../../../../state/AppStateStore.js'
 import { getCommands } from '../../../../commands.js'
 import { logError } from '../../../../utils/log.js'
@@ -19,8 +19,8 @@ export type HeadlessRuntimeCapabilityBundle = {
   getAgents(): AgentDefinition[]
   setCommands(commands: Command[]): void
   refreshCommands(): Promise<Command[]>
-  refresh(): Promise<SDKControlReloadPluginsResponse>
-  refreshPlugins(): Promise<SDKControlReloadPluginsResponse>
+  refresh(): Promise<ProtocolControlReloadPluginsResponse>
+  refreshPlugins(): Promise<ProtocolControlReloadPluginsResponse>
   applyPluginMcpDiff(): Promise<void>
 }
 
@@ -67,14 +67,14 @@ export function createHeadlessRuntimeCapabilityBundle(options: {
     })
   }
 
-  async function refresh(): Promise<SDKControlReloadPluginsResponse> {
+  async function refresh(): Promise<ProtocolControlReloadPluginsResponse> {
     const refreshed = await deps.refreshActivePlugins(options.setAppState)
     const sdkAgents = currentAgents.filter(
       agent => agent.source === 'flagSettings',
     )
     currentAgents = [...refreshed.agentDefinitions.allAgents, ...sdkAgents]
 
-    let plugins: SDKControlReloadPluginsResponse['plugins'] = []
+    let plugins: ProtocolControlReloadPluginsResponse['plugins'] = []
     const [commandsResult, mcpResult, pluginsResult] =
       await Promise.allSettled([
         deps.getCommands(options.getCwd()),
@@ -116,7 +116,7 @@ export function createHeadlessRuntimeCapabilityBundle(options: {
       })),
       plugins,
       mcpServers:
-        options.mcpService.buildStatuses() as SDKControlReloadPluginsResponse['mcpServers'],
+        options.mcpService.buildStatuses() as ProtocolControlReloadPluginsResponse['mcpServers'],
       error_count: refreshed.error_count,
     }
   }

@@ -9,7 +9,7 @@ import type {
 import { getGrokClient } from './client.js'
 import { anthropicMessagesToOpenAI, anthropicToolsToOpenAI, anthropicToolChoiceToOpenAI, adaptOpenAIStreamToAnthropic, resolveGrokModel } from '@ant/model-provider'
 import { normalizeMessagesForAPI } from '../../../utils/messages.js'
-import type { SDKAssistantMessageError } from '../../../entrypoints/agentSdkTypes.js'
+import type { ProtocolAssistantMessageError } from 'src/types/protocol/index.js'
 import { toolToAPISchema } from '../../../utils/api.js'
 import { logForDebugging } from '../../../utils/debug.js'
 import { addToTotalSessionCost } from '../../../cost-tracker.js'
@@ -210,7 +210,7 @@ export async function* queryModelGrok(
     yield createAssistantAPIErrorMessage({
       content: `API Error: ${errorMessage}`,
       apiError: 'api_error',
-      error: (error instanceof Error ? error : new Error(String(error))) as unknown as SDKAssistantMessageError,
+      error: (error instanceof Error ? error : new Error(String(error))) as unknown as ProtocolAssistantMessageError,
     })
   }
 }

@@ -44,7 +44,7 @@ function createEnvelope(
       runtimeId: 'runtime-1',
       conversationId: 'conversation-1',
       eventId: 'conversation-1:external-1',
-      type: 'headless.sdk_message',
+      type: 'headless.protocol_message',
       replayable: true,
       payload: { message: 'hello' },
     },

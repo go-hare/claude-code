@@ -1,4 +1,4 @@
-import type { StdoutMessage } from 'src/entrypoints/sdk/controlTypes.js'
+import type { ProtocolStdoutMessage } from 'src/types/protocol/controlTypes.js'
 import type {
   KernelRuntimeEnvelopeBase,
   KernelRuntimeEventSink,
@@ -35,7 +35,7 @@ export function createHeadlessRuntimeEventSink(
 export function toHeadlessRuntimeEventMessage(
   envelope: KernelRuntimeEnvelopeBase,
   sessionId: string,
-): StdoutMessage {
+): ProtocolStdoutMessage {
   return projectRuntimeEnvelopeToLegacyRuntimeEventStreamJsonMessage(envelope, {
     sessionId,
   })

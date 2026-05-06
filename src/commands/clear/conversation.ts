@@ -5,7 +5,7 @@
 import { feature } from 'bun:bundle'
 import { randomUUID, type UUID } from 'crypto'
 import { getReplBridgeHandle } from '../../bridge/replBridgeHandle.js'
-import type { SDKStatusMessage } from '../../entrypoints/sdk/coreTypes.js'
+import type { ProtocolStatusMessage } from 'src/types/protocol/coreTypes.js'
 import {
   createRuntimeRequestDebugStateProvider,
   createRuntimeSessionIdentityStateProvider,
@@ -55,14 +55,14 @@ function notifyRemoteConversationCleared(): void {
   if (!handle) return
   handle.markTranscriptReset?.()
 
-  const message: SDKStatusMessage = {
+  const message: ProtocolStatusMessage = {
     type: 'status',
     subtype: 'status',
     status: 'conversation_cleared',
     message: 'conversation_cleared',
     uuid: randomUUID(),
   }
-  handle.writeSdkMessages([message])
+  handle.writeProtocolMessages([message])
 }
 
 export async function clearConversation({

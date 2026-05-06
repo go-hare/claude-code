@@ -1,9 +1,9 @@
 import type { Subprocess } from 'bun'
-import type { SDKMessage } from '../entrypoints/agentSdkTypes.js'
+import type { ProtocolMessage } from 'src/types/protocol/index.js'
 import type {
-  SDKControlPermissionRequest,
-  StdoutMessage,
-} from '../entrypoints/sdk/controlTypes.js'
+  ProtocolControlPermissionRequest,
+  ProtocolStdoutMessage,
+} from 'src/types/protocol/controlTypes.js'
 import type { PermissionUpdate } from '../types/permissions.js'
 import type { KernelRuntimeEventSink } from '../runtime/contracts/events.js'
 import { consumeKernelRuntimeEventMessage } from '../utils/kernelRuntimeEventMessage.js'
@@ -13,7 +13,7 @@ import type { RemoteMessageContent } from '../utils/teleport/api.js'
 import type { RemotePermissionResponse } from '../remote/RemoteSessionManager.js'
 
 export interface SSHSessionManagerOptions {
-  onMessage: (sdkMessage: SDKMessage) => void
+  onMessage: (protocolMessage: ProtocolMessage) => void
   onPermissionRequest: (
     request: SSHPermissionRequest,
     requestId: string,
@@ -47,7 +47,7 @@ export interface SSHSessionManager {
   ): void
 }
 
-function isStdoutMessage(value: unknown): value is StdoutMessage {
+function isProtocolStdoutMessage(value: unknown): value is ProtocolStdoutMessage {
   return (
     typeof value === 'object' &&
     value !== null &&
@@ -219,7 +219,7 @@ export class SSHSessionManagerImpl implements SSHSessionManager {
       return
     }
 
-    if (!isStdoutMessage(raw)) return
+    if (!isProtocolStdoutMessage(raw)) return
     const parsed = raw
 
     if (consumeKernelRuntimeEventMessage(parsed, this.options.onRuntimeEvent)) {
@@ -229,7 +229,7 @@ export class SSHSessionManagerImpl implements SSHSessionManager {
     if (parsed.type === 'control_request') {
       const request = parsed as unknown as {
         request_id: string
-        request: SDKControlPermissionRequest & { subtype: string }
+        request: ProtocolControlPermissionRequest & { subtype: string }
       }
       if (request.request.subtype === 'can_use_tool') {
         this.options.onPermissionRequest(
@@ -259,7 +259,7 @@ export class SSHSessionManagerImpl implements SSHSessionManager {
         (parsed as Record<string, unknown>).subtype === 'post_turn_summary'
       )
     ) {
-      this.options.onMessage(parsed as SDKMessage)
+      this.options.onMessage(parsed as ProtocolMessage)
     }
   }
 

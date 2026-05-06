@@ -102,8 +102,8 @@ import type {
 } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import type {
   HookEvent,
-  SDKAssistantMessageError,
-} from 'src/entrypoints/agentSdkTypes.js'
+  ProtocolAssistantMessageError,
+} from 'src/types/protocol/index.js'
 import { EXPLORE_AGENT } from '@go-hare/builtin-tools/tools/AgentTool/built-in/exploreAgent.js'
 import { PLAN_AGENT } from '@go-hare/builtin-tools/tools/AgentTool/built-in/planAgent.js'
 import { areExplorePlanAgentsEnabled } from '@go-hare/builtin-tools/tools/AgentTool/builtInAgents.js'
@@ -379,7 +379,7 @@ function baseCreateAssistantMessage({
   content: BetaContentBlock[]
   isApiErrorMessage?: boolean
   apiError?: AssistantMessage['apiError']
-  error?: SDKAssistantMessageError
+  error?: ProtocolAssistantMessageError
   errorDetails?: string
   isVirtual?: true
   usage?: Usage
@@ -441,7 +441,7 @@ export function createAssistantAPIErrorMessage({
 }: {
   content: string
   apiError?: AssistantMessage['apiError']
-  error?: SDKAssistantMessageError
+  error?: ProtocolAssistantMessageError
   errorDetails?: string
 }): AssistantMessage {
   return baseCreateAssistantMessage({

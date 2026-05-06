@@ -1,7 +1,7 @@
 import { feature } from 'bun:bundle'
 import chalk from 'chalk'
 import { createRuntimeCompactionStateProvider } from 'src/runtime/core/state/bootstrapProvider.js'
-import type { SDKStatus } from '../../entrypoints/agentSdkTypes.js'
+import type { ProtocolStatus } from 'src/types/protocol/index.js'
 import { getSystemPrompt } from '../../constants/prompts.js'
 import { getSystemContext, getUserContext } from '../../context.js'
 import { getShortcutDisplay } from '../../keybindings/shortcutFormat.js'
@@ -152,7 +152,7 @@ async function compactViaReactive(
     type: 'hooks_start',
     hookType: 'pre_compact',
   })
-  context.setSDKStatus?.('compacting')
+  context.setProtocolStatus?.('compacting')
 
   try {
     // Hooks and cache-param build are independent — run concurrently.
@@ -225,7 +225,7 @@ async function compactViaReactive(
     context.setStreamMode?.('requesting')
     context.setResponseLength?.(() => 0)
     context.onCompactProgress?.({ type: 'compact_end' })
-    context.setSDKStatus?.("" as SDKStatus)
+    context.setProtocolStatus?.("" as ProtocolStatus)
   }
 }
 

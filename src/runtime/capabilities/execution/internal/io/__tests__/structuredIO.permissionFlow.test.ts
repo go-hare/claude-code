@@ -2,9 +2,9 @@ import { beforeEach, describe, expect, mock, test } from 'bun:test'
 
 import type { Tool, ToolUseContext } from 'src/Tool.js'
 import type {
-  SDKControlRequest,
-  SDKControlResponse,
-} from 'src/entrypoints/sdk/controlTypes.js'
+  ProtocolControlRequest,
+  ProtocolControlResponse,
+} from 'src/types/protocol/controlTypes.js'
 import type { AssistantMessage } from 'src/types/message.js'
 import type { PermissionDecision } from 'src/utils/permissions/PermissionResult.js'
 
@@ -100,7 +100,7 @@ function createAskDecision(): PermissionDecision {
 function createSuccessResponse(
   requestId: string,
   response: Record<string, unknown>,
-): SDKControlResponse {
+): ProtocolControlResponse {
   return {
     type: 'control_response',
     response: {
@@ -137,17 +137,17 @@ function createHarness() {
 
 async function getPendingControlRequest(
   io: InstanceType<typeof StructuredIO>,
-): Promise<SDKControlRequest> {
+): Promise<ProtocolControlRequest> {
   const next = await io.outbound.next()
   if (next.done) {
     throw new Error('Expected pending control_request')
   }
-  return next.value as SDKControlRequest
+  return next.value as ProtocolControlRequest
 }
 
-function pushStdinMessage(
+function pushProtocolStdinMessage(
   input: { enqueue(value: string): void },
-  message: SDKControlResponse,
+  message: ProtocolControlResponse,
 ): void {
   input.enqueue(`${JSON.stringify(message)}\n`)
 }
@@ -182,7 +182,7 @@ describe('StructuredIO permission flow', () => {
       tool_use_id: toolUseID,
     })
 
-    pushStdinMessage(
+    pushProtocolStdinMessage(
       input,
       createSuccessResponse(request.request_id, {
         behavior: 'allow',
@@ -213,7 +213,7 @@ describe('StructuredIO permission flow', () => {
   test('injectControlResponse resolves the same pending request and emits control_cancel_request', async () => {
     const { input, io, close } = createHarness()
     const unexpectedResponseCallback = mock(
-      async (_response: SDKControlResponse) => {},
+      async (_response: ProtocolControlResponse) => {},
     )
     io.setUnexpectedResponseCallback(unexpectedResponseCallback)
 
@@ -251,7 +251,7 @@ describe('StructuredIO permission flow', () => {
       },
     ])
 
-    pushStdinMessage(input, injectedResponse)
+    pushProtocolStdinMessage(input, injectedResponse)
     await close()
     expect(unexpectedResponseCallback).not.toHaveBeenCalled()
   })
@@ -359,7 +359,7 @@ describe('StructuredIO permission flow', () => {
       request_id: firstRequest.request_id,
     })
 
-    pushStdinMessage(
+    pushProtocolStdinMessage(
       input,
       createSuccessResponse(secondRequest.request_id, {
         behavior: 'allow',
@@ -444,7 +444,7 @@ describe('StructuredIO permission flow', () => {
     )
 
     const request = await getPendingControlRequest(io)
-    pushStdinMessage(
+    pushProtocolStdinMessage(
       input,
       createSuccessResponse(request.request_id, {
         behavior: 'deny',
@@ -468,7 +468,7 @@ describe('StructuredIO permission flow', () => {
   test('ignores duplicate control_response deliveries after a request is already resolved', async () => {
     const { input, io, close } = createHarness()
     const unexpectedResponseCallback = mock(
-      async (_response: SDKControlResponse) => {},
+      async (_response: ProtocolControlResponse) => {},
     )
     io.setUnexpectedResponseCallback(unexpectedResponseCallback)
 
@@ -491,14 +491,14 @@ describe('StructuredIO permission flow', () => {
       decisionClassification: 'user_temporary',
     })
 
-    pushStdinMessage(input, response)
+    pushProtocolStdinMessage(input, response)
     await expect(permissionPromise).resolves.toMatchObject({
       behavior: 'allow',
       toolUseID,
       decisionClassification: 'user_temporary',
     })
 
-    pushStdinMessage(input, response)
+    pushProtocolStdinMessage(input, response)
     await close()
 
     expect(unexpectedResponseCallback).not.toHaveBeenCalled()

@@ -4,7 +4,7 @@ import {
   getSessionId,
   isSessionPersistenceDisabled,
 } from 'src/bootstrap/state.js'
-import type { SDKMessage } from 'src/entrypoints/agentSdkTypes.js'
+import type { ProtocolMessage } from 'src/types/protocol/index.js'
 import type { CanUseToolFn } from '../hooks/useCanUseTool.js'
 import { runTools } from '../services/tools/toolOrchestration.js'
 import { findToolByName, type Tool, type Tools } from '../Tool.js'
@@ -129,7 +129,7 @@ export type ToolProgressTrackingUpdate = {
 }
 
 export type ProgressMessageSDKProjection = {
-  messages: SDKMessage[]
+  messages: ProtocolMessage[]
   trackingUpdate?: ToolProgressTrackingUpdate
 }
 
@@ -149,13 +149,13 @@ function getProjectionSessionId(sessionId?: string): string {
   return sessionId ?? getSessionId()
 }
 
-export function projectAssistantMessageToSDKMessages(
+export function projectAssistantMessageToProtocolMessages(
   message: AssistantMessage,
   options: {
     parentToolUseId?: string | null
     sessionId?: string
   } = {},
-): SDKMessage[] {
+): ProtocolMessage[] {
   return normalizeMessages([message])
     .filter(isNotEmptyMessage)
     .map(normalized => ({
@@ -168,13 +168,13 @@ export function projectAssistantMessageToSDKMessages(
     }))
 }
 
-export function projectUserMessageToSDKMessages(
+export function projectUserMessageToProtocolMessages(
   message: UserMessage,
   options: {
     parentToolUseId?: string | null
     sessionId?: string
   } = {},
-): SDKMessage[] {
+): ProtocolMessage[] {
   return normalizeMessages([message]).map(normalized => ({
     type: 'user',
     message: normalized.message,
@@ -192,21 +192,21 @@ export function projectUserMessageToSDKMessages(
   }))
 }
 
-function projectNestedProgressMessageToSDKMessages(
+function projectNestedProgressMessageToProtocolMessages(
   message: Message,
   options: {
     parentToolUseId: string | null
     sessionId?: string
   },
-): SDKMessage[] {
+): ProtocolMessage[] {
   switch (message.type) {
     case 'assistant':
-      return projectAssistantMessageToSDKMessages(
+      return projectAssistantMessageToProtocolMessages(
         message as AssistantMessage,
         options,
       )
     case 'user':
-      return projectUserMessageToSDKMessages(
+      return projectUserMessageToProtocolMessages(
         message as UserMessage,
         options,
       )
@@ -245,7 +245,7 @@ export function applyToolProgressTrackingUpdate(
   lastSentTimeByParentToolUseId.set(update.trackingKey, update.sentAt)
 }
 
-function createToolProgressSDKMessage(options: {
+function createToolProgressProtocolMessage(options: {
   elapsedTimeSeconds: number
   parentToolUseId: string
   progressType: 'bash_progress' | 'powershell_progress'
@@ -253,7 +253,7 @@ function createToolProgressSDKMessage(options: {
   taskId: string
   toolUseId: string
   uuid: string
-}): SDKMessage {
+}): ProtocolMessage {
   return {
     type: 'tool_progress',
     tool_use_id: options.toolUseId,
@@ -266,7 +266,7 @@ function createToolProgressSDKMessage(options: {
   }
 }
 
-export function projectProgressMessageToSDKMessageProjection(
+export function projectProgressMessageToProtocolMessageProjection(
   message: Message,
   options: Required<ProjectProgressMessageOptions>,
 ): ProgressMessageSDKProjection {
@@ -285,7 +285,7 @@ export function projectProgressMessageToSDKMessageProjection(
     progressData.type === 'skill_progress'
   ) {
     return {
-      messages: projectNestedProgressMessageToSDKMessages(
+      messages: projectNestedProgressMessageToProtocolMessages(
         progressData.message,
         {
           parentToolUseId: message.parentToolUseID as string | null,
@@ -319,7 +319,7 @@ export function projectProgressMessageToSDKMessageProjection(
 
   return {
     messages: [
-      createToolProgressSDKMessage({
+      createToolProgressProtocolMessage({
         elapsedTimeSeconds: progressData.elapsedTimeSeconds,
         parentToolUseId: message.parentToolUseID as string,
         progressType: progressData.type,
@@ -351,12 +351,12 @@ function resolveProjectProgressMessageOptions(
   }
 }
 
-export function projectProgressMessageToSDKMessages(
+export function projectProgressMessageToProtocolMessages(
   message: Message,
   options: ProjectProgressMessageOptions = {},
-): SDKMessage[] {
+): ProtocolMessage[] {
   const resolvedOptions = resolveProjectProgressMessageOptions(options)
-  const projection = projectProgressMessageToSDKMessageProjection(
+  const projection = projectProgressMessageToProtocolMessageProjection(
     message,
     resolvedOptions,
   )
@@ -369,19 +369,19 @@ export function projectProgressMessageToSDKMessages(
   return projection.messages
 }
 
-export function* normalizeMessage(message: Message): Generator<SDKMessage> {
+export function* normalizeMessage(message: Message): Generator<ProtocolMessage> {
   switch (message.type) {
     case 'assistant':
-      yield* projectAssistantMessageToSDKMessages(
+      yield* projectAssistantMessageToProtocolMessages(
         message as AssistantMessage,
       )
       return
     case 'progress': {
-      yield* projectProgressMessageToSDKMessages(message)
+      yield* projectProgressMessageToProtocolMessages(message)
       break
     }
     case 'user':
-      yield* projectUserMessageToSDKMessages(message as UserMessage)
+      yield* projectUserMessageToProtocolMessages(message as UserMessage)
       return
     default:
     // yield nothing

@@ -1,6 +1,6 @@
 import { feature } from 'bun:bundle'
 import uniqBy from 'lodash-es/uniqBy.js'
-import type { McpServerStatus } from 'src/entrypoints/agentSdkTypes.js'
+import type { McpServerStatus } from 'src/types/protocol/index.js'
 import {
   isChannelAllowlisted,
   isChannelsEnabled,

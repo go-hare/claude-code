@@ -45,7 +45,7 @@ import type { Message } from '../types/message.js'
 import type { PermissionMode } from '../types/permissions.js'
 import type { LoadedPlugin, PluginError } from '../types/plugin.js'
 import type { AppState } from '../state/AppState.js'
-import type { HookInput } from 'src/entrypoints/agentSdkTypes.js'
+import type { HookInput } from 'src/types/protocol/index.js'
 import type { RuntimeRegisteredHookMatchers } from '../utils/hooks.js'
 import {
   isAsyncHookJSONOutput,

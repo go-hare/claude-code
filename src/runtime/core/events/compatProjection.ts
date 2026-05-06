@@ -1,5 +1,5 @@
-import type { SDKMessage } from '../../../entrypoints/agentSdkTypes.js'
-import type { StdoutMessage } from '../../../entrypoints/sdk/controlTypes.js'
+import type { ProtocolMessage } from 'src/types/protocol/index.js'
+import type { ProtocolStdoutMessage } from 'src/types/protocol/controlTypes.js'
 import type {
   KernelEvent,
   KernelRuntimeEnvelopeBase,
@@ -8,25 +8,25 @@ import { toKernelRuntimeEventMessage } from '../../../utils/kernelRuntimeEventMe
 import { jsonParse, jsonStringify } from '../../../utils/slowOperations.js'
 import { getKernelEventFromEnvelope } from './KernelRuntimeEventFacade.js'
 
-export type SDKResultTurnOutcome = {
+export type ProtocolResultTurnOutcome = {
   eventType: 'turn.completed' | 'turn.failed'
   state: 'completed' | 'failed'
   stopReason: string | null
 }
 
-export type SDKBackedRuntimeEventType = 'turn.output_delta'
+export type ProtocolBackedRuntimeEventType = 'turn.output_delta'
 
 export type LegacyStreamJsonProjectionOptions = {
   sessionId?: string
   includeRuntimeEvent?: boolean
-  includeSDKMessage?: boolean
+  includeProtocolMessage?: boolean
 }
 
-export function cloneSDKMessageForRuntimeEvent(message: SDKMessage): SDKMessage {
-  return jsonParse(jsonStringify(message)) as SDKMessage
+export function cloneProtocolMessageForRuntimeEvent(message: ProtocolMessage): ProtocolMessage {
+  return jsonParse(jsonStringify(message)) as ProtocolMessage
 }
 
-export function sdkMessageToRuntimeEvent({
+export function protocolMessageToRuntimeEvent({
   conversationId,
   turnId,
   message,
@@ -34,31 +34,31 @@ export function sdkMessageToRuntimeEvent({
 }: {
   conversationId: string
   turnId?: string
-  message: SDKMessage
+  message: ProtocolMessage
   metadata?: Record<string, unknown>
 }): KernelEvent {
   return {
     conversationId,
     turnId,
-    type: 'headless.sdk_message',
+    type: 'headless.protocol_message',
     replayable: true,
-    payload: cloneSDKMessageForRuntimeEvent(message),
+    payload: cloneProtocolMessageForRuntimeEvent(message),
     ...(metadata ? { metadata } : {}),
   }
 }
 
-export const createHeadlessSDKMessageRuntimeEvent = sdkMessageToRuntimeEvent
+export const createHeadlessProtocolMessageRuntimeEvent = protocolMessageToRuntimeEvent
 
-export function createTurnOutputDeltaRuntimeEventFromSDKMessage({
+export function createTurnOutputDeltaRuntimeEventFromProtocolMessage({
   conversationId,
   turnId,
   message,
 }: {
   conversationId: string
   turnId?: string
-  message: SDKMessage
+  message: ProtocolMessage
 }): KernelEvent | undefined {
-  const text = getTextOutputDeltaFromSDKMessage(message)
+  const text = getTextOutputDeltaFromProtocolMessage(message)
   if (!text) {
     return undefined
   }
@@ -70,33 +70,33 @@ export function createTurnOutputDeltaRuntimeEventFromSDKMessage({
     replayable: true,
     payload: {
       text,
-      source: 'sdk_stream_event',
+      source: 'protocol_stream_event',
     },
     metadata: {
-      compatibilitySource: 'headless.sdk_message',
+      compatibilitySource: 'headless.protocol_message',
     },
   }
 }
 
-export function getCanonicalProjectionForSDKMessage(
-  message: SDKMessage,
-): SDKBackedRuntimeEventType | undefined {
-  return getTextOutputDeltaFromSDKMessage(message)
+export function getCanonicalProjectionForProtocolMessage(
+  message: ProtocolMessage,
+): ProtocolBackedRuntimeEventType | undefined {
+  return getTextOutputDeltaFromProtocolMessage(message)
     ? 'turn.output_delta'
     : undefined
 }
 
-export function projectSemanticRuntimeEventsFromSDKMessage({
+export function projectSemanticRuntimeEventsFromProtocolMessage({
   conversationId,
   turnId,
   message,
 }: {
   conversationId: string
   turnId?: string
-  message: SDKMessage
+  message: ProtocolMessage
 }): KernelEvent[] {
   const events: KernelEvent[] = []
-  const topLevelAssistantText = getTopLevelAssistantTextFromSDKMessage(message)
+  const topLevelAssistantText = getTopLevelAssistantTextFromProtocolMessage(message)
   if (topLevelAssistantText) {
     events.push({
       conversationId,
@@ -111,7 +111,7 @@ export function projectSemanticRuntimeEventsFromSDKMessage({
   }
 
   events.push(
-    ...projectSemanticToolUseRuntimeEventsFromSDKMessage({
+    ...projectSemanticToolUseRuntimeEventsFromProtocolMessage({
       conversationId,
       turnId,
       message,
@@ -120,8 +120,8 @@ export function projectSemanticRuntimeEventsFromSDKMessage({
   return events
 }
 
-export function getTextOutputDeltaFromSDKMessage(
-  message: SDKMessage,
+export function getTextOutputDeltaFromProtocolMessage(
+  message: ProtocolMessage,
 ): string | undefined {
   const record = message as Record<string, unknown>
   if (record.type !== 'stream_event') {
@@ -140,14 +140,14 @@ export function getTextOutputDeltaFromSDKMessage(
   return undefined
 }
 
-function projectSemanticToolUseRuntimeEventsFromSDKMessage({
+function projectSemanticToolUseRuntimeEventsFromProtocolMessage({
   conversationId,
   turnId,
   message,
 }: {
   conversationId: string
   turnId?: string
-  message: SDKMessage
+  message: ProtocolMessage
 }): KernelEvent[] {
   const record = asRecord(message)
   const parentToolUseId =
@@ -181,9 +181,9 @@ function projectSemanticToolUseRuntimeEventsFromSDKMessage({
     return []
   }
 
-  const sdkMessage = asRecord(record?.message)
-  const content = Array.isArray(sdkMessage?.content)
-    ? sdkMessage.content
+  const protocolMessage = asRecord(record?.message)
+  const content = Array.isArray(protocolMessage?.content)
+    ? protocolMessage.content
     : []
   if (record?.type === 'assistant') {
     return content.flatMap(block => {
@@ -237,7 +237,7 @@ function projectSemanticToolUseRuntimeEventsFromSDKMessage({
   return []
 }
 
-function getTopLevelAssistantTextFromSDKMessage(message: SDKMessage): string {
+function getTopLevelAssistantTextFromProtocolMessage(message: ProtocolMessage): string {
   const record = asRecord(message)
   if (record?.type !== 'assistant') {
     return ''
@@ -248,9 +248,9 @@ function getTopLevelAssistantTextFromSDKMessage(message: SDKMessage): string {
   ) {
     return ''
   }
-  const sdkMessage = asRecord(record.message)
-  const content = Array.isArray(sdkMessage?.content)
-    ? sdkMessage.content
+  const protocolMessage = asRecord(record.message)
+  const content = Array.isArray(protocolMessage?.content)
+    ? protocolMessage.content
     : []
   return content
     .map(block => {
@@ -301,24 +301,24 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined
 }
 
-export function runtimeEnvelopeToSDKMessage(
+export function runtimeEnvelopeToProtocolMessage(
   envelope: KernelRuntimeEnvelopeBase,
-): SDKMessage | undefined {
+): ProtocolMessage | undefined {
   const event = getKernelEventFromEnvelope(envelope)
-  if (event?.type !== 'headless.sdk_message') {
+  if (event?.type !== 'headless.protocol_message') {
     return undefined
   }
-  return isSDKMessageLike(event.payload) ? event.payload : undefined
+  return isProtocolMessageLike(event.payload) ? event.payload : undefined
 }
 
-export const getSDKMessageFromRuntimeEnvelope = runtimeEnvelopeToSDKMessage
-export const projectRuntimeEnvelopeToLegacySDKMessage =
-  runtimeEnvelopeToSDKMessage
+export const getProtocolMessageFromRuntimeEnvelope = runtimeEnvelopeToProtocolMessage
+export const projectRuntimeEnvelopeToLegacyProtocolMessage =
+  runtimeEnvelopeToProtocolMessage
 
-export function getSDKResultTurnOutcome(
-  message: SDKMessage,
+export function getProtocolResultTurnOutcome(
+  message: ProtocolMessage,
   options: { abortReason?: string | null } = {},
-): SDKResultTurnOutcome {
+): ProtocolResultTurnOutcome {
   if (options.abortReason) {
     return {
       eventType: 'turn.failed',
@@ -327,21 +327,21 @@ export function getSDKResultTurnOutcome(
     }
   }
 
-  const failed = isErrorSDKResultMessage(message)
+  const failed = isErrorProtocolResultMessage(message)
   return {
     eventType: failed ? 'turn.failed' : 'turn.completed',
     state: failed ? 'failed' : 'completed',
-    stopReason: stopReasonFromSDKResultMessage(message),
+    stopReason: stopReasonFromProtocolResultMessage(message),
   }
 }
 
-export function isErrorSDKResultMessage(message: SDKMessage): boolean {
+export function isErrorProtocolResultMessage(message: ProtocolMessage): boolean {
   const record = message as Record<string, unknown>
   return record.is_error === true
 }
 
-export function stopReasonFromSDKResultMessage(
-  message: SDKMessage,
+export function stopReasonFromProtocolResultMessage(
+  message: ProtocolMessage,
 ): string | null {
   const record = message as Record<string, unknown>
   if (typeof record.stop_reason === 'string') {
@@ -374,43 +374,43 @@ export function getRuntimeAbortStopReason(
   return 'aborted'
 }
 
-export function sdkMessageToStreamJsonMessages(
-  message: SDKMessage,
-): StdoutMessage[] {
-  return [message as unknown as StdoutMessage]
+export function protocolMessageToStreamJsonMessages(
+  message: ProtocolMessage,
+): ProtocolStdoutMessage[] {
+  return [message as unknown as ProtocolStdoutMessage]
 }
 
-export const projectSDKMessageToLegacyStreamJsonMessages =
-  sdkMessageToStreamJsonMessages
+export const projectProtocolMessageToLegacyStreamJsonMessages =
+  protocolMessageToStreamJsonMessages
 
 export function runtimeEnvelopeToLegacyRuntimeEventStreamJsonMessage(
   envelope: KernelRuntimeEnvelopeBase,
   options: Pick<LegacyStreamJsonProjectionOptions, 'sessionId'> = {},
-): StdoutMessage {
+): ProtocolStdoutMessage {
   return toKernelRuntimeEventMessage(
     envelope,
     options.sessionId ?? envelope.conversationId ?? '',
-  ) as unknown as StdoutMessage
+  ) as unknown as ProtocolStdoutMessage
 }
 
 export const projectRuntimeEnvelopeToLegacyRuntimeEventStreamJsonMessage =
   runtimeEnvelopeToLegacyRuntimeEventStreamJsonMessage
 
-export function runtimeEnvelopeToLegacySDKStreamJsonMessages(
+export function runtimeEnvelopeToLegacyProtocolStreamJsonMessages(
   envelope: KernelRuntimeEnvelopeBase,
-): StdoutMessage[] {
-  const sdkMessage = runtimeEnvelopeToSDKMessage(envelope)
-  return sdkMessage ? sdkMessageToStreamJsonMessages(sdkMessage) : []
+): ProtocolStdoutMessage[] {
+  const protocolMessage = runtimeEnvelopeToProtocolMessage(envelope)
+  return protocolMessage ? protocolMessageToStreamJsonMessages(protocolMessage) : []
 }
 
-export const projectRuntimeEnvelopeToLegacySDKStreamJsonMessages =
-  runtimeEnvelopeToLegacySDKStreamJsonMessages
+export const projectRuntimeEnvelopeToLegacyProtocolStreamJsonMessages =
+  runtimeEnvelopeToLegacyProtocolStreamJsonMessages
 
 export function runtimeEnvelopeToStreamJsonMessages(
   envelope: KernelRuntimeEnvelopeBase,
   options: LegacyStreamJsonProjectionOptions = {},
-): StdoutMessage[] {
-  const messages: StdoutMessage[] = []
+): ProtocolStdoutMessage[] {
+  const messages: ProtocolStdoutMessage[] = []
   if (options.includeRuntimeEvent) {
     messages.push(
       runtimeEnvelopeToLegacyRuntimeEventStreamJsonMessage(envelope, {
@@ -419,8 +419,8 @@ export function runtimeEnvelopeToStreamJsonMessages(
     )
   }
 
-  if (options.includeSDKMessage !== false) {
-    messages.push(...runtimeEnvelopeToLegacySDKStreamJsonMessages(envelope))
+  if (options.includeProtocolMessage !== false) {
+    messages.push(...runtimeEnvelopeToLegacyProtocolStreamJsonMessages(envelope))
   }
   return messages
 }
@@ -428,14 +428,14 @@ export function runtimeEnvelopeToStreamJsonMessages(
 export const projectRuntimeEnvelopeToLegacyStreamJsonMessages =
   runtimeEnvelopeToStreamJsonMessages
 
-export class KernelRuntimeSDKMessageDedupe {
+export class KernelRuntimeProtocolMessageDedupe {
   private readonly seen = new Set<string>()
   private readonly order: string[] = []
 
   constructor(private readonly maxSize = 512) {}
 
-  shouldProcess(message: SDKMessage): boolean {
-    return dedupeSDKMessage(message, this.seen, this.order, this.maxSize)
+  shouldProcess(message: ProtocolMessage): boolean {
+    return dedupeProtocolMessage(message, this.seen, this.order, this.maxSize)
   }
 
   clear(): void {
@@ -464,21 +464,21 @@ export class KernelRuntimeOutputDeltaDedupe {
   }
 }
 
-export function dedupeSDKMessage(
-  message: SDKMessage,
+export function dedupeProtocolMessage(
+  message: ProtocolMessage,
   seen: Set<string>,
   order: string[],
   maxSize = 512,
 ): boolean {
-  const key = getSDKMessageDedupeKey(message)
+  const key = getProtocolMessageDedupeKey(message)
   if (!key) {
     return true
   }
   return dedupeKey(key, seen, order, maxSize)
 }
 
-export function getSDKMessageDedupeKey(
-  message: SDKMessage,
+export function getProtocolMessageDedupeKey(
+  message: ProtocolMessage,
 ): string | undefined {
   if (typeof message.uuid === 'string' && message.uuid.length > 0) {
     return `uuid:${message.uuid}`
@@ -495,7 +495,7 @@ export function getSDKMessageDedupeKey(
   return undefined
 }
 
-export function isSDKMessageLike(value: unknown): value is SDKMessage {
+export function isProtocolMessageLike(value: unknown): value is ProtocolMessage {
   return (
     typeof value === 'object' &&
     value !== null &&

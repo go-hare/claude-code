@@ -2,7 +2,7 @@ import {
   createRuntimeHeadlessStartupStateWriter,
   type RuntimeHeadlessStartupStateWriter,
 } from '../runtime/core/state/bootstrapProvider.js'
-import { filterAllowedSdkBetas } from '../utils/betas.js'
+import { filterAllowedProtocolBetas } from '../utils/betas.js'
 
 export type KernelHeadlessStartupStateWriter =
   RuntimeHeadlessStartupStateWriter
@@ -19,7 +19,7 @@ export type PrepareKernelHeadlessStartupDeps = {
   startDeferredPrefetches(): void
   logSessionTelemetry(): void
   startBackgroundHousekeeping?(): void
-  startSdkMemoryMonitor?(): void
+  startProtocolMemoryMonitor?(): void
 }
 
 /**
@@ -38,7 +38,7 @@ export async function prepareKernelHeadlessStartup(
     stateWriter.setSessionPersistenceDisabled(true)
   }
 
-  stateWriter.setSdkBetas(filterAllowedSdkBetas(options.betas))
+  stateWriter.setProtocolBetas(filterAllowedProtocolBetas(options.betas))
 
   if (!options.bareMode) {
     deps.startDeferredPrefetches()
@@ -50,11 +50,11 @@ export async function prepareKernelHeadlessStartup(
       )
     }
     if (options.userType === 'ant') {
-      if (deps.startSdkMemoryMonitor) {
-        deps.startSdkMemoryMonitor()
+      if (deps.startProtocolMemoryMonitor) {
+        deps.startProtocolMemoryMonitor()
       } else {
-        void import('../utils/sdkHeapDumpMonitor.js').then(module =>
-          module.startSdkMemoryMonitor(),
+        void import('../utils/protocolHeapDumpMonitor.js').then(module =>
+          module.startProtocolMemoryMonitor(),
         )
       }
     }

@@ -34,7 +34,7 @@ describe('background slash-command autonomy deferral contracts', () => {
     )
 
     const enqueueResultIndex = slashCommandContent.indexOf(
-      'enqueueResult(\n        `<scheduled-task-result command="/${commandName}">\\n${resultText}\\n</scheduled-task-result>`,',
+      '`<scheduled-task-result command="/${commandName}">\\n${resultText}\\n</scheduled-task-result>`',
     )
     const finalizeCompletedIndex = slashCommandContent.indexOf(
       'await finalizeDeferredAutonomyRunCompleted()',

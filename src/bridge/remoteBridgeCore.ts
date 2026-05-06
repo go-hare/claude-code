@@ -66,27 +66,27 @@ import {
 } from '../services/analytics/index.js'
 import type { ReplBridgeHandle, BridgeState } from './replBridge.js'
 import type { Message } from '../types/message.js'
-import type { SDKMessage } from '../entrypoints/agentSdkTypes.js'
+import type { ProtocolMessage } from 'src/types/protocol/index.js'
 import type {
-  SDKControlRequest,
-  SDKControlResponse,
-} from '../entrypoints/sdk/controlTypes.js'
-import type { StdoutMessage } from '../entrypoints/sdk/controlTypes.js'
-import type { SDKResultSuccess } from '../entrypoints/sdk/coreTypes.js'
+  ProtocolControlRequest,
+  ProtocolControlResponse,
+} from 'src/types/protocol/controlTypes.js'
+import type { ProtocolStdoutMessage } from 'src/types/protocol/controlTypes.js'
+import type { ProtocolResultSuccess } from 'src/types/protocol/coreTypes.js'
 import type { PermissionMode } from '../utils/permissions/PermissionMode.js'
 import type { KernelRuntimeEventSink } from '../runtime/contracts/events.js'
 import { setSessionMetadataChangedListener } from '../utils/sessionState.js'
 
 /**
- * StdoutMessage with optional session_id. The transport layer accepts
- * StdoutMessage but we add session_id at runtime. Using optional because
+ * ProtocolStdoutMessage with optional session_id. The transport layer accepts
+ * ProtocolStdoutMessage but we add session_id at runtime. Using optional because
  * the type system can't verify that adding session_id to a union type
  * is always valid, even though it is at runtime.
  *
- * We need to use 'as StdoutMessage' when passing to transport because
- * TypeScript can't verify that objects with session_id are valid StdoutMessage.
+ * We need to use 'as ProtocolStdoutMessage' when passing to transport because
+ * TypeScript can't verify that objects with session_id are valid ProtocolStdoutMessage.
  */
-type TransportMessage = StdoutMessage & { session_id?: string }
+type TransportMessage = ProtocolStdoutMessage & { session_id?: string }
 
 const ANTHROPIC_VERSION = '2023-06-01'
 
@@ -110,15 +110,15 @@ export type EnvLessBridgeParams = {
   getAccessToken: () => string | undefined
   onAuth401?: (staleAccessToken: string) => Promise<boolean>
   /**
-   * Converts internal Message[] → SDKMessage[] for writeMessages() and the
+   * Converts internal Message[] → ProtocolMessage[] for writeMessages() and the
    * initial-flush/drain paths. Injected rather than imported — mappers.ts
    * transitively pulls in src/commands.ts (entire command registry + React
    * tree) which would bloat bundles that don't already have it.
    */
-  toSDKMessages: (messages: Message[]) => SDKMessage[]
+  toProtocolMessages: (messages: Message[]) => ProtocolMessage[]
   initialHistoryCap: number
   initialMessages?: Message[]
-  onInboundMessage?: (msg: SDKMessage) => void | Promise<void>
+  onInboundMessage?: (msg: ProtocolMessage) => void | Promise<void>
   onRuntimeEvent?: KernelRuntimeEventSink
   /**
    * Fired on each title-worthy user message seen in writeMessages() until
@@ -130,7 +130,7 @@ export type EnvLessBridgeParams = {
    * retags internally.
    */
   onUserMessage?: (text: string, sessionId: string) => boolean
-  onPermissionResponse?: (response: SDKControlResponse) => void
+  onPermissionResponse?: (response: ProtocolControlResponse) => void
   onInterrupt?: () => void
   onSetModel?: (model: string | undefined) => void
   onSetMaxThinkingTokens?: (maxTokens: number | null) => void
@@ -164,7 +164,7 @@ export async function initEnvLessBridgeCore(
     title,
     getAccessToken,
     onAuth401,
-    toSDKMessages,
+    toProtocolMessages,
     initialHistoryCap,
     initialMessages,
     onInboundMessage,
@@ -645,7 +645,7 @@ export async function initEnvLessBridgeCore(
     const msgs = flushGate.end()
     if (msgs.length === 0) return
     for (const msg of msgs) recentPostedUUIDs.add(msg.uuid)
-    const events: TransportMessage[] = toSDKMessages(msgs).map(m => ({
+    const events: TransportMessage[] = toProtocolMessages(msgs).map(m => ({
       ...m,
       session_id: sessionId,
     })) as TransportMessage[]
@@ -655,7 +655,7 @@ export async function initEnvLessBridgeCore(
     logForDebugging(
       `[remote-bridge] Drained ${msgs.length} queued message(s) after flush`,
     )
-    void transport.writeBatch(events as StdoutMessage[])
+    void transport.writeBatch(events as ProtocolStdoutMessage[])
   }
 
   async function flushHistory(msgs: Message[]): Promise<void> {
@@ -673,7 +673,7 @@ export async function initEnvLessBridgeCore(
         `[remote-bridge] Capped initial flush: ${eligible.length} -> ${capped.length} (cap=${initialHistoryCap})`,
       )
     }
-    const events: TransportMessage[] = toSDKMessages(capped).map(m => ({
+    const events: TransportMessage[] = toProtocolMessages(capped).map(m => ({
       ...m,
       session_id: sessionId,
     })) as TransportMessage[]
@@ -689,7 +689,7 @@ export async function initEnvLessBridgeCore(
       transport.reportState('running')
     }
     logForDebugging(`[remote-bridge] Flushing ${events.length} history events`)
-    await transport.writeBatch(events as StdoutMessage[])
+    await transport.writeBatch(events as ProtocolStdoutMessage[])
   }
 
   // ── 9. Teardown ───────────────────────────────────────────────────────────
@@ -716,7 +716,7 @@ export async function initEnvLessBridgeCore(
       ...makeResultMessage(sessionId),
       session_id: sessionId,
     } as unknown as TransportMessage
-    void transport.write(resultMsg as StdoutMessage)
+    void transport.write(resultMsg as ProtocolStdoutMessage)
     let token = getAccessToken()
     let status = await archiveSession(
       sessionId,
@@ -835,7 +835,7 @@ export async function initEnvLessBridgeCore(
       }
 
       for (const msg of filtered) recentPostedUUIDs.add(msg.uuid)
-      const events: TransportMessage[] = toSDKMessages(filtered).map(m => ({
+      const events: TransportMessage[] = toProtocolMessages(filtered).map(m => ({
         ...m,
         session_id: sessionId,
       })) as TransportMessage[]
@@ -849,9 +849,9 @@ export async function initEnvLessBridgeCore(
         transport.reportState('running')
       }
       logForDebugging(`[remote-bridge] Sending ${filtered.length} message(s)`)
-      void transport.writeBatch(events as StdoutMessage[])
+      void transport.writeBatch(events as ProtocolStdoutMessage[])
     },
-    writeSdkMessages(messages: SDKMessage[]) {
+    writeProtocolMessages(messages: ProtocolMessage[]) {
       const filtered = messages.filter(
         m => !m.uuid || !recentPostedUUIDs.has(m.uuid as string),
       )
@@ -859,10 +859,10 @@ export async function initEnvLessBridgeCore(
       for (const msg of filtered) {
         if (msg.uuid) recentPostedUUIDs.add(msg.uuid as string)
       }
-      const events = filtered.map(m => ({ ...m, session_id: sessionId })) as StdoutMessage[]
+      const events = filtered.map(m => ({ ...m, session_id: sessionId })) as ProtocolStdoutMessage[]
       void transport.writeBatch(events)
     },
-    sendControlRequest(request: SDKControlRequest) {
+    sendControlRequest(request: ProtocolControlRequest) {
       if (authRecoveryInFlight) {
         logForDebugging(
           `[remote-bridge] Dropping control_request during 401 recovery: ${request.request_id}`,
@@ -873,12 +873,12 @@ export async function initEnvLessBridgeCore(
       if ((request as { request?: { subtype?: string } }).request?.subtype === 'can_use_tool') {
         transport.reportState('requires_action')
       }
-      void transport.write(event as StdoutMessage)
+      void transport.write(event as ProtocolStdoutMessage)
       logForDebugging(
         `[remote-bridge] Sent control_request request_id=${request.request_id}`,
       )
     },
-    sendControlResponse(response: SDKControlResponse) {
+    sendControlResponse(response: ProtocolControlResponse) {
       if (authRecoveryInFlight) {
         logForDebugging(
           '[remote-bridge] Dropping control_response during 401 recovery',
@@ -887,7 +887,7 @@ export async function initEnvLessBridgeCore(
       }
       const event: TransportMessage = { ...response, session_id: sessionId } as TransportMessage
       transport.reportState('running')
-      void transport.write(event as StdoutMessage)
+      void transport.write(event as ProtocolStdoutMessage)
       logForDebugging('[remote-bridge] Sent control_response')
     },
     sendControlCancelRequest(requestId: string) {
@@ -906,7 +906,7 @@ export async function initEnvLessBridgeCore(
       // interactiveHandler calls only cancelRequest (no sendResponse) on
       // those paths, so without this the server stays on requires_action.
       transport.reportState('running')
-      void transport.write(event as StdoutMessage)
+      void transport.write(event as ProtocolStdoutMessage)
       logForDebugging(
         `[remote-bridge] Sent control_cancel_request request_id=${requestId}`,
       )
@@ -921,7 +921,7 @@ export async function initEnvLessBridgeCore(
         ...makeResultMessage(sessionId),
         session_id: sessionId,
       } as unknown as TransportMessage
-      void transport.write(resultMsg as StdoutMessage)
+      void transport.write(resultMsg as ProtocolStdoutMessage)
       logForDebugging(`[remote-bridge] Sent result`)
     },
     async teardown() {

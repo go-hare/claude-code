@@ -117,7 +117,7 @@ import {
   roughTokenCountEstimation,
   roughTokenCountEstimationForMessages,
 } from '../tokenEstimation.js'
-import type { SDKStatus } from '../../entrypoints/agentSdkTypes.js'
+import type { ProtocolStatus } from 'src/types/protocol/index.js'
 import { groupMessagesByApiRound } from './grouping.js'
 import {
   getCompactPrompt,
@@ -417,7 +417,7 @@ export async function compactConversation(
     })
 
     // Execute PreCompact hooks
-    context.setSDKStatus?.('compacting')
+    context.setProtocolStatus?.('compacting')
     const hookResult = await executePreCompactHooks(
       {
         trigger: isAutoCompact ? 'auto' : 'manual',
@@ -766,7 +766,7 @@ export async function compactConversation(
     context.setStreamMode?.('requesting')
     context.setResponseLength?.(() => 0)
     context.onCompactProgress?.({ type: 'compact_end' })
-    context.setSDKStatus?.("" as SDKStatus)
+    context.setProtocolStatus?.("" as ProtocolStatus)
   }
 }
 
@@ -822,7 +822,7 @@ export async function partialCompactConversation(
       hookType: 'pre_compact',
     })
 
-    context.setSDKStatus?.('compacting')
+    context.setProtocolStatus?.('compacting')
     const hookResult = await executePreCompactHooks(
       {
         trigger: 'manual',
@@ -1109,7 +1109,7 @@ export async function partialCompactConversation(
     context.setStreamMode?.('requesting')
     context.setResponseLength?.(() => 0)
     context.onCompactProgress?.({ type: 'compact_end' })
-    context.setSDKStatus?.("" as SDKStatus)
+    context.setProtocolStatus?.("" as ProtocolStatus)
   }
 }
 
@@ -1179,7 +1179,7 @@ async function streamCompactSummary({
           statusSetter?.('compacting')
         },
         30_000,
-        context.setSDKStatus,
+        context.setProtocolStatus,
       )
     : undefined
 

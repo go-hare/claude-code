@@ -2,8 +2,8 @@ import type { UUID } from 'crypto'
 import type { AppState } from 'src/state/AppStateStore.js'
 import type { ToolPermissionContext } from 'src/Tool.js'
 import type { Stream } from 'src/utils/stream.js'
-import type { PermissionResult } from 'src/entrypoints/agentSdkTypes.js'
-import type { SDKControlResponse, StdoutMessage } from 'src/entrypoints/sdk/controlTypes.js'
+import type { PermissionResult } from 'src/types/protocol/index.js'
+import type { ProtocolControlResponse, ProtocolStdoutMessage } from 'src/types/protocol/controlTypes.js'
 import type { InternalPermissionMode } from 'src/types/permissions.js'
 import type { MCPServerConnection } from 'src/services/mcp/types.js'
 import type { AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS } from 'src/services/analytics/index.js'
@@ -56,7 +56,7 @@ export type HeadlessSessionControl = {
   trackReceivedMessageUuid(uuid: UUID): boolean
   hasReceivedMessageUuid(uuid: UUID): boolean
   handleOrphanedPermissionResponse(args: {
-    message: SDKControlResponse
+    message: ProtocolControlResponse
     setAppState: (f: (prev: AppState) => AppState) => void
     onEnqueued?: () => void
   }): Promise<boolean>
@@ -161,7 +161,7 @@ export function handleSetPermissionMode(
   request: { mode: InternalPermissionMode },
   requestId: string,
   toolPermissionContext: ToolPermissionContext,
-  output: Stream<StdoutMessage>,
+  output: Stream<ProtocolStdoutMessage>,
 ): ToolPermissionContext {
   if (request.mode === 'bypassPermissions') {
     if (isBypassPermissionsModeDisabled()) {
@@ -235,7 +235,7 @@ export async function handleOrphanedPermissionResponse({
   onEnqueued,
   handledToolUseIds,
 }: {
-  message: SDKControlResponse
+  message: ProtocolControlResponse
   setAppState: (f: (prev: AppState) => AppState) => void
   onEnqueued?: () => void
   handledToolUseIds: Set<string>
@@ -302,7 +302,7 @@ export function handleChannelEnable(
   requestId: string,
   serverName: string,
   connectionPool: readonly MCPServerConnection[],
-  output: Stream<StdoutMessage>,
+  output: Stream<ProtocolStdoutMessage>,
   bootstrapStateProvider: RuntimeHeadlessControlStateProvider,
 ): void {
   const respondError = (error: string) =>

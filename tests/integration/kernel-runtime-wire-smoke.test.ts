@@ -329,7 +329,7 @@ describe('kernel runtime wire smoke', () => {
         await waitForEnvelope(
           envelopes,
           waiters,
-          envelope => envelope.payload?.type === 'headless.sdk_message',
+          envelope => envelope.payload?.type === 'headless.protocol_message',
         )
         const output = await waitForEnvelope(envelopes, waiters, envelope => {
           return (
@@ -515,7 +515,7 @@ describe('kernel runtime wire smoke', () => {
           await waitForEnvelope(
             envelopes,
             waiters,
-            envelope => envelope.payload?.type === 'headless.sdk_message',
+            envelope => envelope.payload?.type === 'headless.protocol_message',
           )
           const output = await waitForEnvelope(envelopes, waiters, envelope => {
             return (

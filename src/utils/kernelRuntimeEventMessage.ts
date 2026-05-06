@@ -1,4 +1,4 @@
-import type { StdoutMessage } from '../entrypoints/sdk/controlTypes.js'
+import type { ProtocolStdoutMessage } from 'src/types/protocol/controlTypes.js'
 import type {
   KernelRuntimeEnvelopeBase,
   KernelRuntimeEventSink,
@@ -23,8 +23,8 @@ export function toKernelRuntimeEventMessage(
   }
 }
 
-export function getKernelRuntimeEnvelopeFromStdoutMessage(
-  message: StdoutMessage,
+export function getKernelRuntimeEnvelopeFromProtocolStdoutMessage(
+  message: ProtocolStdoutMessage,
 ): KernelRuntimeEnvelopeBase | undefined {
   return getKernelRuntimeEnvelopeFromMessage(message)
 }

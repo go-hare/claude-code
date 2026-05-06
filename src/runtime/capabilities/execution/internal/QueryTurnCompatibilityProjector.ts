@@ -1,4 +1,4 @@
-import type { SDKMessage } from '../../../../entrypoints/agentSdkTypes.js'
+import type { ProtocolMessage } from 'src/types/protocol/index.js'
 import type { APIError } from '@anthropic-ai/sdk'
 import type { UUID } from 'crypto'
 import { categorizeRetryableAPIError } from '../../../../services/api/errors.js'
@@ -13,13 +13,13 @@ import {
   normalizeMessages,
 } from '../../../../utils/messages.js'
 import {
-  localCommandOutputToSDKAssistantMessage,
-  toSDKCompactMetadata,
+  localCommandOutputToProtocolAssistantMessage,
+  toProtocolCompactMetadata,
 } from '../../../../utils/messages/mappers.js'
 import { buildSystemInitMessage } from '../../../../utils/messages/systemInit.js'
 import {
   applyToolProgressTrackingUpdate,
-  projectProgressMessageToSDKMessageProjection,
+  projectProgressMessageToProtocolMessageProjection,
   type ToolProgressTrackingState,
 } from '../../../../utils/queryHelpers.js'
 import type {
@@ -41,11 +41,11 @@ export function isQueryStreamEvent(
   )
 }
 
-export function queryStreamEventToSDKMessage(options: {
+export function queryStreamEventToProtocolMessage(options: {
   conversationId: string
   message: QueryStreamEventMessage
-}): SDKMessage {
-  const message: SDKMessage = {
+}): ProtocolMessage {
+  const message: ProtocolMessage = {
     type: 'stream_event',
     event: options.message.event,
     parent_tool_use_id: options.message.parent_tool_use_id ?? null,
@@ -57,7 +57,7 @@ export function queryStreamEventToSDKMessage(options: {
   return message
 }
 
-export function queryMessageToCompatibilitySDKMessages(options: {
+export function queryMessageToCompatibilityProtocolMessages(options: {
   conversationId: string
   getProgressProjectionEnvironment: () => {
     now: number
@@ -65,9 +65,9 @@ export function queryMessageToCompatibilitySDKMessages(options: {
   }
   message: QueryTurnProjectionInput
   progressTrackingState: ToolProgressTrackingState
-}): SDKMessage[] {
+}): ProtocolMessage[] {
   if (isQueryProgressMessage(options.message)) {
-    return queryProgressMessageToSDKMessages({
+    return queryProgressMessageToProtocolMessages({
       conversationId: options.conversationId,
       getProgressProjectionEnvironment:
         options.getProgressProjectionEnvironment,
@@ -81,14 +81,14 @@ export function queryMessageToCompatibilitySDKMessages(options: {
   }
 
   if (isQueryAssistantMessage(options.message)) {
-    return queryAssistantMessageToSDKMessages({
+    return queryAssistantMessageToProtocolMessages({
       conversationId: options.conversationId,
       message: options.message,
     })
   }
 
   if (isQueryUserMessage(options.message)) {
-    return queryUserMessageToSDKMessages({
+    return queryUserMessageToProtocolMessages({
       conversationId: options.conversationId,
       message: options.message,
     })
@@ -110,13 +110,13 @@ export function queryMessageToCompatibilitySDKMessages(options: {
       subtype: 'compact_boundary',
       session_id: options.conversationId,
       uuid: options.message.uuid,
-      compact_metadata: toSDKCompactMetadata(options.message.compactMetadata),
+      compact_metadata: toProtocolCompactMetadata(options.message.compactMetadata),
     }]
   }
 
   if (isQueryLocalCommandMessage(options.message)) {
     return [{
-      ...localCommandOutputToSDKAssistantMessage(
+      ...localCommandOutputToProtocolAssistantMessage(
         options.message.content,
         options.message.uuid as UUID,
       ),
@@ -174,7 +174,7 @@ export function queryMessageToCompatibilitySDKMessages(options: {
   return []
 }
 
-function queryProgressMessageToSDKMessages(options: {
+function queryProgressMessageToProtocolMessages(options: {
   conversationId: string
   getProgressProjectionEnvironment: () => {
     now: number
@@ -182,9 +182,9 @@ function queryProgressMessageToSDKMessages(options: {
   }
   message: QueryProgressMessage
   progressTrackingState: ToolProgressTrackingState
-}): SDKMessage[] {
+}): ProtocolMessage[] {
   const environment = options.getProgressProjectionEnvironment()
-  const projection = projectProgressMessageToSDKMessageProjection(
+  const projection = projectProgressMessageToProtocolMessageProjection(
     options.message,
     {
       now: environment.now,
@@ -202,10 +202,10 @@ function queryProgressMessageToSDKMessages(options: {
   return projection.messages
 }
 
-function queryAssistantMessageToSDKMessages(options: {
+function queryAssistantMessageToProtocolMessages(options: {
   conversationId: string
   message: QueryAssistantMessage
-}): SDKMessage[] {
+}): ProtocolMessage[] {
   return normalizeMessages([options.message as AssistantMessage])
     .filter(isNotEmptyMessage)
     .map(message => ({
@@ -218,10 +218,10 @@ function queryAssistantMessageToSDKMessages(options: {
     }))
 }
 
-function queryUserMessageToSDKMessages(options: {
+function queryUserMessageToProtocolMessages(options: {
   conversationId: string
   message: QueryUserMessage
-}): SDKMessage[] {
+}): ProtocolMessage[] {
   return normalizeMessages([options.message as UserMessage]).map(message => ({
     type: 'user',
     message: message.message,

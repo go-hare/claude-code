@@ -8,12 +8,12 @@ import {
 import {
   handleKernelRuntimeHostEvent,
   KernelRuntimeOutputDeltaDedupe,
-  KernelRuntimeSDKMessageDedupe,
+  KernelRuntimeProtocolMessageDedupe,
 } from '../remote/kernelRuntimeHostEvents.js'
 import {
-  convertSDKMessage,
+  convertProtocolMessage,
   isSessionEndMessage,
-} from '../remote/sdkMessageAdapter.js'
+} from '../remote/protocolMessageAdapter.js'
 import {
   type DirectConnectConfig,
   DirectConnectSessionManager,
@@ -63,7 +63,7 @@ export function useDirectConnect({
   const managerRef = useRef<DirectConnectSessionManager | null>(null)
   const hasReceivedInitRef = useRef(false)
   const isConnectedRef = useRef(false)
-  const sdkMessageDedupeRef = useRef(new KernelRuntimeSDKMessageDedupe())
+  const protocolMessageDedupeRef = useRef(new KernelRuntimeProtocolMessageDedupe())
   const outputDeltaDedupeRef = useRef(new KernelRuntimeOutputDeltaDedupe())
 
   // Keep a ref to tools so the WebSocket callback doesn't go stale
@@ -78,28 +78,28 @@ export function useDirectConnect({
     }
 
     hasReceivedInitRef.current = false
-    sdkMessageDedupeRef.current.clear()
+    protocolMessageDedupeRef.current.clear()
     outputDeltaDedupeRef.current.clear()
     logForDebugging(`[useDirectConnect] Connecting to ${config.wsUrl}`)
 
-    const handleSDKMessage = (sdkMessage: Parameters<typeof convertSDKMessage>[0]) => {
-      if (!sdkMessageDedupeRef.current.shouldProcess(sdkMessage)) {
+    const handleProtocolMessage = (protocolMessage: Parameters<typeof convertProtocolMessage>[0]) => {
+      if (!protocolMessageDedupeRef.current.shouldProcess(protocolMessage)) {
         return
       }
 
-      if (isSessionEndMessage(sdkMessage)) {
+      if (isSessionEndMessage(protocolMessage)) {
         setIsLoading(false)
       }
 
       // Skip duplicate init messages (server sends one per turn)
-      if (sdkMessage.type === 'system' && sdkMessage.subtype === 'init') {
+      if (protocolMessage.type === 'system' && protocolMessage.subtype === 'init') {
         if (hasReceivedInitRef.current) {
           return
         }
         hasReceivedInitRef.current = true
       }
 
-      const converted = convertSDKMessage(sdkMessage, {
+      const converted = convertProtocolMessage(protocolMessage, {
         convertToolResults: true,
       })
       if (converted.type === 'message') {
@@ -108,7 +108,7 @@ export function useDirectConnect({
     }
 
     const manager = new DirectConnectSessionManager(config, {
-      onMessage: handleSDKMessage,
+      onMessage: handleProtocolMessage,
       onPermissionRequest: (request, requestId) => {
         logForDebugging(
           `[useDirectConnect] Permission request for tool: ${request.tool_name}`,
@@ -205,7 +205,7 @@ export function useDirectConnect({
       onRuntimeEvent: envelope => {
         handleKernelRuntimeHostEvent(envelope, {
           onRuntimeEvent,
-          onSDKMessage: handleSDKMessage,
+          onProtocolMessage: handleProtocolMessage,
           onOutputDelta: delta => {
             if (!outputDeltaDedupeRef.current.shouldProcess(envelope)) {
               return

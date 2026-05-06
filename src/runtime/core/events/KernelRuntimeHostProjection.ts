@@ -1,9 +1,9 @@
-import type { SDKMessage } from '../../../entrypoints/agentSdkTypes.js'
+import type { ProtocolMessage } from 'src/types/protocol/index.js'
 import {
-  getSDKResultTurnOutcome,
-  getSDKMessageFromRuntimeEnvelope as getSDKMessageFromKernelRuntimeEnvelope,
+  getProtocolResultTurnOutcome,
+  getProtocolMessageFromRuntimeEnvelope as getProtocolMessageFromKernelRuntimeEnvelope,
   KernelRuntimeOutputDeltaDedupe,
-  KernelRuntimeSDKMessageDedupe,
+  KernelRuntimeProtocolMessageDedupe,
 } from './compatProjection.js'
 import type {
   KernelEvent,
@@ -70,8 +70,8 @@ export type KernelRuntimeHostEventCallbacks = {
     envelope: KernelRuntimeEnvelopeBase,
     event: KernelEvent,
   ) => void
-  onSDKMessage?: (
-    message: SDKMessage,
+  onProtocolMessage?: (
+    message: ProtocolMessage,
     envelope: KernelRuntimeEnvelopeBase,
     event: KernelEvent,
   ) => void
@@ -103,9 +103,9 @@ export function handleKernelRuntimeHostEvent(
   }
 
   callbacks.onRuntimeHeartbeat?.(envelope, event)
-  const sdkMessage = getSDKMessageFromKernelRuntimeEnvelope(envelope)
-  if (sdkMessage) {
-    callbacks.onSDKMessage?.(sdkMessage, envelope, event)
+  const protocolMessage = getProtocolMessageFromKernelRuntimeEnvelope(envelope)
+  if (protocolMessage) {
+    callbacks.onProtocolMessage?.(protocolMessage, envelope, event)
   }
   const outputDelta = getTextOutputDeltaFromKernelRuntimeEnvelope(envelope)
   if (outputDelta) {
@@ -156,20 +156,20 @@ export function getKernelRuntimeTerminalProjection(
   }
 }
 
-export function getKernelRuntimeTerminalProjectionFromSDKResultMessage(
-  message: SDKMessage,
+export function getKernelRuntimeTerminalProjectionFromProtocolResultMessage(
+  message: ProtocolMessage,
   options: { aborted?: boolean } = {},
 ): KernelRuntimeTerminalProjection | undefined {
   if ((message as Record<string, unknown>).type !== 'result') {
     return undefined
   }
 
-  const outcome = getSDKResultTurnOutcome(message)
+  const outcome = getProtocolResultTurnOutcome(message)
   return {
     eventType: outcome.eventType,
     isError: outcome.state === 'failed',
     runtimeStopReason: outcome.stopReason,
-    hostStopReason: getKernelRuntimeHostStopReasonFromSDKResultMessage(
+    hostStopReason: getKernelRuntimeHostStopReasonFromProtocolResultMessage(
       message,
       options,
     ),
@@ -270,8 +270,8 @@ export function getKernelRuntimeCoordinatorLifecycleProjection(
   }
 }
 
-function getKernelRuntimeHostStopReasonFromSDKResultMessage(
-  message: SDKMessage,
+function getKernelRuntimeHostStopReasonFromProtocolResultMessage(
+  message: ProtocolMessage,
   options: { aborted?: boolean },
 ): KernelRuntimeHostStopReason {
   if (options.aborted) {
@@ -398,7 +398,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export {
-  getSDKMessageFromKernelRuntimeEnvelope,
+  getProtocolMessageFromKernelRuntimeEnvelope,
   KernelRuntimeOutputDeltaDedupe,
-  KernelRuntimeSDKMessageDedupe,
+  KernelRuntimeProtocolMessageDedupe,
 }

@@ -73,7 +73,7 @@ describe('createHeadlessStreamCollector', () => {
     ])
   })
 
-  test('publishes runtime SDK message envelopes before legacy stream-json output', async () => {
+  test('publishes runtime protocol message envelopes before legacy stream-json output', async () => {
     const eventBus = new RuntimeEventBus({
       runtimeId: 'runtime-1',
       createMessageId: () => 'message-1',
@@ -123,7 +123,7 @@ describe('createHeadlessStreamCollector', () => {
       conversationId: 'conversation-1',
       turnId: 'turn-1',
       payload: {
-        type: 'headless.sdk_message',
+        type: 'headless.protocol_message',
         payload: {
           type: 'assistant',
           message: { content: 'hello' },

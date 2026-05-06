@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 
 import { parseBridgePermissionResponse } from '../bridgePermissionCallbacks.js'
-import type { SDKControlResponse } from '../../entrypoints/sdk/controlTypes.js'
+import type { ProtocolControlResponse } from 'src/types/protocol/controlTypes.js'
 
 describe('parseBridgePermissionResponse', () => {
   test('passes through allow responses', () => {
-    const message: SDKControlResponse = {
+    const message: ProtocolControlResponse = {
       type: 'control_response',
       response: {
         subtype: 'success',
@@ -28,7 +28,7 @@ describe('parseBridgePermissionResponse', () => {
   })
 
   test('preserves host decision metadata on allow responses', () => {
-    const message: SDKControlResponse = {
+    const message: ProtocolControlResponse = {
       type: 'control_response',
       response: {
         subtype: 'success',
@@ -60,7 +60,7 @@ describe('parseBridgePermissionResponse', () => {
         response: { behavior: 'deny' },
         message: 'Need more detail',
       },
-    } as unknown as SDKControlResponse
+    } as unknown as ProtocolControlResponse
 
     expect(parseBridgePermissionResponse(message)).toEqual({
       behavior: 'deny',
@@ -76,7 +76,7 @@ describe('parseBridgePermissionResponse', () => {
         request_id: 'req-3',
         error: 'Permission denied by user',
       },
-    } as unknown as SDKControlResponse
+    } as unknown as ProtocolControlResponse
 
     expect(parseBridgePermissionResponse(message)).toEqual({
       behavior: 'deny',
@@ -92,7 +92,7 @@ describe('parseBridgePermissionResponse', () => {
         request_id: 'req-4',
         error: '',
       },
-    } as unknown as SDKControlResponse
+    } as unknown as ProtocolControlResponse
 
     expect(parseBridgePermissionResponse(message)).toBeNull()
   })

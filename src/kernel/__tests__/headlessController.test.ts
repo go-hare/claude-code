@@ -47,7 +47,7 @@ describe('createKernelHeadlessController', () => {
         yield {
           type: 'event',
           event: {
-            type: 'headless.sdk_message',
+            type: 'headless.protocol_message',
             replayable: true,
             payload: {
               type: 'assistant',
@@ -245,7 +245,7 @@ describe('normalizeKernelHeadlessEvent', () => {
       error: 'boom',
     })
 
-    const sdkPayload = {
+    const protocolPayload = {
       type: 'assistant',
       text: 'sdk text',
     }
@@ -260,14 +260,14 @@ describe('normalizeKernelHeadlessEvent', () => {
         conversationId: 'conversation-1',
         turnId: 'turn-1',
         payload: {
-          type: 'headless.sdk_message',
+          type: 'headless.protocol_message',
           replayable: true,
-          payload: sdkPayload,
+          payload: protocolPayload,
         },
       }),
     ).toMatchObject({
       type: 'sdk.message',
-      message: sdkPayload,
+      message: protocolPayload,
     })
   })
 })

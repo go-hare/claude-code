@@ -11,13 +11,13 @@
  */
 
 import { randomUUID } from 'crypto'
-import type { SDKMessage } from '../entrypoints/agentSdkTypes.js'
+import type { ProtocolMessage } from 'src/types/protocol/index.js'
 import type {
-  SDKControlRequest,
-  SDKControlResponse,
-  StdoutMessage,
-} from '../entrypoints/sdk/controlTypes.js'
-import type { SDKResultSuccess } from '../entrypoints/sdk/coreTypes.js'
+  ProtocolControlRequest,
+  ProtocolControlResponse,
+  ProtocolStdoutMessage,
+} from 'src/types/protocol/controlTypes.js'
+import type { ProtocolResultSuccess } from 'src/types/protocol/coreTypes.js'
 import type { KernelRuntimeEventSink } from '../runtime/contracts/events.js'
 import { logEvent } from '../services/analytics/index.js'
 import { EMPTY_USAGE } from '@ant/model-provider'
@@ -28,7 +28,7 @@ import { rcLog } from './rcDebugLog.js'
 import { stripDisplayTagsAllowEmpty } from '../utils/displayTags.js'
 import { errorMessage } from '../utils/errors.js'
 import { getKernelRuntimeEnvelopeFromMessage } from '../utils/kernelRuntimeEventMessage.js'
-import { getSDKMessageFromRuntimeEnvelope } from '../runtime/core/events/compatProjection.js'
+import { getProtocolMessageFromRuntimeEnvelope } from '../runtime/core/events/compatProjection.js'
 import type { PermissionMode } from '../utils/permissions/PermissionMode.js'
 import { jsonParse } from '../utils/slowOperations.js'
 import type { ReplBridgeTransport } from './replBridgeTransport.js'
@@ -47,10 +47,10 @@ import {
 
 // ─── Type guards ─────────────────────────────────────────────────────────────
 
-/** Type predicate for parsed WebSocket messages. SDKMessage is a
+/** Type predicate for parsed WebSocket messages. ProtocolMessage is a
  *  discriminated union on `type` — validating the discriminant is
  *  sufficient for the predicate; callers narrow further via the union. */
-export function isSDKMessage(value: unknown): value is SDKMessage {
+export function isProtocolMessage(value: unknown): value is ProtocolMessage {
   return (
     value !== null &&
     typeof value === 'object' &&
@@ -60,9 +60,9 @@ export function isSDKMessage(value: unknown): value is SDKMessage {
 }
 
 /** Type predicate for control_response messages from the server. */
-export function isSDKControlResponse(
+export function isProtocolControlResponse(
   value: unknown,
-): value is SDKControlResponse {
+): value is ProtocolControlResponse {
   return (
     value !== null &&
     typeof value === 'object' &&
@@ -73,9 +73,9 @@ export function isSDKControlResponse(
 }
 
 /** Type predicate for control_request messages from the server. */
-export function isSDKControlRequest(
+export function isProtocolControlRequest(
   value: unknown,
-): value is SDKControlRequest {
+): value is ProtocolControlRequest {
   return (
     value !== null &&
     typeof value === 'object' &&
@@ -229,16 +229,16 @@ export function handleIngressMessage(
   data: string,
   recentPostedUUIDs: BoundedUUIDSet,
   recentInboundUUIDs: BoundedUUIDSet,
-  onInboundMessage: ((msg: SDKMessage) => void | Promise<void>) | undefined,
-  onPermissionResponse?: ((response: SDKControlResponse) => void) | undefined,
-  onControlRequest?: ((request: SDKControlRequest) => void) | undefined,
+  onInboundMessage: ((msg: ProtocolMessage) => void | Promise<void>) | undefined,
+  onPermissionResponse?: ((response: ProtocolControlResponse) => void) | undefined,
+  onControlRequest?: ((request: ProtocolControlRequest) => void) | undefined,
   onRuntimeEvent?: KernelRuntimeEventSink,
 ): void {
   try {
     let parsed: unknown = normalizeControlMessageKeys(jsonParse(data))
 
-    // control_response is not an SDKMessage — check before the type guard
-    if (isSDKControlResponse(parsed)) {
+    // control_response is not an ProtocolMessage — check before the type guard
+    if (isProtocolControlResponse(parsed)) {
       logForDebugging('[bridge:repl] Ingress message type=control_response')
       onPermissionResponse?.(parsed)
       return
@@ -246,7 +246,7 @@ export function handleIngressMessage(
 
     // control_request from the server (initialize, set_model, can_use_tool).
     // Must respond promptly or the server kills the WS (~10-14s timeout).
-    if (isSDKControlRequest(parsed)) {
+    if (isProtocolControlRequest(parsed)) {
       logForDebugging(
         `[bridge:repl] Inbound control_request subtype=${(parsed.request as { subtype?: string }).subtype}`,
       )
@@ -255,7 +255,7 @@ export function handleIngressMessage(
     }
 
     const runtimeEnvelope = getKernelRuntimeEnvelopeFromMessage(
-      parsed as StdoutMessage,
+      parsed as ProtocolStdoutMessage,
     )
     if (runtimeEnvelope) {
       try {
@@ -263,14 +263,14 @@ export function handleIngressMessage(
       } catch {
         // Runtime event observation must not affect legacy transport behavior.
       }
-      const sdkMessage = getSDKMessageFromRuntimeEnvelope(runtimeEnvelope)
-      if (!sdkMessage) {
+      const protocolMessage = getProtocolMessageFromRuntimeEnvelope(runtimeEnvelope)
+      if (!protocolMessage) {
         return
       }
-      parsed = sdkMessage
+      parsed = protocolMessage
     }
 
-    if (!isSDKMessage(parsed)) return
+    if (!isProtocolMessage(parsed)) return
 
     // Check for UUID to detect echoes of our own messages
     const uuid =
@@ -354,7 +354,7 @@ const OUTBOUND_ONLY_ERROR =
  * collaborators as params so both cores can use it.
  */
 export function handleServerControlRequest(
-  request: SDKControlRequest,
+  request: ProtocolControlRequest,
   handlers: ServerControlRequestHandlers,
 ): void {
   const {
@@ -373,7 +373,7 @@ export function handleServerControlRequest(
     return
   }
 
-  let response: SDKControlResponse
+  let response: ProtocolControlResponse
 
   // Outbound-only: reply error for mutable requests so claude.ai doesn't show
   // false success. initialize must still succeed (server kills the connection
@@ -512,10 +512,10 @@ export function handleServerControlRequest(
 // ─── Result message (for session archival on teardown) ───────────────────────
 
 /**
- * Build a minimal `SDKResultSuccess` message for session archival.
+ * Build a minimal `ProtocolResultSuccess` message for session archival.
  * The server needs this event before a WS close to trigger archival.
  */
-export function makeResultMessage(sessionId: string): SDKResultSuccess {
+export function makeResultMessage(sessionId: string): ProtocolResultSuccess {
   return {
     type: 'result_success',
     subtype: 'success',

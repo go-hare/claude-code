@@ -1,4 +1,4 @@
-import type { SDKMessage } from '../../../../entrypoints/agentSdkTypes.js'
+import type { ProtocolMessage } from 'src/types/protocol/index.js'
 import type { Message } from '../../../../types/message.js'
 import type { SystemInitInputs } from '../../../../utils/messages/systemInit.js'
 import type { KernelEvent } from '../../../contracts/events.js'
@@ -13,7 +13,7 @@ export type QueryTurnTerminalResult = {
   isError: boolean
   stopReason: string | null
   subtype?: string
-  sdkMessage?: SDKMessage
+  protocolMessage?: ProtocolMessage
 }
 
 export type QueryUserReplayMessage = {
@@ -45,7 +45,7 @@ export type QueryProgressMessage = Message & {
 
 export type QueryTurnMessageProjection = {
   events: KernelEvent[]
-  compatibilityMessages: SDKMessage[]
+  compatibilityMessages: ProtocolMessage[]
 }
 
 export type QueryTurnProjectionInput =

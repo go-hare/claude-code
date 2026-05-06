@@ -1,5 +1,5 @@
 import axios, { type AxiosError } from 'axios'
-import type { StdoutMessage } from 'src/entrypoints/sdk/controlTypes.js'
+import type { ProtocolStdoutMessage } from 'src/types/protocol/controlTypes.js'
 import { logForDebugging } from 'src/utils/debug.js'
 import { rcLog } from 'src/bridge/rcDebugLog.js'
 import { logForDiagnosticsNoPII } from 'src/utils/diagLogs.js'
@@ -592,7 +592,7 @@ export class SSETransport implements Transport {
   // Write (HTTP POST) — same pattern as HybridTransport
   // -----------------------------------------------------------------------
 
-  async write(message: StdoutMessage): Promise<void> {
+  async write(message: ProtocolStdoutMessage): Promise<void> {
     const authHeaders = this.getAuthHeaders()
     if (Object.keys(authHeaders).length === 0) {
       logForDebugging('SSETransport: No session token available for POST')

@@ -339,7 +339,7 @@ import {
 	type ChannelEntry,
 	getInitialMainLoopModel,
 	getIsNonInteractiveSession,
-	getSdkBetas,
+	getProtocolBetas,
 	getSessionId,
 	getUserMsgOptIn,
 	setAllowedChannels,
@@ -491,7 +491,7 @@ function logSessionTelemetry(): void {
 	);
 	void logSkillsLoaded(
 		getCwd(),
-		getContextWindowForModel(model, getSdkBetas()),
+		getContextWindowForModel(model, getProtocolBetas()),
 	);
 	void loadAllPluginsCacheOnly()
 		.then(({ enabled, errors }) => {
@@ -3146,7 +3146,7 @@ async function run(): Promise<CommanderCommand> {
 			// initialPrompt goes first so its slash command (if any) is processed;
 			// user-provided text becomes trailing context.
 			// Only concatenate when inputPrompt is a string. When it's an
-			// AsyncIterable (SDK stream-json mode), template interpolation would
+			// AsyncIterable (protocol stream-json mode), template interpolation would
 			// call .toString() producing "[object Object]". The AsyncIterable case
 			// is handled in print.ts via structuredIO.prependUserMessage().
 			if (mainThreadAgentDefinition?.initialPrompt) {

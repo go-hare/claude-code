@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import type { SDKMessage } from '../../../../../entrypoints/agentSdkTypes.js'
+import type { ProtocolMessage } from 'src/types/protocol/index.js'
 import { createQueryTurnEventAdapter } from '../QueryTurnEventAdapter.js'
 
 function createAdapter(abortReason: string | null = null) {
@@ -17,7 +17,7 @@ function createAdapter(abortReason: string | null = null) {
 }
 
 describe('QueryTurnEventAdapter', () => {
-  test('projects query stream events through the adapter input seam', () => {
+  test('projects query stream events without compatibility envelopes', () => {
     const adapter = createAdapter()
     const events = adapter.projectQueryMessage({
       type: 'stream_event',
@@ -32,26 +32,16 @@ describe('QueryTurnEventAdapter', () => {
       uuid: 'query-stream-1',
     })
 
-    expect(events.map(event => event.type)).toEqual([
-      'turn.output_delta',
-      'headless.sdk_message',
-    ])
+    expect(events.map(event => event.type)).toEqual(['turn.output_delta'])
     expect(events[0]).toMatchObject({
       payload: {
-        source: 'sdk_stream_event',
+        source: 'protocol_stream_event',
         text: 'from query',
       },
     })
-    expect(events[1]).toMatchObject({
-      payload: {
-        type: 'stream_event',
-        session_id: 'query-session',
-        uuid: 'query-stream-1',
-      },
-      metadata: {
-        canonicalProjection: 'turn.output_delta',
-      },
-    })
+    expect(events.some(event => event.type === 'headless.protocol_message')).toBe(
+      false,
+    )
   })
 
   test('projects query stream deltas with compatibility from the same input', () => {
@@ -72,7 +62,7 @@ describe('QueryTurnEventAdapter', () => {
 
     expect(projection.events.map(event => event.type)).toEqual([
       'turn.output_delta',
-      'headless.sdk_message',
+      'headless.protocol_message',
     ])
     expect(projection.compatibilityMessages).toHaveLength(1)
     expect(projection.events[1]).toMatchObject({
@@ -124,7 +114,7 @@ describe('QueryTurnEventAdapter', () => {
         },
       })
       expect(projection.events.map(event => event.type)).toEqual([
-        'headless.sdk_message',
+        'headless.protocol_message',
       ])
       expect(projection.compatibilityMessages).toHaveLength(1)
       expect(projection.events[0]).toMatchObject({
@@ -151,7 +141,7 @@ describe('QueryTurnEventAdapter', () => {
     }
   })
 
-  test('projects query tool summaries as compatibility envelopes', () => {
+  test('does not project tool summary compatibility envelopes by default', () => {
     const adapter = createAdapter()
 
     const queryEvents = adapter.projectQueryMessage({
@@ -161,19 +151,10 @@ describe('QueryTurnEventAdapter', () => {
       uuid: 'summary-1',
     })
 
-    expect(queryEvents.map(event => event.type)).toEqual([
-      'headless.sdk_message',
-    ])
-    expect(queryEvents[0]).toMatchObject({
-      payload: {
-        type: 'tool_use_summary',
-        summary: 'Finished tool batch',
-        preceding_tool_use_ids: ['toolu_1'],
-      },
-    })
+    expect(queryEvents).toEqual([])
   })
 
-  test('projects query compact boundaries as compatibility envelopes', () => {
+  test('does not project compact boundary compatibility envelopes by default', () => {
     const adapter = createAdapter()
 
     const queryEvents = adapter.projectQueryMessage({
@@ -191,27 +172,10 @@ describe('QueryTurnEventAdapter', () => {
       uuid: 'compact-1',
     })
 
-    expect(
-      queryEvents.map(event => event.type),
-    ).toEqual(['headless.sdk_message'])
-    expect(queryEvents[0]).toMatchObject({
-      payload: {
-        type: 'system',
-        subtype: 'compact_boundary',
-        compact_metadata: {
-          trigger: 'manual',
-          pre_tokens: 100,
-          preserved_segment: {
-            head_uuid: '00000000-0000-4000-8000-000000000001',
-            anchor_uuid: '00000000-0000-4000-8000-000000000002',
-            tail_uuid: '00000000-0000-4000-8000-000000000003',
-          },
-        },
-      },
-    })
+    expect(queryEvents).toEqual([])
   })
 
-  test('projects query local command output as compatibility envelopes', () => {
+  test('projects query local command output as canonical deltas only', () => {
     const adapter = createAdapter()
 
     const queryEvents = adapter.projectQueryMessage({
@@ -221,26 +185,16 @@ describe('QueryTurnEventAdapter', () => {
       uuid: 'local-1',
     })
 
-    expect(queryEvents.map(event => event.type)).toEqual([
-      'turn.delta',
-      'headless.sdk_message',
-    ])
+    expect(queryEvents.map(event => event.type)).toEqual(['turn.delta'])
     expect(queryEvents[0]).toMatchObject({
       payload: {
         kind: 'assistant_message',
         text: 'local output',
       },
     })
-    expect(queryEvents[1]).toMatchObject({
-      payload: {
-        type: 'assistant',
-        uuid: 'local-1',
-        session_id: 'conversation-1',
-      },
-    })
   })
 
-  test('projects explicit query user replays as compatibility envelopes', () => {
+  test('does not project explicit user replay compatibility envelopes by default', () => {
     const adapter = createAdapter()
 
     const queryEvents = adapter.projectQueryMessage({
@@ -255,20 +209,10 @@ describe('QueryTurnEventAdapter', () => {
       isSynthetic: false,
     })
 
-    expect(queryEvents.map(event => event.type)).toEqual([
-      'headless.sdk_message',
-    ])
-    expect(queryEvents[0]).toMatchObject({
-      payload: {
-        type: 'user',
-        uuid: 'user-replay-1',
-        isReplay: true,
-        isSynthetic: false,
-      },
-    })
+    expect(queryEvents).toEqual([])
   })
 
-  test('projects queued command attachments as user replay compatibility', () => {
+  test('does not project queued command attachment compatibility by default', () => {
     const adapter = createAdapter()
 
     const queryEvents = adapter.projectQueryMessage({
@@ -282,23 +226,10 @@ describe('QueryTurnEventAdapter', () => {
       timestamp: '2026-05-04T00:00:00.000Z',
     })
 
-    expect(queryEvents.map(event => event.type)).toEqual([
-      'headless.sdk_message',
-    ])
-    expect(queryEvents[0]).toMatchObject({
-      payload: {
-        type: 'user',
-        uuid: 'source-1',
-        isReplay: true,
-        message: {
-          role: 'user',
-          content: 'run queued command',
-        },
-      },
-    })
+    expect(queryEvents).toEqual([])
   })
 
-  test('projects query API retry messages as compatibility envelopes', () => {
+  test('does not project API retry compatibility envelopes by default', () => {
     const adapter = createAdapter()
 
     const queryEvents = adapter.projectQueryMessage({
@@ -314,20 +245,7 @@ describe('QueryTurnEventAdapter', () => {
       uuid: 'api-retry-1',
     })
 
-    expect(queryEvents.map(event => event.type)).toEqual([
-      'headless.sdk_message',
-    ])
-    expect(queryEvents[0]).toMatchObject({
-      payload: {
-        type: 'system',
-        subtype: 'api_retry',
-        attempt: 2,
-        max_retries: 5,
-        retry_delay_ms: 1000,
-        error_status: 429,
-        error: 'rate_limit',
-      },
-    })
+    expect(queryEvents).toEqual([])
   })
 
   test('projects query progress messages as compatibility sidecars once', () => {
@@ -356,7 +274,7 @@ describe('QueryTurnEventAdapter', () => {
     >[0])
 
     expect(projection.events.map(event => event.type)).toEqual([
-      'headless.sdk_message',
+      'headless.protocol_message',
     ])
     expect(projection.events[0]).toMatchObject({
       payload: {
@@ -416,7 +334,7 @@ describe('QueryTurnEventAdapter', () => {
     expect(third.compatibilityMessages).toHaveLength(1)
   })
 
-  test('projects query assistant messages as compatibility envelopes', () => {
+  test('projects query assistant messages as canonical deltas only', () => {
     const adapter = createAdapter()
 
     const queryEvents = adapter.projectQueryMessage({
@@ -428,28 +346,16 @@ describe('QueryTurnEventAdapter', () => {
       uuid: '00000000-0000-4000-8000-000000000010',
     })
 
-    expect(queryEvents.map(event => event.type)).toEqual([
-      'turn.delta',
-      'headless.sdk_message',
-    ])
+    expect(queryEvents.map(event => event.type)).toEqual(['turn.delta'])
     expect(queryEvents[0]).toMatchObject({
       payload: {
         kind: 'assistant_message',
         text: 'assistant output',
       },
     })
-    expect(queryEvents[1]).toMatchObject({
-      payload: {
-        type: 'assistant',
-        uuid: '00000000-0000-4000-8000-000000000010',
-        message: {
-          content: [{ type: 'text', text: 'assistant output' }],
-        },
-      },
-    })
   })
 
-  test('projects query user messages as compatibility envelopes', () => {
+  test('does not project user message compatibility envelopes by default', () => {
     const adapter = createAdapter()
 
     const queryEvents = adapter.projectQueryMessage({
@@ -462,18 +368,7 @@ describe('QueryTurnEventAdapter', () => {
       timestamp: '2026-05-04T00:00:00.000Z',
     })
 
-    expect(queryEvents.map(event => event.type)).toEqual([
-      'headless.sdk_message',
-    ])
-    expect(queryEvents[0]).toMatchObject({
-      payload: {
-        type: 'user',
-        uuid: '00000000-0000-4000-8000-000000000020',
-        message: {
-          content: [{ type: 'text', text: 'user input' }],
-        },
-      },
-    })
+    expect(queryEvents).toEqual([])
   })
 
   test('projects tool-use stream starts as semantic turn progress', () => {
@@ -494,10 +389,7 @@ describe('QueryTurnEventAdapter', () => {
       uuid: 'tool-stream-1',
     })
 
-    expect(events.map(event => event.type)).toEqual([
-      'turn.progress',
-      'headless.sdk_message',
-    ])
+    expect(events.map(event => event.type)).toEqual(['turn.progress'])
     expect(events[0]).toMatchObject({
       payload: {
         kind: 'tool_use_start',
@@ -531,9 +423,9 @@ describe('QueryTurnEventAdapter', () => {
 
     expect(events.map(event => event.type)).toContain('turn.delta')
     expect(events.map(event => event.type)).toContain('turn.progress')
-    expect(
-      events.filter(event => event.type === 'headless.sdk_message').length,
-    ).toBeGreaterThan(0)
+    expect(events.some(event => event.type === 'headless.protocol_message')).toBe(
+      false,
+    )
     expect(events.find(event => event.type === 'turn.progress')).toMatchObject({
       payload: {
         kind: 'tool_use_start',
@@ -563,10 +455,7 @@ describe('QueryTurnEventAdapter', () => {
       uuid: 'user-tool-result-1',
     } as unknown as Parameters<typeof adapter.projectQueryMessage>[0])
 
-    expect(events.map(event => event.type)).toEqual([
-      'turn.progress',
-      'headless.sdk_message',
-    ])
+    expect(events.map(event => event.type)).toEqual(['turn.progress'])
     expect(events[0]).toMatchObject({
       payload: {
         kind: 'tool_use_done',
@@ -577,7 +466,7 @@ describe('QueryTurnEventAdapter', () => {
     })
   })
 
-  test('projects query terminal results and keeps SDK result as compatibility only', () => {
+  test('projects query terminal results and keeps protocol result as compatibility only', () => {
     const adapter = createAdapter()
 
     const projection = adapter.projectQueryMessageWithCompatibility({
@@ -585,19 +474,19 @@ describe('QueryTurnEventAdapter', () => {
       subtype: 'success',
       isError: false,
       stopReason: 'end_turn',
-      sdkMessage: {
+      protocolMessage: {
         type: 'result',
         subtype: 'success',
         is_error: false,
         stop_reason: 'end_turn',
         session_id: 'conversation-1',
         uuid: 'result-1',
-      } as unknown as SDKMessage,
+      } as unknown as ProtocolMessage,
     })
 
     expect(projection.events.map(event => event.type)).toEqual([
       'turn.completed',
-      'headless.sdk_message',
+      'headless.protocol_message',
     ])
     expect(projection.events[0]).toMatchObject({
       payload: {
@@ -628,7 +517,7 @@ describe('QueryTurnEventAdapter', () => {
     })
   })
 
-  test('projects query stream deltas before compatibility envelopes', () => {
+  test('projects query stream deltas without compatibility envelopes', () => {
     const adapter = createAdapter()
     const events = adapter.projectQueryMessage({
       type: 'stream_event',
@@ -643,30 +532,21 @@ describe('QueryTurnEventAdapter', () => {
       uuid: 'stream-1',
     })
 
-    expect(events.map(event => event.type)).toEqual([
-      'turn.output_delta',
-      'headless.sdk_message',
-    ])
+    expect(events.map(event => event.type)).toEqual(['turn.output_delta'])
     expect(events[0]).toMatchObject({
       conversationId: 'conversation-1',
       turnId: 'turn-1',
       payload: {
-        source: 'sdk_stream_event',
+        source: 'protocol_stream_event',
         text: 'hello',
       },
       metadata: {
-        compatibilitySource: 'headless.sdk_message',
+        compatibilitySource: 'headless.protocol_message',
       },
     })
-    expect(events[1]).toMatchObject({
-      metadata: {
-        canonicalProjection: 'turn.output_delta',
-      },
-      payload: {
-        type: 'stream_event',
-        uuid: 'stream-1',
-      },
-    })
+    expect(events.some(event => event.type === 'headless.protocol_message')).toBe(
+      false,
+    )
     expect(adapter.hasTerminalResult()).toBe(false)
   })
 

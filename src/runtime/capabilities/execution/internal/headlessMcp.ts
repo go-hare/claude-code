@@ -3,8 +3,8 @@ import type {
   McpSdkServerConfig,
   ScopedMcpServerConfig,
 } from 'src/services/mcp/types.js'
-import type { McpServerConfigForProcessTransport } from 'src/entrypoints/agentSdkTypes.js'
-import type { SDKControlMcpSetServersResponse } from 'src/entrypoints/sdk/controlTypes.js'
+import type { McpServerConfigForProcessTransport } from 'src/types/protocol/index.js'
+import type { ProtocolControlMcpSetServersResponse } from 'src/types/protocol/controlTypes.js'
 import type { AppState } from 'src/state/AppStateStore.js'
 import type { Tools } from 'src/Tool.js'
 import { logError } from 'src/utils/log.js'
@@ -36,7 +36,7 @@ export type SdkMcpState = {
 }
 
 export type McpSetServersResult = {
-  response: SDKControlMcpSetServersResponse
+  response: ProtocolControlMcpSetServersResponse
   newSdkState: SdkMcpState
   newDynamicState: DynamicMcpState
   sdkServersChanged: boolean
@@ -129,7 +129,7 @@ export async function reconcileMcpServers(
   currentState: DynamicMcpState,
   setAppState: (f: (prev: AppState) => AppState) => void,
 ): Promise<{
-  response: SDKControlMcpSetServersResponse
+  response: ProtocolControlMcpSetServersResponse
   newState: DynamicMcpState
 }> {
   const currentNames = new Set(Object.keys(currentState.configs))
