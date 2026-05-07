@@ -101,6 +101,13 @@ describe('kernel import discipline', () => {
     expect(offenders).toEqual([])
   })
 
+  test('REPL host does not read bootstrap-backed runtime state providers directly', async () => {
+    await expectNotToContain('src/screens/REPL.tsx', [
+      /runtime\/core\/state\/bootstrapProvider\.js/,
+      /\bcreateRuntime(?:CostRestore|InputToken|SessionIdentity|Usage)State/,
+    ])
+  })
+
   test('daemon host no longer wires bridge runtime directly', async () => {
     await expectNotToContain('src/daemon/workerRegistry.ts', [
       /bridgeMain\.js/,

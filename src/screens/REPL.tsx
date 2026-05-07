@@ -47,12 +47,6 @@ import {
   mergeFileStateCaches,
   READ_FILE_STATE_CACHE_SIZE,
 } from '../utils/fileStateCache.js';
-import {
-  createRuntimeCostRestoreStateWriter,
-  createRuntimeInputTokenStateProvider,
-  createRuntimeSessionIdentityStateProvider,
-  createRuntimeUsageStateProvider,
-} from '../runtime/core/state/bootstrapProvider.js';
 import { asSessionId, asAgentId } from '../types/ids.js';
 import { logForDebugging } from '../utils/debug.js';
 import { QueryGuard } from '../utils/QueryGuard.js';
@@ -147,41 +141,38 @@ import { isHumanTurn } from '../utils/messagePredicates.js';
 import { logError } from '../utils/log.js';
 import { getCwd } from '../utils/cwd.js';
 
-const runtimeCostRestoreState = createRuntimeCostRestoreStateWriter();
-const runtimeInputTokenState = createRuntimeInputTokenStateProvider();
-const runtimeSessionIdentityState = createRuntimeSessionIdentityStateProvider();
-const runtimeUsageState = createRuntimeUsageStateProvider();
+const replRuntimeState = createKernelReplRuntimeState();
 
 function getReplSessionIdentity() {
-  return runtimeSessionIdentityState.getSessionIdentity();
+  return replRuntimeState.getSessionIdentity();
 }
 
 function snapshotReplTurnBudget(budget: number | null) {
-  runtimeUsageState.snapshotTurnBudget(budget);
+  replRuntimeState.snapshotTurnBudget(budget);
 }
 
 function getReplCurrentTurnTokenBudget() {
-  return runtimeUsageState.getExecutionBudget().currentTurnTokenBudget;
+  return replRuntimeState.getCurrentTurnTokenBudget();
 }
 
 function getReplTurnOutputTokens() {
-  return runtimeUsageState.getExecutionBudget().turnOutputTokens;
+  return replRuntimeState.getTurnOutputTokens();
 }
 
 function getReplBudgetContinuationCount() {
-  return runtimeUsageState.getExecutionBudget().budgetContinuationCount;
+  return replRuntimeState.getBudgetContinuationCount();
 }
 
 function getReplTotalInputTokens() {
-  return runtimeInputTokenState.getTotalInputTokens();
+  return replRuntimeState.getTotalInputTokens();
 }
 
 function markReplInteraction(immediate = true) {
-  runtimeUsageState.markInteraction(immediate);
+  replRuntimeState.markInteraction(immediate);
 }
 
 function getReplLastInteractionTime() {
-  return runtimeUsageState.getUsageSnapshot().lastInteractionTime;
+  return replRuntimeState.getLastInteractionTime();
 }
 
 // Dead code elimination: conditional imports
@@ -289,13 +280,12 @@ import { processSessionStartHooks } from '../utils/sessionStart.js';
 import { executeSessionEndHooks, getSessionEndHookTimeoutMs } from '../utils/hooks.js';
 import { type IDESelection, useIdeSelection } from '../hooks/useIdeSelection.js';
 import {
+  createKernelReplRuntimeState,
   createKernelReplPermissionService,
   createKernelReplRuntimeEventBus,
-  createKernelRuntimeEventFacade,
   materializeKernelReplRuntimeToolSet,
   prepareKernelReplRuntimeQuery,
   refreshKernelReplRuntimeAgentDefinitions,
-  type KernelRuntimeEnvelopeBase,
 } from '../kernel/replRuntimeController.js';
 import {
   finalizeReplCompletedTurnHostShell,
@@ -313,6 +303,7 @@ import { runReplBackgroundQueryController } from './repl/controllers/runReplBack
 import { runReplInitialMessageController } from './repl/controllers/runReplInitialMessageController.js';
 import { runReplQueryTurnController } from './repl/controllers/runReplQueryTurnController.js';
 import { runReplForegroundQueryController } from './repl/controllers/runReplForegroundQueryController.js';
+import { useReplTransportRuntimeController } from './repl/controllers/useReplTransportRuntimeController.js';
 import type { AgentDefinition } from '@go-hare/builtin-tools/tools/AgentTool/loadAgentsDir.js';
 import { resumeAgentBackground } from '@go-hare/builtin-tools/tools/AgentTool/resumeAgent.js';
 import { useMainLoopModel } from '../hooks/useMainLoopModel.js';
@@ -379,16 +370,6 @@ const PROACTIVE_NO_OP_SUBSCRIBE = (_cb: () => void) => () => {};
 const PROACTIVE_FALSE = () => false;
 const PROACTIVE_NULL = (): number | null => null;
 const SUGGEST_BG_PR_NOOP = (_p: string, _n: string): boolean => false;
-function getRuntimeEventTypeForLog(envelope: KernelRuntimeEnvelopeBase): string {
-  const payload = envelope.payload;
-  if (typeof payload === 'object' && payload !== null && 'type' in payload) {
-    const type = (payload as { type?: unknown }).type;
-    if (typeof type === 'string') {
-      return type;
-    }
-  }
-  return '';
-}
 const useProactive =
   feature('PROACTIVE') || feature('KAIROS') ? require('../proactive/useProactive.js').useProactive : null;
 const useScheduledTasks = feature('AGENT_TRIGGERS') ? require('../hooks/useScheduledTasks.js').useScheduledTasks : null;
@@ -1628,23 +1609,6 @@ export function REPL({
 
   const [inProgressToolUseIDs, setInProgressToolUseIDs] = useState<Set<string>>(new Set());
   const hasInterruptibleToolInProgressRef = useRef(false);
-  const transportRuntimeEventFacade = useMemo(
-    () =>
-      createKernelRuntimeEventFacade({
-        runtimeId: `repl-transport:${getReplSessionIdentity().sessionId}`,
-        maxReplayEvents: 512,
-      }),
-    [],
-  );
-  const handleTransportRuntimeEvent = useCallback(
-    (envelope: KernelRuntimeEnvelopeBase) => {
-      const accepted = transportRuntimeEventFacade.ingestEnvelope(envelope);
-      logForDebugging(
-        `[REPL:runtime-event] kind=${envelope.kind} accepted=${accepted ? 'yes' : 'duplicate'} type=${getRuntimeEventTypeForLog(envelope)} conversationId=${envelope.conversationId ?? ''} eventId=${envelope.eventId ?? ''}`,
-      );
-    },
-    [transportRuntimeEventFacade],
-  );
 
   const [pastedContents, setPastedContents] = useState<Record<number, PastedContent>>({});
   const [submitCount, setSubmitCount] = useState(0);
@@ -1704,23 +1668,17 @@ export function REPL({
   const visibleStreamingText =
     streamingText && showStreamingText ? streamingText.substring(0, streamingText.lastIndexOf('\n') + 1) || null : null;
 
-  const runtimeOutputBufferRef = useRef('');
-  const handleRuntimeOutputDelta = useCallback(
-    (text: string) => {
-      if (text.length === 0) return;
-      runtimeOutputBufferRef.current += text;
-      setResponseLength(length => length + text.length);
-      onStreamingText(current => (current ?? '') + text);
-    },
-    [setResponseLength, onStreamingText],
-  );
-  const handleRuntimeTurnTerminal = useCallback(() => {
-    const text = runtimeOutputBufferRef.current;
-    runtimeOutputBufferRef.current = '';
-    if (!text) return;
-    setStreamingText(null);
-    setMessages(prev => [...prev, createAssistantMessage({ content: text })]);
-  }, [setMessages]);
+  const {
+    handleTransportRuntimeEvent,
+    handleRuntimeOutputDelta,
+    handleRuntimeTurnTerminal,
+  } = useReplTransportRuntimeController({
+    runtimeId: `repl-transport:${getReplSessionIdentity().sessionId}`,
+    setMessages,
+    setStreamingText,
+    setResponseLength,
+    appendStreamingText: onStreamingText,
+  });
 
   // Remote session hook - manages WebSocket connection and message handling for --remote mode
   const remoteSession = useRemoteSession({
@@ -2209,7 +2167,7 @@ export function REPL({
         // Switch session (id + project dir atomically). fullPath may point to
         // a different project (cross-worktree, /branch); null derives from
         // current originalCwd.
-        runtimeSessionIdentityState.switchSession(
+        replRuntimeState.switchSession(
           asSessionId(sessionId),
           log.fullPath ? dirname(log.fullPath) : null,
         );
@@ -2270,7 +2228,7 @@ export function REPL({
 
         // Restore target session's costs from the data we read earlier
         if (targetSessionCosts) {
-          runtimeCostRestoreState.setCostStateForRestore(targetSessionCosts);
+          replRuntimeState.setCostStateForRestore(targetSessionCosts);
         }
 
         // Reconstruct replacement state for the resumed session. Runs after
