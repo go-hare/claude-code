@@ -1,15 +1,15 @@
-# Hare Code
+# Claude Code
 
-[![GitHub Stars](https://img.shields.io/github/stars/go-hare/hare-code?style=flat-square&logo=github&color=yellow)](https://github.com/go-hare/hare-code/stargazers)
-[![GitHub Contributors](https://img.shields.io/github/contributors/go-hare/hare-code?style=flat-square&color=green)](https://github.com/go-hare/hare-code/graphs/contributors)
-[![GitHub Issues](https://img.shields.io/github/issues/go-hare/hare-code?style=flat-square&color=orange)](https://github.com/go-hare/hare-code/issues)
-[![GitHub License](https://img.shields.io/github/license/go-hare/hare-code?style=flat-square)](https://github.com/go-hare/hare-code/blob/main/LICENSE)
-[![Last Commit](https://img.shields.io/github/last-commit/go-hare/hare-code?style=flat-square&color=blue)](https://github.com/go-hare/hare-code/commits/main)
+[![GitHub Stars](https://img.shields.io/github/stars/go-hare/claude-code?style=flat-square&logo=github&color=yellow)](https://github.com/go-hare/claude-code/stargazers)
+[![GitHub Contributors](https://img.shields.io/github/contributors/go-hare/claude-code?style=flat-square&color=green)](https://github.com/go-hare/claude-code/graphs/contributors)
+[![GitHub Issues](https://img.shields.io/github/issues/go-hare/claude-code?style=flat-square&color=orange)](https://github.com/go-hare/claude-code/issues)
+[![GitHub License](https://img.shields.io/github/license/go-hare/claude-code?style=flat-square)](https://github.com/go-hare/claude-code/blob/main/LICENSE)
+[![Last Commit](https://img.shields.io/github/last-commit/go-hare/claude-code?style=flat-square&color=blue)](https://github.com/go-hare/claude-code/commits/main)
 [![Bun](https://img.shields.io/badge/runtime-Bun-black?style=flat-square&logo=bun)](https://bun.sh/)
 [![TypeScript](https://img.shields.io/badge/lang-TypeScript-3178C6?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
-[![Tests](https://img.shields.io/badge/tests-3281%20pass-brightgreen?style=flat-square)](https://github.com/go-hare/hare-code/actions)
+[![Tests](https://img.shields.io/badge/tests-3281%20pass-brightgreen?style=flat-square)](https://github.com/go-hare/claude-code/actions)
 
-Hare Code 是一个面向终端交互、headless 嵌入、direct-connect、server、bridge 和 daemon 场景的 **内核化 AI coding runtime**。它是 Claude Code 的反编译还原版本，已从单体 CLI 架构重构为**三层分层内核架构**，在保留所有原始功能的基础上提供了标准化、可嵌入的运行时接口。
+Claude Code 是一个面向终端交互、headless 嵌入、direct-connect、server、bridge 和 daemon 场景的 **内核化 AI coding runtime**。它基于 Claude Code 的反编译还原代码，已从单体 CLI 架构重构为**三层分层内核架构**，在保留所有原始功能的基础上提供了标准化、可嵌入的运行时接口。
 
 ## 架构概览
 
@@ -190,7 +190,7 @@ Team 生命周期:  spawnTeam  →  (队友加入/工作)  →  cleanup
 
 ### 量化对比
 
-| 指标 | 原始 Claude Code | 内核化 Hare Code | 变化 |
+| 指标 | 原始 Claude Code | 内核化 Claude Code | 变化 |
 |------|-----------------|------------------|------|
 | 源文件数 | 2,741 | 3,137 | **+396 (+14.4%)** |
 | 代码行数 | 509,139 | 575,383 | **+66,244 (+13.0%)** |
@@ -277,8 +277,8 @@ claude
 ### 源码安装
 
 ```bash
-git clone https://github.com/go-hare/hare-code.git
-cd hare-code
+git clone https://github.com/go-hare/claude-code.git
+cd claude-code
 bun install
 bun run build
 npm pack

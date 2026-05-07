@@ -6,11 +6,11 @@
   "author": "go-hare",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/go-hare/hare-code.git"
+    "url": "git+https://github.com/go-hare/claude-code.git"
   },
-  "homepage": "https://github.com/go-hare/hare-code#readme",
+  "homepage": "https://github.com/go-hare/claude-code#readme",
   "bugs": {
-    "url": "https://github.com/go-hare/hare-code/issues"
+    "url": "https://github.com/go-hare/claude-code/issues"
   },
   "keywords": [
     "claude",
