@@ -1,7 +1,7 @@
 import { feature } from 'bun:bundle'
 import { z } from 'zod/v4'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from 'src/services/analytics/growthbook.js'
-import { buildTool, type ToolDef } from 'src/Tool.js'
+import { buildTool, type ToolDef, type ToolUseContext } from 'src/Tool.js'
 import { isAgentSwarmsEnabled } from 'src/utils/agentSwarmsEnabled.js'
 import {
   executeTaskCompletedHooks,
@@ -224,6 +224,17 @@ export const TaskUpdateTool = buildTool({
               ? { from: existingTask.status, to: 'deleted' }
               : undefined,
           },
+          contextModifier: deleted
+            ? (ctx: ToolUseContext) => {
+                if (ctx.activeTaskExecutionContext?.taskId !== taskId) {
+                  return ctx
+                }
+                return {
+                  ...ctx,
+                  activeTaskExecutionContext: undefined,
+                }
+              }
+            : undefined,
         }
       }
 
@@ -283,14 +294,31 @@ export const TaskUpdateTool = buildTool({
         ? { ...existingTask, ...updates, metadata: latestMetadata }
         : existingTask
 
-    if (updates.status === 'in_progress' || latestTask.status === 'in_progress') {
-      context.activeTaskExecutionContext = {
-        taskListId,
-        taskId,
-        ownedFiles: getTaskOwnedFiles(latestTask),
+    const activeTaskExecutionContext =
+      latestTask.status === 'in_progress'
+        ? {
+            taskListId,
+            taskId,
+            ownedFiles: getTaskOwnedFiles(latestTask),
+          }
+        : undefined
+
+    const updateActiveTaskExecutionContext = (
+      ctx: ToolUseContext,
+    ): ToolUseContext => {
+      if (activeTaskExecutionContext) {
+        return {
+          ...ctx,
+          activeTaskExecutionContext,
+        }
       }
-    } else if (context.activeTaskExecutionContext?.taskId === taskId) {
-      context.activeTaskExecutionContext = undefined
+      if (ctx.activeTaskExecutionContext?.taskId !== taskId) {
+        return ctx
+      }
+      return {
+        ...ctx,
+        activeTaskExecutionContext: undefined,
+      }
     }
 
     // Notify new owner via mailbox when ownership changes
@@ -379,6 +407,7 @@ export const TaskUpdateTool = buildTool({
             : undefined,
         verificationNudgeNeeded,
       },
+      contextModifier: updateActiveTaskExecutionContext,
     }
   },
   mapToolResultToToolResultBlockParam(content, toolUseID) {
