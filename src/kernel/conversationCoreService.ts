@@ -235,7 +235,7 @@ export class ConversationCoreService {
       request.resumeSessionAt,
     )
     const transcript = resumeAt.transcript
-    await this.createSession({
+    const created = await this.createSession({
       sessionId: request.targetSessionId,
       workspacePath: request.workspacePath,
       metadata: {
@@ -245,15 +245,42 @@ export class ConversationCoreService {
         resumeSliced: resumeAt.sliced,
       },
     })
-    this.hydrateTranscript(request.targetSessionId, request.transcriptSessionId, transcript)
+    this.hydrateTranscript(
+      request.targetSessionId,
+      request.transcriptSessionId,
+      transcript,
+    )
     return {
       sessionId: request.targetSessionId,
+      conversation: created.conversation,
       resumedFromSessionId: request.transcriptSessionId,
       transcript,
       resumeSliced: resumeAt.sliced,
       resumeError: resumeAt.error,
       resumeInterruptedTurn: request.resumeInterruptedTurn ?? false,
     }
+  }
+
+  async abortActiveTurns(reason = 'host_disconnected'): Promise<readonly string[]> {
+    const abortedTurnIds: string[] = []
+    for (const [conversationId, conversation] of this.conversations) {
+      const activeTurnId = conversation.activeTurnId
+      if (!activeTurnId) {
+        continue
+      }
+      const snapshot = conversation.abortTurn(activeTurnId, reason)
+      const activeExecution = this.activeExecutions.get(
+        this.turnExecutionKey(conversationId, activeTurnId),
+      )
+      await this.recordConversationSnapshot(
+        conversation,
+        snapshot,
+        activeExecution?.request,
+      )
+      activeExecution?.controller.abort(reason)
+      abortedTurnIds.push(activeTurnId)
+    }
+    return abortedTurnIds
   }
 
   async disposeSession(request: {

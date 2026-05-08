@@ -2,6 +2,7 @@ import type {
   RuntimeMcpAuthRequest,
   RuntimeMcpConnectRequest,
   RuntimeMcpLifecycleResult,
+  RuntimeMcpRegistrySnapshot,
   RuntimeMcpResourceRef,
   RuntimeMcpServerRef,
   RuntimeMcpSetEnabledRequest,
@@ -126,6 +127,38 @@ export class McpCoreService {
     return result
   }
 
+  async reload(): Promise<RuntimeMcpRegistrySnapshot & {
+    tools: readonly RuntimeMcpToolBinding[]
+  }> {
+    await this.registry.reload?.({
+      cwd: this.options.workspacePath ?? process.cwd(),
+      metadata: { protocol: 'json-rpc-lite' },
+    })
+    const toolBindings = await this.registry.listToolBindings({
+      cwd: this.options.workspacePath ?? process.cwd(),
+      metadata: { protocol: 'json-rpc-lite' },
+    })
+    const snapshot = {
+      servers: await this.registry.listServers({
+        cwd: this.options.workspacePath ?? process.cwd(),
+        metadata: { protocol: 'json-rpc-lite' },
+      }),
+      resources: await this.registry.listResources(undefined, {
+        cwd: this.options.workspacePath ?? process.cwd(),
+        metadata: { protocol: 'json-rpc-lite' },
+      }),
+      toolBindings,
+      tools: toolBindings,
+    }
+    this.options.eventBus?.emit({
+      type: 'mcp.reloaded',
+      replayable: true,
+      payload: stripUndefined(snapshot),
+      metadata: { protocol: 'json-rpc-lite' },
+    })
+    return snapshot
+  }
+
   listRuntimeTools(): Promise<readonly Tool[]> {
     return this.listRuntimeToolsImpl?.() ?? Promise.resolve([])
   }
@@ -134,10 +167,7 @@ export class McpCoreService {
     return this.listClientsImpl?.() ?? Promise.resolve([])
   }
 
-  private emitLifecycle(
-    type: string,
-    result: RuntimeMcpLifecycleResult,
-  ): void {
+  private emitLifecycle(type: string, result: RuntimeMcpLifecycleResult): void {
     this.options.eventBus?.emit({
       type,
       replayable: true,

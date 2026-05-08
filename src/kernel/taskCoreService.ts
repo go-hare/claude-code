@@ -31,6 +31,15 @@ export class TaskCoreService {
     )
   }
 
+  async getTask(taskId: string, taskListId?: string): Promise<unknown> {
+    return {
+      task:
+        stripUndefined(
+          await this.taskRegistry.getTask(taskId, taskListId, this.context()),
+        ) ?? null,
+    }
+  }
+
   async createTask(request: RuntimeTaskCreateRequest): Promise<unknown> {
     const createTask = this.taskRegistry.createTask
     if (!createTask) {

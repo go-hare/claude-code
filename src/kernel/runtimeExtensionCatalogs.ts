@@ -26,10 +26,7 @@ import type {
   RuntimeSkillPromptContextResult,
   RuntimeSkillSource,
 } from '../runtime/contracts/skill.js'
-import type {
-  Command,
-  LocalJSXCommandContext,
-} from '../types/command.js'
+import type { Command, LocalJSXCommandContext } from '../types/command.js'
 import type { LoadedPlugin, PluginError } from '../types/plugin.js'
 import type { AppState } from '../state/AppState.js'
 import type { HookInput } from 'src/types/protocol/index.js'
@@ -51,17 +48,29 @@ type KernelRuntimeHookCatalogDeps = {
   loadPluginHookMatchers?(): Promise<RuntimeRegisteredHookMatchers>
 }
 
-type RuntimeHookCatalog = {
-  listHooks(): Promise<readonly RuntimeHookDescriptor[]>
-  reload(): Promise<void>
-  runHook(request: RuntimeHookRunRequest): Promise<RuntimeHookRunResult>
+export type RuntimeHookCatalog = {
+  listHooks(context?: {
+    cwd?: string
+    metadata?: Record<string, unknown>
+  }): Promise<readonly RuntimeHookDescriptor[]>
+  reload(context?: {
+    cwd?: string
+    metadata?: Record<string, unknown>
+  }): Promise<void>
+  runHook(
+    request: RuntimeHookRunRequest,
+    context?: { cwd?: string; metadata?: Record<string, unknown> },
+  ): Promise<RuntimeHookRunResult>
   registerHook(
     request: RuntimeHookRegisterRequest,
+    context?: { cwd?: string; metadata?: Record<string, unknown> },
   ): Promise<RuntimeHookMutationResult>
 }
 
-type RuntimeSkillCatalog = {
-  listSkills(context?: { cwd?: string }): Promise<readonly RuntimeSkillDescriptor[]>
+export type RuntimeSkillCatalog = {
+  listSkills(context?: {
+    cwd?: string
+  }): Promise<readonly RuntimeSkillDescriptor[]>
   reload(context?: { cwd?: string }): Promise<void>
   resolvePromptContext(
     request: RuntimeSkillPromptContextRequest,
@@ -69,23 +78,33 @@ type RuntimeSkillCatalog = {
   ): Promise<RuntimeSkillPromptContextResult>
 }
 
-type RuntimePluginCatalog = {
-  listPlugins(): Promise<{
+export type RuntimePluginCatalog = {
+  listPlugins(context?: {
+    cwd?: string
+    metadata?: Record<string, unknown>
+  }): Promise<{
     plugins: readonly RuntimePluginDescriptor[]
     errors: readonly RuntimePluginErrorDescriptor[]
   }>
-  reload(): Promise<void>
+  reload(context?: {
+    cwd?: string
+    metadata?: Record<string, unknown>
+  }): Promise<void>
   setPluginEnabled(
     request: RuntimePluginSetEnabledRequest,
+    context?: { cwd?: string; metadata?: Record<string, unknown> },
   ): Promise<RuntimePluginMutationResult>
   installPlugin(
     request: RuntimePluginInstallRequest,
+    context?: { cwd?: string; metadata?: Record<string, unknown> },
   ): Promise<RuntimePluginMutationResult>
   uninstallPlugin(
     request: RuntimePluginUninstallRequest,
+    context?: { cwd?: string; metadata?: Record<string, unknown> },
   ): Promise<RuntimePluginMutationResult>
   updatePlugin(
     request: RuntimePluginUpdateRequest,
+    context?: { cwd?: string; metadata?: Record<string, unknown> },
   ): Promise<RuntimePluginMutationResult>
 }
 
@@ -127,7 +146,8 @@ export function createDefaultKernelRuntimeHookCatalog(
     for (const [event, matchers] of Object.entries(registered)) {
       for (const matcher of matchers ?? []) {
         const source = 'pluginRoot' in matcher ? 'pluginHook' : 'builtinHook'
-        const pluginName = 'pluginName' in matcher ? matcher.pluginName : undefined
+        const pluginName =
+          'pluginName' in matcher ? matcher.pluginName : undefined
         for (const hook of matcher.hooks) {
           descriptors.push(
             toRuntimeHookDescriptor({
@@ -147,28 +167,23 @@ export function createDefaultKernelRuntimeHookCatalog(
 
   async function listHooks(): Promise<readonly RuntimeHookDescriptor[]> {
     if (!cachedStaticHooks) {
-      const [
-        hooksModule,
-        hooksSettings,
-        { loadAllPluginsCacheOnly },
-      ] = await Promise.all([
-        import('../utils/hooks.js'),
-        import('../utils/hooks/hooksSettings.js'),
-        import('../utils/plugins/pluginLoader.js'),
-      ])
+      const [hooksModule, hooksSettings, { loadAllPluginsCacheOnly }] =
+        await Promise.all([
+          import('../utils/hooks.js'),
+          import('../utils/hooks/hooksSettings.js'),
+          import('../utils/plugins/pluginLoader.js'),
+        ])
       const appState = await ensureAppState()
-      const appStateHooks = hooksSettings
-        .getAllHooks(appState)
-        .map(hook =>
-          toRuntimeHookDescriptor({
-            event: hook.event,
-            config: hook.config,
-            matcher: hook.matcher,
-            source: hook.source,
-            pluginName: hook.pluginName,
-            displayName: hooksSettings.getHookDisplayText(hook.config),
-          }),
-        )
+      const appStateHooks = hooksSettings.getAllHooks(appState).map(hook =>
+        toRuntimeHookDescriptor({
+          event: hook.event,
+          config: hook.config,
+          matcher: hook.matcher,
+          source: hook.source,
+          pluginName: hook.pluginName,
+          displayName: hooksSettings.getHookDisplayText(hook.config),
+        }),
+      )
       const { enabled } = await loadAllPluginsCacheOnly()
       cachedStaticHooks = [
         ...appStateHooks,
@@ -196,9 +211,9 @@ export function createDefaultKernelRuntimeHookCatalog(
         { createBaseHookInput, executeHooksOutsideREPL },
         { isHookEvent },
       ] = await Promise.all([
-          import('../utils/hooks.js'),
-          import('../types/hooks.js'),
-        ])
+        import('../utils/hooks.js'),
+        import('../types/hooks.js'),
+      ])
       const loadPluginHookMatchers =
         deps.loadPluginHookMatchers ??
         (await import('../utils/plugins/loadPluginHooks.js'))
@@ -223,13 +238,15 @@ export function createDefaultKernelRuntimeHookCatalog(
       )
       const appState = await ensureAppState()
       const pluginHookLoadErrors: RuntimeHookRunError[] = []
-      const extraRegisteredHooks = await loadPluginHookMatchers().catch(error => {
-        pluginHookLoadErrors.push({
-          message: `Failed to load plugin hooks: ${errorMessage(error)}`,
-          code: 'plugin_load_failed',
-        })
-        return undefined
-      })
+      const extraRegisteredHooks = await loadPluginHookMatchers().catch(
+        error => {
+          pluginHookLoadErrors.push({
+            message: `Failed to load plugin hooks: ${errorMessage(error)}`,
+            code: 'plugin_load_failed',
+          })
+          return undefined
+        },
+      )
       const results = await executeHooksOutsideREPL({
         getAppState: () => appState,
         hookInput,
@@ -255,20 +272,23 @@ export function createDefaultKernelRuntimeHookCatalog(
 
       return {
         event: request.event,
-        handled:
-          allResults.length > 0 || unboundRegisteredHooks.length > 0,
+        handled: allResults.length > 0 || unboundRegisteredHooks.length > 0,
         outputs:
           allResults.length > 0
-            ? allResults.map(result => stripUndefinedFields({
-                command: result.command,
-                succeeded: result.succeeded,
-                output: result.output,
-                blocked: result.blocked,
-                watchPaths:
-                  'watchPaths' in result ? result.watchPaths : undefined,
-                systemMessage:
-                  'systemMessage' in result ? result.systemMessage : undefined,
-              }))
+            ? allResults.map(result =>
+                stripUndefinedFields({
+                  command: result.command,
+                  succeeded: result.succeeded,
+                  output: result.output,
+                  blocked: result.blocked,
+                  watchPaths:
+                    'watchPaths' in result ? result.watchPaths : undefined,
+                  systemMessage:
+                    'systemMessage' in result
+                      ? result.systemMessage
+                      : undefined,
+                }),
+              )
             : undefined,
         errors: errors.length > 0 ? errors : undefined,
         metadata: request.metadata,
@@ -600,7 +620,9 @@ function toRuntimeHookRunErrors(
     .map(result => ({
       message:
         result.output ||
-        (result.blocked ? 'Hook blocked continuation' : 'Hook execution failed'),
+        (result.blocked
+          ? 'Hook blocked continuation'
+          : 'Hook execution failed'),
       code: result.blocked ? 'blocked' : 'execution_failed',
     }))
 }
@@ -835,7 +857,9 @@ function matchesRuntimeHookMatcher(
       return patterns.includes(normalizeLegacyToolName(matchQuery))
     }
 
-    return normalizeLegacyToolName(matchQuery) === normalizeLegacyToolName(matcher)
+    return (
+      normalizeLegacyToolName(matchQuery) === normalizeLegacyToolName(matcher)
+    )
   }
 
   try {
@@ -992,7 +1016,6 @@ function toPluginMutationResult(input: {
     metadata: input.metadata,
   }
 }
-
 
 function toRuntimeHookType(value: unknown): RuntimeHookType {
   switch (value) {

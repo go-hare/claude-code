@@ -1,7 +1,9 @@
 import { createInterface } from 'readline'
 import type { Readable, Writable } from 'stream'
 
+import { RuntimeCapabilityUnavailableError } from '../runtime/capabilities/RuntimeCapabilityResolver.js'
 import type {
+  RuntimeCommandExecuteRequest,
   RuntimeCommandGraphEntry,
   RuntimeCommandKind,
 } from '../runtime/contracts/command.js'
@@ -10,17 +12,24 @@ import type {
   KernelRuntimeEnvelopeBase,
 } from '../runtime/contracts/events.js'
 import type {
+  RuntimeHookRegisterRequest,
+  RuntimeHookRunRequest,
+} from '../runtime/contracts/hook.js'
+import type {
   KernelPermissionDecision,
   KernelPermissionDecisionValue,
   KernelPermissionRequest,
 } from '../runtime/contracts/permissions.js'
 import type { RuntimeProviderSelection } from '../runtime/contracts/provider.js'
+import type { RuntimeSkillPromptContextRequest } from '../runtime/contracts/skill.js'
 import type { RuntimeToolDescriptor } from '../runtime/contracts/tool.js'
 import type { KernelTurnRunRequest } from '../runtime/contracts/turn.js'
+import { AgentCoreError, AgentCoreService } from './agentCoreService.js'
+import type { KernelCompanionAction } from './companion.js'
 import {
-  AgentCoreError,
-  AgentCoreService,
-} from './agentCoreService.js'
+  AutonomyCoreService,
+  type AutonomyCoreServiceOptions,
+} from './autonomyCoreService.js'
 import {
   CommandGraphCoreError,
   CommandGraphCoreService,
@@ -33,8 +42,14 @@ import {
   ConversationCoreService,
   type ConversationCoreTurnExecutor,
 } from './conversationCoreService.js'
+import {
+  ExtensionCoreError,
+  ExtensionCoreService,
+  type ExtensionCoreServiceOptions,
+} from './extensionCoreService.js'
 import type { KernelMemoryManager } from './memory.js'
 import {
+  RuntimeCoreError,
   RuntimeCoreService,
   type RuntimeCoreServiceOptions,
 } from './runtimeCoreService.js'
@@ -49,19 +64,14 @@ import type {
   KernelRuntimeAgentRegistry,
   KernelRuntimeTaskRegistry,
 } from './runtimeAgentTaskRegistries.js'
+import type { KernelKairosExternalEvent } from './kairos.js'
 import {
   ToolCoreError,
   ToolCoreService,
   type ToolCoreCatalog,
 } from './toolCoreService.js'
-import {
-  TaskCoreError,
-  TaskCoreService,
-} from './taskCoreService.js'
-import {
-  TeamCoreError,
-  TeamCoreService,
-} from './teamCoreService.js'
+import { TaskCoreError, TaskCoreService } from './taskCoreService.js'
+import { TeamCoreError, TeamCoreService } from './teamCoreService.js'
 import type { KernelRuntimeTeamRegistry } from './runtimeTeamsRegistry.js'
 
 export const KERNEL_RUNTIME_JSON_RPC_LITE_PROTOCOL_VERSION = '2026-05-08'
@@ -108,12 +118,12 @@ type JsonRpcLiteOutboundMessage =
 type ParsedInboundMessage =
   | ({ kind: 'request' } & JsonRpcLiteRequestMessage)
   | ({ kind: 'notification' } & JsonRpcLiteNotificationMessage)
-  | ({
+  | {
       kind: 'response'
       id: JsonRpcLiteResponseId
       result?: unknown
       error?: unknown
-    })
+    }
 
 type ProtocolPermissionRisk = {
   level: 'low' | 'medium' | 'high' | 'destructive'
@@ -171,6 +181,11 @@ export type KernelRuntimeJsonRpcLiteProtocolOptions =
     agentRegistry?: KernelRuntimeAgentRegistry
     taskRegistry?: KernelRuntimeTaskRegistry
     teamRegistry?: KernelRuntimeTeamRegistry
+    hookCatalog?: ExtensionCoreServiceOptions['hookCatalog']
+    skillCatalog?: ExtensionCoreServiceOptions['skillCatalog']
+    pluginCatalog?: ExtensionCoreServiceOptions['pluginCatalog']
+    companionRuntime?: AutonomyCoreServiceOptions['companionRuntime']
+    kairosRuntime?: AutonomyCoreServiceOptions['kairosRuntime']
     sessionManager?: KernelSessionManager
     runTurnExecutor?: ConversationCoreTurnExecutor
     conversationJournalPath?: string | false
@@ -200,6 +215,8 @@ class KernelRuntimeJsonRpcLiteServer {
   private readonly agentCore: AgentCoreService
   private readonly taskCore: TaskCoreService
   private readonly teamCore: TeamCoreService
+  private readonly extensionCore: ExtensionCoreService
+  private readonly autonomyCore: AutonomyCoreService
   private readonly output: Pick<Writable, 'write'>
   private readonly subscriptions = new Map<string, ProtocolSubscription>()
   private readonly pendingServerRequests = new Map<
@@ -262,6 +279,19 @@ class KernelRuntimeJsonRpcLiteServer {
       workspacePath: this.runtimeCore.workspacePath,
       eventBus: this.runtimeCore.eventBus,
       teamRegistry: options.teamRegistry,
+    })
+    this.extensionCore = new ExtensionCoreService({
+      workspacePath: this.runtimeCore.workspacePath,
+      eventBus: this.runtimeCore.eventBus,
+      hookCatalog: options.hookCatalog,
+      skillCatalog: options.skillCatalog,
+      pluginCatalog: options.pluginCatalog,
+    })
+    this.autonomyCore = new AutonomyCoreService({
+      workspacePath: this.runtimeCore.workspacePath,
+      eventBus: this.runtimeCore.eventBus,
+      companionRuntime: options.companionRuntime,
+      kairosRuntime: options.kairosRuntime,
     })
     this.output = options.output ?? process.stdout
   }
@@ -326,9 +356,13 @@ class KernelRuntimeJsonRpcLiteServer {
   ): Promise<void> {
     this.deliveryBarrierCount += 1
     try {
-      const result = await this.dispatchRequest(message.method, message.params, {
-        requestId: this.toInternalRequestId(message),
-      })
+      const result = await this.dispatchRequest(
+        message.method,
+        message.params,
+        {
+          requestId: this.toInternalRequestId(message),
+        },
+      )
       if (message.kind === 'request') {
         this.writeOutboundMessage({
           id: message.id,
@@ -361,10 +395,12 @@ class KernelRuntimeJsonRpcLiteServer {
   ): Promise<unknown> {
     switch (method) {
       case 'commands.list':
+      case 'list_commands':
         return this.handleCommandsList()
       case 'commands.describe':
         return this.handleCommandsDescribe(params)
       case 'commands.execute':
+      case 'execute_command':
         return this.handleCommandsExecute(params, context.requestId)
       default:
         return this.executeGraphCommand(method, params, context.requestId)
@@ -373,16 +409,21 @@ class KernelRuntimeJsonRpcLiteServer {
 
   private async handleCommandsList(): Promise<{
     commands: ProtocolCommandDescription[]
+    entries: RuntimeCommandGraphEntry[]
   }> {
+    await this.requireCapability('commands')
     const graph = await this.buildCommandGraph()
+    const commands = [...graph.values()].map(record => record.description)
     return {
-      commands: [...graph.values()].map(record => record.description),
+      commands,
+      entries: commands.map(toRuntimeCommandGraphEntry),
     }
   }
 
   private async handleCommandsDescribe(
     params: unknown,
   ): Promise<ProtocolCommandDescription> {
+    await this.requireCapability('commands')
     const record = await this.findCommandRecordFromDescribeParams(params)
     return record.description
   }
@@ -391,8 +432,12 @@ class KernelRuntimeJsonRpcLiteServer {
     params: unknown,
     requestId: string,
   ): Promise<unknown> {
+    await this.requireCapability('commands')
     const payload = expectRecord(params, 'params')
-    const commandId = expectString(payload.commandId, 'params.commandId')
+    const commandId = expectString(
+      payload.commandId ?? payload.name,
+      payload.commandId === undefined ? 'params.name' : 'params.commandId',
+    )
     const graph = await this.buildCommandGraph()
     const record = findCommandRecord(graph, commandId)
     if (!record) {
@@ -401,7 +446,8 @@ class KernelRuntimeJsonRpcLiteServer {
         `Unknown command graph node: ${commandId}`,
       )
     }
-    return record.execute(this, payload.arguments, requestId)
+    const commandArguments = normalizeCommandExecutionArguments(payload)
+    return record.execute(this, commandArguments, requestId)
   }
 
   private async executeGraphCommand(
@@ -410,7 +456,7 @@ class KernelRuntimeJsonRpcLiteServer {
     requestId: string,
   ): Promise<unknown> {
     const graph = await this.buildCommandGraph()
-    const record = graph.get(commandId)
+    const record = findCommandRecord(graph, commandId)
     if (!record) {
       throw createProtocolFailure(
         'method_not_found',
@@ -420,8 +466,14 @@ class KernelRuntimeJsonRpcLiteServer {
     return record.execute(this, params, requestId)
   }
 
-  private async buildCommandGraph(): Promise<Map<string, ProtocolCommandRecord>> {
+  private async buildCommandGraph(): Promise<
+    Map<string, ProtocolCommandRecord>
+  > {
     const graph = new Map<string, ProtocolCommandRecord>()
+
+    for (const record of this.createProtocolCommandRecords()) {
+      graph.set(record.description.commandId, record)
+    }
 
     for (const [commandId, record] of typedCoreCommandEntries()) {
       graph.set(commandId, record)
@@ -437,6 +489,44 @@ class KernelRuntimeJsonRpcLiteServer {
     }
 
     return graph
+  }
+
+  private createProtocolCommandRecords(): readonly ProtocolCommandRecord[] {
+    return [
+      this.createProtocolCommandRecord(
+        'commands.list',
+        'List protocol commands',
+        (_server, _params) => this.handleCommandsList(),
+        { aliases: ['list_commands'] },
+      ),
+      this.createProtocolCommandRecord(
+        'commands.describe',
+        'Describe one protocol command',
+        (_server, params) => this.handleCommandsDescribe(params),
+      ),
+      this.createProtocolCommandRecord(
+        'commands.execute',
+        'Execute one protocol command',
+        (_server, params, requestId) =>
+          this.handleCommandsExecute(params, requestId),
+        { aliases: ['execute_command'] },
+      ),
+    ]
+  }
+
+  private createProtocolCommandRecord(
+    commandId: string,
+    summary: string,
+    execute: ProtocolCommandRecord['execute'],
+    overrides: Partial<ProtocolCommandDescription> = {},
+  ): ProtocolCommandRecord {
+    return {
+      ...createTypedCommand(commandId, summary, {
+        ...overrides,
+        source: 'protocol',
+      }),
+      execute,
+    }
   }
 
   private createCliCommandRecord(
@@ -477,12 +567,14 @@ class KernelRuntimeJsonRpcLiteServer {
         source: entry.source ?? entry.loadedFrom ?? 'cli-graph',
       },
       execute: async (_server, params) => {
-        const args = normalizeCliArguments(params)
+        const execution = normalizeCliExecutionOptions(params)
         return this.commandGraphCore.executeCommand({
           name: commandId,
-          args,
+          args: execution.args,
+          source: execution.source,
           metadata: {
             protocol: 'json-rpc-lite',
+            ...execution.metadata,
           },
         })
       },
@@ -501,6 +593,14 @@ class KernelRuntimeJsonRpcLiteServer {
         return this.handleRuntimeInitialize(params)
       case 'runtime.capabilities':
         return this.handleRuntimeCapabilities()
+      case 'runtime.reloadCapabilities':
+        return this.handleRuntimeReloadCapabilities(params)
+      case 'host.connect':
+        return this.handleHostConnect(params)
+      case 'host.disconnect':
+        return this.handleHostDisconnect(params)
+      case 'host.event.publish':
+        return this.handleHostEventPublish(params, requestId)
       case 'sessions.list':
         return this.handleSessionsList(params)
       case 'sessions.create':
@@ -539,10 +639,42 @@ class KernelRuntimeJsonRpcLiteServer {
         return this.handleMcpAuthenticate(params)
       case 'mcp.setEnabled':
         return this.handleMcpSetEnabled(params)
+      case 'mcp.reload':
+        return this.handleMcpReload()
+      case 'hooks.list':
+        return this.handleHooksList()
+      case 'hooks.reload':
+        return this.handleHooksReload()
+      case 'hooks.run':
+        return this.handleHooksRun(params)
+      case 'hooks.register':
+        return this.handleHooksRegister(params)
+      case 'skills.list':
+        return this.handleSkillsList()
+      case 'skills.reload':
+        return this.handleSkillsReload()
+      case 'skills.context.resolve':
+        return this.handleSkillsContextResolve(params)
+      case 'plugins.list':
+        return this.handlePluginsList()
+      case 'plugins.reload':
+        return this.handlePluginsReload()
+      case 'plugins.setEnabled':
+        return this.handlePluginsSetEnabled(params)
+      case 'plugins.install':
+        return this.handlePluginsInstall(params)
+      case 'plugins.uninstall':
+        return this.handlePluginsUninstall(params)
+      case 'plugins.update':
+        return this.handlePluginsUpdate(params)
       case 'context.read':
         return this.handleContextRead(params)
       case 'context.gitStatus':
         return this.handleContextGitStatus(params)
+      case 'context.systemPrompt.get':
+        return this.handleContextSystemPromptGet(params)
+      case 'context.systemPrompt.set':
+        return this.handleContextSystemPromptSet(params)
       case 'memory.list':
         return this.handleMemoryList(params)
       case 'memory.read':
@@ -551,6 +683,8 @@ class KernelRuntimeJsonRpcLiteServer {
         return this.handleMemoryUpdate(params)
       case 'agents.list':
         return this.handleAgentsList()
+      case 'agents.reload':
+        return this.handleAgentsReload()
       case 'agents.spawn':
         return this.handleAgentsSpawn(params)
       case 'agents.runs.list':
@@ -563,6 +697,8 @@ class KernelRuntimeJsonRpcLiteServer {
         return this.handleAgentsOutputGet(params)
       case 'tasks.list':
         return this.handleTasksList(params)
+      case 'tasks.get':
+        return this.handleTasksGet(params)
       case 'tasks.create':
         return this.handleTasksCreate(params)
       case 'tasks.update':
@@ -571,12 +707,30 @@ class KernelRuntimeJsonRpcLiteServer {
         return this.handleTasksAssign(params)
       case 'teams.list':
         return this.handleTeamsList()
+      case 'teams.get':
+        return this.handleTeamsGet(params)
       case 'teams.create':
         return this.handleTeamsCreate(params)
       case 'teams.message':
         return this.handleTeamsMessage(params)
       case 'teams.destroy':
         return this.handleTeamsDestroy(params)
+      case 'companion.state.get':
+        return this.handleCompanionStateGet()
+      case 'companion.action.dispatch':
+        return this.handleCompanionActionDispatch(params)
+      case 'companion.react':
+        return this.handleCompanionReact(params)
+      case 'kairos.status.get':
+        return this.handleKairosStatusGet()
+      case 'kairos.event.enqueue':
+        return this.handleKairosEventEnqueue(params)
+      case 'kairos.tick':
+        return this.handleKairosTick(params)
+      case 'kairos.suspend':
+        return this.handleKairosSuspend(params)
+      case 'kairos.resume':
+        return this.handleKairosResume(params)
       default:
         return this.handleUnsupportedTypedCore(commandId)
     }
@@ -591,8 +745,9 @@ class KernelRuntimeJsonRpcLiteServer {
   ): Promise<Record<string, unknown>> {
     const payload = optionalRecord(params, 'params') ?? {}
     const defaultProvider =
-      optionalRuntimeObject<RuntimeProviderSelection>(payload.defaultProvider) ??
-      optionalRuntimeObject<RuntimeProviderSelection>(payload.provider)
+      optionalRuntimeObject<RuntimeProviderSelection>(
+        payload.defaultProvider,
+      ) ?? optionalRuntimeObject<RuntimeProviderSelection>(payload.provider)
     this.conversationCore.setDefaultProviderSelection(defaultProvider)
     const result = this.runtimeCore.initialize({
       workspacePath: optionalString(payload.workspacePath),
@@ -621,7 +776,9 @@ class KernelRuntimeJsonRpcLiteServer {
         'commands.list',
         'commands.describe',
         'commands.execute',
-        ...typedCoreMethodIds(),
+        'list_commands',
+        'execute_command',
+        ...typedCoreAcceptedMethodIds(),
       ],
       notifications: ['event'],
       serverRequests: ['permissions.request'],
@@ -633,7 +790,65 @@ class KernelRuntimeJsonRpcLiteServer {
     }
   }
 
+  private async handleRuntimeReloadCapabilities(
+    params: unknown,
+  ): Promise<unknown> {
+    const payload = optionalRecord(params, 'params') ?? {}
+    return this.runtimeCore.reloadCapabilities({
+      scope: optionalRuntimeObject(payload.scope),
+      capabilities: optionalStringArray(
+        payload.capabilities,
+        'params.capabilities',
+      ),
+      metadata: optionalRecord(payload.metadata),
+    })
+  }
+
+  private async handleHostConnect(params: unknown): Promise<unknown> {
+    const payload = expectRecord(params, 'params')
+    const sinceEventId = optionalString(payload.sinceEventId)
+    const replay = this.runtimeCore.replayRuntimeScopedEvents(sinceEventId)
+    const result = this.runtimeCore.connectHost({
+      host:
+        optionalRuntimeObject(payload.host) ?? expectHostIdentity(payload.host),
+      sinceEventId,
+      metadata: optionalRecord(payload.metadata),
+    })
+    this.emitReplayNotifications(replay)
+    return result
+  }
+
+  private async handleHostDisconnect(params: unknown): Promise<unknown> {
+    const payload = expectRecord(params, 'params')
+    const policy = optionalHostDisconnectPolicy(payload.policy)
+    const abortedTurnIds =
+      policy === 'abort_active_turns'
+        ? await this.conversationCore.abortActiveTurns(
+            optionalString(payload.reason) ?? 'host_disconnected',
+          )
+        : []
+    return this.runtimeCore.disconnectHost({
+      hostId: expectString(payload.hostId, 'params.hostId'),
+      reason: optionalString(payload.reason),
+      policy,
+      abortedTurnIds,
+      metadata: optionalRecord(payload.metadata),
+    })
+  }
+
+  private async handleHostEventPublish(
+    params: unknown,
+    requestId: string,
+  ): Promise<unknown> {
+    const payload = expectRecord(params, 'params')
+    return this.runtimeCore.publishHostEvent({
+      event: optionalRuntimeObject(payload.event) ?? expectEvent(payload.event),
+      requestId,
+    })
+  }
+
   private async handleSessionsList(params: unknown): Promise<unknown> {
+    await this.requireCapability('sessions')
     const payload = optionalRecord(params) ?? {}
     return {
       sessions: await this.conversationCore.listSessions({
@@ -651,6 +866,7 @@ class KernelRuntimeJsonRpcLiteServer {
   private async handleSessionsCreate(
     params: unknown,
   ): Promise<Record<string, unknown>> {
+    await this.requireCapability('sessions')
     const payload = expectRecord(params, 'params')
     const sessionId =
       optionalString(payload.sessionId) ??
@@ -671,10 +887,15 @@ class KernelRuntimeJsonRpcLiteServer {
   private async handleSessionsResume(
     params: unknown,
   ): Promise<Record<string, unknown>> {
+    await this.requireCapability('sessions')
     const payload = expectRecord(params, 'params')
-    const transcriptSessionId = expectString(payload.sessionId, 'params.sessionId')
+    const transcriptSessionId = expectString(
+      payload.sessionId,
+      'params.sessionId',
+    )
     const targetSessionId =
       optionalString(payload.targetSessionId) ??
+      optionalString(payload.conversationId) ??
       `session-${transcriptSessionId}`
     return this.conversationCore.resumeSession({
       transcriptSessionId,
@@ -694,6 +915,7 @@ class KernelRuntimeJsonRpcLiteServer {
   private async handleSessionsDispose(
     params: unknown,
   ): Promise<Record<string, unknown>> {
+    await this.requireCapability('sessions')
     const payload = expectRecord(params, 'params')
     const sessionId = expectString(payload.sessionId, 'params.sessionId')
     return this.conversationCore.disposeSession({
@@ -703,9 +925,14 @@ class KernelRuntimeJsonRpcLiteServer {
   }
 
   private async handleSessionsTranscript(params: unknown): Promise<unknown> {
+    await this.requireCapability('sessions')
     const payload = expectRecord(params, 'params')
     const sessionId = expectString(payload.sessionId, 'params.sessionId')
-    return this.conversationCore.getTranscript(sessionId)
+    const transcript = await this.conversationCore.getTranscript(sessionId)
+    return {
+      ...transcript,
+      transcript,
+    }
   }
 
   private async handleTurnRun(
@@ -756,7 +983,8 @@ class KernelRuntimeJsonRpcLiteServer {
     params: unknown,
   ): Promise<Record<string, unknown>> {
     const payload = expectRecord(params, 'params')
-    const filter = optionalRecord(payload.filter) ?? {}
+    const filter =
+      optionalRecord(payload.filter) ?? optionalRecord(payload.filters) ?? {}
     const types =
       Array.isArray(filter.types) &&
       filter.types.every(item => typeof item === 'string')
@@ -765,9 +993,12 @@ class KernelRuntimeJsonRpcLiteServer {
     const subscriptionId = `sub-${this.nextSubscriptionNumber++}`
     const subscription: ProtocolSubscription = {
       subscriptionId,
-      cursor: optionalString(payload.cursor),
-      sessionId: optionalString(filter.sessionId),
-      turnId: optionalString(filter.turnId),
+      cursor: optionalString(payload.cursor) ?? optionalString(payload.sinceEventId),
+      sessionId:
+        optionalString(filter.sessionId) ??
+        optionalString(payload.sessionId) ??
+        optionalString(payload.conversationId),
+      turnId: optionalString(filter.turnId) ?? optionalString(payload.turnId),
       types,
     }
     this.subscriptions.set(subscriptionId, subscription)
@@ -785,6 +1016,7 @@ class KernelRuntimeJsonRpcLiteServer {
     }
 
     return {
+      subscribed: true,
       subscriptionId,
       cursor: subscription.cursor ?? null,
       filter: {
@@ -911,6 +1143,99 @@ class KernelRuntimeJsonRpcLiteServer {
     })
   }
 
+  private async handleMcpReload(): Promise<unknown> {
+    return this.mcpCore.reload()
+  }
+
+  private async handleHooksList(): Promise<unknown> {
+    return this.extensionCore.listHooks()
+  }
+
+  private async handleHooksReload(): Promise<unknown> {
+    return this.extensionCore.reloadHooks()
+  }
+
+  private async handleHooksRun(params: unknown): Promise<unknown> {
+    return this.extensionCore.runHook(
+      expectRecord(params, 'params') as unknown as RuntimeHookRunRequest,
+    )
+  }
+
+  private async handleHooksRegister(params: unknown): Promise<unknown> {
+    return this.extensionCore.registerHook(
+      expectRecord(params, 'params') as unknown as RuntimeHookRegisterRequest,
+    )
+  }
+
+  private async handleSkillsList(): Promise<unknown> {
+    return this.extensionCore.listSkills()
+  }
+
+  private async handleSkillsReload(): Promise<unknown> {
+    return this.extensionCore.reloadSkills()
+  }
+
+  private async handleSkillsContextResolve(params: unknown): Promise<unknown> {
+    return this.extensionCore.resolveSkillContext(
+      expectRecord(
+        params,
+        'params',
+      ) as unknown as RuntimeSkillPromptContextRequest,
+    )
+  }
+
+  private async handlePluginsList(): Promise<unknown> {
+    return this.extensionCore.listPlugins()
+  }
+
+  private async handlePluginsReload(): Promise<unknown> {
+    return this.extensionCore.reloadPlugins()
+  }
+
+  private async handlePluginsSetEnabled(params: unknown): Promise<unknown> {
+    const payload = expectRecord(params, 'params')
+    if (typeof payload.enabled !== 'boolean') {
+      throw createProtocolFailure(
+        'invalid_params',
+        'Expected boolean at params.enabled',
+      )
+    }
+    return this.extensionCore.setPluginEnabled({
+      name: expectString(payload.name, 'params.name'),
+      enabled: payload.enabled,
+      scope: optionalRuntimeObject(payload.scope),
+      metadata: optionalRecord(payload.metadata),
+    })
+  }
+
+  private async handlePluginsInstall(params: unknown): Promise<unknown> {
+    const payload = expectRecord(params, 'params')
+    return this.extensionCore.installPlugin({
+      name: expectString(payload.name, 'params.name'),
+      scope: optionalRuntimeObject(payload.scope),
+      metadata: optionalRecord(payload.metadata),
+    })
+  }
+
+  private async handlePluginsUninstall(params: unknown): Promise<unknown> {
+    const payload = expectRecord(params, 'params')
+    return this.extensionCore.uninstallPlugin({
+      name: expectString(payload.name, 'params.name'),
+      scope: optionalRuntimeObject(payload.scope),
+      keepData: optionalBoolean(payload.keepData),
+      metadata: optionalRecord(payload.metadata),
+    })
+  }
+
+  private async handlePluginsUpdate(params: unknown): Promise<unknown> {
+    const payload = expectRecord(params, 'params')
+    return this.extensionCore.updatePlugin({
+      name: expectString(payload.name, 'params.name'),
+      scope: optionalRuntimeObject(payload.scope),
+      metadata: optionalRecord(payload.metadata),
+    })
+  }
+
   private async handleContextRead(params: unknown): Promise<unknown> {
     const payload = optionalRecord(params, 'params') ?? {}
     return this.contextCore.readContext({
@@ -927,6 +1252,31 @@ class KernelRuntimeJsonRpcLiteServer {
     }
   }
 
+  private async handleContextSystemPromptGet(
+    params: unknown,
+  ): Promise<unknown> {
+    const payload = optionalRecord(params, 'params') ?? {}
+    return {
+      value: await this.contextCore.getSystemPromptInjection({
+        cwd: optionalString(payload.cwd),
+      }),
+    }
+  }
+
+  private async handleContextSystemPromptSet(
+    params: unknown,
+  ): Promise<unknown> {
+    const payload = expectRecord(params, 'params')
+    return {
+      value: await this.contextCore.setSystemPromptInjection(
+        optionalNullableString(payload.value, 'params.value'),
+        {
+          cwd: optionalString(payload.cwd),
+        },
+      ),
+    }
+  }
+
   private async handleMemoryList(params: unknown): Promise<unknown> {
     const payload = optionalRecord(params, 'params') ?? {}
     return this.memoryCore.listMemory({
@@ -936,12 +1286,9 @@ class KernelRuntimeJsonRpcLiteServer {
 
   private async handleMemoryRead(params: unknown): Promise<unknown> {
     const payload = expectRecord(params, 'params')
-    return this.memoryCore.readMemory(
-      expectString(payload.id, 'params.id'),
-      {
-        cwd: optionalString(payload.cwd),
-      },
-    )
+    return this.memoryCore.readMemory(expectString(payload.id, 'params.id'), {
+      cwd: optionalString(payload.cwd),
+    })
   }
 
   private async handleMemoryUpdate(params: unknown): Promise<unknown> {
@@ -959,6 +1306,10 @@ class KernelRuntimeJsonRpcLiteServer {
 
   private async handleAgentsList(): Promise<unknown> {
     return this.agentCore.listAgents()
+  }
+
+  private async handleAgentsReload(): Promise<unknown> {
+    return this.agentCore.reloadAgents()
   }
 
   private async handleAgentsSpawn(params: unknown): Promise<unknown> {
@@ -1009,6 +1360,14 @@ class KernelRuntimeJsonRpcLiteServer {
   private async handleTasksList(params: unknown): Promise<unknown> {
     const payload = optionalRecord(params, 'params') ?? {}
     return this.taskCore.listTasks(optionalString(payload.taskListId))
+  }
+
+  private async handleTasksGet(params: unknown): Promise<unknown> {
+    const payload = expectRecord(params, 'params')
+    return this.taskCore.getTask(
+      expectString(payload.taskId, 'params.taskId'),
+      optionalString(payload.taskListId),
+    )
   }
 
   private async handleTasksCreate(params: unknown): Promise<unknown> {
@@ -1063,6 +1422,13 @@ class KernelRuntimeJsonRpcLiteServer {
     return this.teamCore.listTeams()
   }
 
+  private async handleTeamsGet(params: unknown): Promise<unknown> {
+    const payload = expectRecord(params, 'params')
+    return this.teamCore.getTeam(
+      expectString(payload.teamName, 'params.teamName'),
+    )
+  }
+
   private async handleTeamsCreate(params: unknown): Promise<unknown> {
     const payload = expectRecord(params, 'params')
     return this.teamCore.createTeam({
@@ -1093,6 +1459,66 @@ class KernelRuntimeJsonRpcLiteServer {
       teamName: expectString(payload.teamName, 'params.teamName'),
       force: optionalBoolean(payload.force),
     })
+  }
+
+  private async handleCompanionStateGet(): Promise<unknown> {
+    return this.autonomyCore.getCompanionState()
+  }
+
+  private async handleCompanionActionDispatch(
+    params: unknown,
+  ): Promise<unknown> {
+    const payload = expectRecord(params, 'params')
+    return this.autonomyCore.dispatchCompanionAction(
+      (optionalRuntimeObject(payload.action) ??
+        expectRecord(payload.action, 'params.action')) as KernelCompanionAction,
+    )
+  }
+
+  private async handleCompanionReact(params: unknown): Promise<unknown> {
+    const payload = expectRecord(params, 'params')
+    return this.autonomyCore.reactCompanion({
+      messages: Array.isArray(payload.messages) ? payload.messages : [],
+    })
+  }
+
+  private async handleKairosStatusGet(): Promise<unknown> {
+    return this.autonomyCore.getKairosStatus()
+  }
+
+  private async handleKairosEventEnqueue(params: unknown): Promise<unknown> {
+    const payload = expectRecord(params, 'params')
+    return this.autonomyCore.enqueueKairosEvent(
+      (optionalRuntimeObject(payload.event) ??
+        expectRecord(
+          payload.event,
+          'params.event',
+        )) as KernelKairosExternalEvent,
+    )
+  }
+
+  private async handleKairosTick(params: unknown): Promise<unknown> {
+    const payload = optionalRecord(params, 'params') ?? {}
+    return this.autonomyCore.tickKairos({
+      reason: optionalString(payload.reason),
+      drain: optionalBoolean(payload.drain),
+      createAutonomyCommands: optionalBoolean(payload.createAutonomyCommands),
+      basePrompt: optionalString(payload.basePrompt),
+      rootDir: optionalString(payload.rootDir),
+      currentDir: optionalString(payload.currentDir),
+      workload: optionalString(payload.workload),
+      priority: optionalRuntimeObject(payload.priority),
+    })
+  }
+
+  private async handleKairosSuspend(params: unknown): Promise<unknown> {
+    const payload = optionalRecord(params, 'params') ?? {}
+    return this.autonomyCore.suspendKairos(optionalString(payload.reason))
+  }
+
+  private async handleKairosResume(params: unknown): Promise<unknown> {
+    const payload = optionalRecord(params, 'params') ?? {}
+    return this.autonomyCore.resumeKairos(optionalString(payload.reason))
   }
 
   private handleUnsupportedTypedCore(commandId: string): Promise<unknown> {
@@ -1136,7 +1562,9 @@ class KernelRuntimeJsonRpcLiteServer {
       return
     }
 
-    const kernelEvent = optionalRecord(envelope.payload) as KernelEvent | undefined
+    const kernelEvent = optionalRecord(envelope.payload) as
+      | KernelEvent
+      | undefined
     if (
       kernelEvent?.type === 'permission.requested' &&
       kernelEvent.payload !== undefined
@@ -1187,7 +1615,8 @@ class KernelRuntimeJsonRpcLiteServer {
     if (!payload || typeof payload.type !== 'string') {
       return null
     }
-    const sessionId = optionalString(payload.conversationId) ?? envelope.conversationId
+    const sessionId =
+      optionalString(payload.conversationId) ?? envelope.conversationId
     const turnId = optionalString(payload.turnId) ?? envelope.turnId
     if (subscription.sessionId && subscription.sessionId !== sessionId) {
       return null
@@ -1211,6 +1640,19 @@ class KernelRuntimeJsonRpcLiteServer {
         timestamp: envelope.timestamp,
         metadata: payload.metadata ?? envelope.metadata,
       },
+    }
+  }
+
+  private emitReplayNotifications(
+    replay: readonly KernelRuntimeEnvelopeBase[],
+  ): void {
+    for (const envelope of replay) {
+      for (const subscription of this.subscriptions.values()) {
+        const outbound = this.projectEventNotification(envelope, subscription)
+        if (outbound) {
+          this.emitOutboundMessage(outbound)
+        }
+      }
     }
   }
 
@@ -1248,7 +1690,10 @@ class KernelRuntimeJsonRpcLiteServer {
   }
 
   private flushBufferedOutboundMessages(): void {
-    if (this.deliveryBarrierCount > 0 || this.bufferedOutboundMessages.length === 0) {
+    if (
+      this.deliveryBarrierCount > 0 ||
+      this.bufferedOutboundMessages.length === 0
+    ) {
       return
     }
     for (const message of this.bufferedOutboundMessages.splice(0)) {
@@ -1274,6 +1719,19 @@ class KernelRuntimeJsonRpcLiteServer {
     }
     return this.createInternalRequestId(message.method)
   }
+
+  private async requireCapability(
+    name: string,
+    metadata?: Record<string, unknown>,
+  ): Promise<void> {
+    await this.runtimeCore.capabilityResolver.requireCapability(name, {
+      cwd: this.runtimeCore.workspacePath,
+      metadata: {
+        protocol: 'json-rpc-lite',
+        ...metadata,
+      },
+    })
+  }
 }
 
 function typedCoreCommandEntries(): Map<string, ProtocolCommandRecord> {
@@ -1290,31 +1748,82 @@ function typedCoreMethodIds(): readonly string[] {
   )
 }
 
+function typedCoreAcceptedMethodIds(): readonly string[] {
+  return TYPED_CORE_COMMAND_DEFINITIONS.flatMap(definition => [
+    definition.description.commandId,
+    ...definition.description.aliases,
+  ])
+}
+
 const TYPED_CORE_COMMAND_DEFINITIONS: readonly ProtocolCommandRecord[] = [
   createTypedCommand('runtime.ping', 'Check runtime liveness', {
+    aliases: ['ping'],
     streaming: { supported: false, events: [] },
     examples: [{ params: {} }],
   }),
-  createTypedCommand('runtime.initialize', 'Initialize runtime transport state', {
-    streaming: { supported: true, events: ['runtime.ready'] },
-    examples: [{ params: { client: { name: 'my-client', version: '0.1.0' } } }],
+  createTypedCommand(
+    'runtime.initialize',
+    'Initialize runtime transport state',
+    {
+      aliases: ['init_runtime'],
+      streaming: { supported: true, events: ['runtime.ready'] },
+      examples: [
+        { params: { client: { name: 'my-client', version: '0.1.0' } } },
+      ],
+    },
+  ),
+  createTypedCommand(
+    'runtime.capabilities',
+    'Describe supported protocol capabilities',
+  ),
+  createTypedCommand(
+    'runtime.reloadCapabilities',
+    'Reload runtime capabilities',
+    {
+      aliases: ['reload_capabilities'],
+      streaming: { supported: true, events: ['capabilities.reloaded'] },
+    },
+  ),
+  createTypedCommand('host.connect', 'Connect a runtime host', {
+    aliases: ['connect_host'],
+    streaming: {
+      supported: true,
+      events: ['host.connected', 'host.reconnected'],
+    },
   }),
-  createTypedCommand('runtime.capabilities', 'Describe supported protocol capabilities'),
-  createTypedCommand('sessions.list', 'List resumable session transcripts'),
+  createTypedCommand('host.disconnect', 'Disconnect a runtime host', {
+    aliases: ['disconnect_host'],
+    streaming: { supported: true, events: ['host.disconnected'] },
+  }),
+  createTypedCommand('host.event.publish', 'Publish a host event', {
+    aliases: ['publish_host_event'],
+    streaming: { supported: true, events: ['event'] },
+  }),
+  createTypedCommand('sessions.list', 'List resumable session transcripts', {
+    aliases: ['list_sessions'],
+  }),
   createTypedCommand('sessions.create', 'Create a runtime session', {
+    aliases: ['create_conversation'],
     examples: [{ params: { sessionId: 's1', workspacePath: '/workspace' } }],
   }),
   createTypedCommand('sessions.resume', 'Resume a stored session transcript', {
+    aliases: ['resume_session'],
     examples: [{ params: { sessionId: 'transcript-session-id' } }],
   }),
   createTypedCommand('sessions.dispose', 'Dispose an active runtime session', {
+    aliases: ['dispose_conversation'],
     examples: [{ params: { sessionId: 's1' } }],
   }),
-  createTypedCommand('sessions.transcript', 'Read a stored session transcript', {
-    examples: [{ params: { sessionId: 'transcript-session-id' } }],
-  }),
+  createTypedCommand(
+    'sessions.transcript',
+    'Read a stored session transcript',
+    {
+      aliases: ['get_session_transcript'],
+      examples: [{ params: { sessionId: 'transcript-session-id' } }],
+    },
+  ),
   createTypedCommand('turn.run', 'Run one conversation turn', {
-    aliases: ['conversation.run'],
+    aliases: ['conversation.run', 'run_turn'],
     streaming: {
       supported: true,
       events: [
@@ -1329,9 +1838,11 @@ const TYPED_CORE_COMMAND_DEFINITIONS: readonly ProtocolCommandRecord[] = [
     examples: [{ params: { sessionId: 's1', prompt: 'hello' } }],
   }),
   createTypedCommand('turn.abort', 'Abort an active turn', {
+    aliases: ['abort_turn'],
     examples: [{ params: { sessionId: 's1', turnId: 't1' } }],
   }),
   createTypedCommand('events.subscribe', 'Subscribe to runtime events', {
+    aliases: ['subscribe_events'],
     streaming: { supported: true, events: ['event'] },
     examples: [
       {
@@ -1347,11 +1858,14 @@ const TYPED_CORE_COMMAND_DEFINITIONS: readonly ProtocolCommandRecord[] = [
     ],
   }),
   createTypedCommand('events.unsubscribe', 'Cancel an event subscription'),
-  createTypedCommand('tools.list', 'List available tools'),
+  createTypedCommand('tools.list', 'List available tools', {
+    aliases: ['list_tools'],
+  }),
   createTypedCommand('tools.describe', 'Describe one available tool', {
     examples: [{ params: { toolName: 'Bash' } }],
   }),
   createTypedCommand('tools.call', 'Call one tool', {
+    aliases: ['call_tool'],
     permissionRisk: {
       level: 'high',
       requiresApproval: true,
@@ -1368,37 +1882,215 @@ const TYPED_CORE_COMMAND_DEFINITIONS: readonly ProtocolCommandRecord[] = [
     ],
   }),
   createTypedCommand('permissions.decide', 'Submit a permission decision', {
+    aliases: ['decide_permission'],
     permissionRisk: {
       level: 'medium',
       requiresApproval: false,
       scopes: ['once', 'session'],
     },
   }),
-  createTypedCommand('mcp.servers.list', 'List MCP servers'),
-  createTypedCommand('mcp.tools.list', 'List MCP tool bindings'),
-  createTypedCommand('mcp.resources.list', 'List MCP resources'),
-  createTypedCommand('mcp.connect', 'Connect an MCP server'),
-  createTypedCommand('mcp.authenticate', 'Authenticate an MCP server'),
-  createTypedCommand('mcp.setEnabled', 'Enable or disable an MCP server'),
-  createTypedCommand('agents.list', 'List available agents'),
-  createTypedCommand('agents.spawn', 'Spawn one agent'),
-  createTypedCommand('agents.runs.list', 'List agent runs'),
-  createTypedCommand('agents.runs.get', 'Read one agent run'),
-  createTypedCommand('agents.runs.cancel', 'Cancel one agent run'),
-  createTypedCommand('agents.output.get', 'Read agent output'),
-  createTypedCommand('tasks.list', 'List tasks'),
-  createTypedCommand('tasks.create', 'Create a task'),
-  createTypedCommand('tasks.update', 'Update a task'),
-  createTypedCommand('tasks.assign', 'Assign a task'),
-  createTypedCommand('teams.list', 'List teams'),
-  createTypedCommand('teams.create', 'Create a team'),
-  createTypedCommand('teams.message', 'Send a team message'),
-  createTypedCommand('teams.destroy', 'Destroy a team'),
-  createTypedCommand('context.read', 'Read assembled context'),
-  createTypedCommand('context.gitStatus', 'Read git status context'),
-  createTypedCommand('memory.list', 'List memory documents'),
-  createTypedCommand('memory.read', 'Read one memory document'),
-  createTypedCommand('memory.update', 'Update memory documents'),
+  createTypedCommand('mcp.servers.list', 'List MCP servers', {
+    aliases: ['list_mcp_servers'],
+  }),
+  createTypedCommand('mcp.tools.list', 'List MCP tool bindings', {
+    aliases: ['list_mcp_tools'],
+  }),
+  createTypedCommand('mcp.resources.list', 'List MCP resources', {
+    aliases: ['list_mcp_resources'],
+  }),
+  createTypedCommand('mcp.reload', 'Reload MCP registry', {
+    aliases: ['reload_mcp'],
+    streaming: { supported: true, events: ['mcp.reloaded'] },
+  }),
+  createTypedCommand('mcp.connect', 'Connect an MCP server', {
+    aliases: ['connect_mcp'],
+  }),
+  createTypedCommand('mcp.authenticate', 'Authenticate an MCP server', {
+    aliases: ['authenticate_mcp'],
+  }),
+  createTypedCommand('mcp.setEnabled', 'Enable or disable an MCP server', {
+    aliases: ['set_mcp_enabled'],
+  }),
+  createTypedCommand('hooks.list', 'List runtime hooks', {
+    aliases: ['list_hooks'],
+  }),
+  createTypedCommand('hooks.reload', 'Reload runtime hooks', {
+    aliases: ['reload_hooks'],
+    streaming: { supported: true, events: ['hooks.reloaded'] },
+  }),
+  createTypedCommand('hooks.run', 'Run runtime hooks', {
+    aliases: ['run_hook'],
+    streaming: { supported: true, events: ['hooks.ran'] },
+  }),
+  createTypedCommand('hooks.register', 'Register a runtime hook', {
+    aliases: ['register_hook'],
+    streaming: { supported: true, events: ['hooks.registered'] },
+  }),
+  createTypedCommand('skills.list', 'List runtime skills', {
+    aliases: ['list_skills'],
+  }),
+  createTypedCommand('skills.reload', 'Reload runtime skills', {
+    aliases: ['reload_skills'],
+    streaming: { supported: true, events: ['skills.reloaded'] },
+  }),
+  createTypedCommand('skills.context.resolve', 'Resolve skill prompt context', {
+    aliases: ['resolve_skill_context'],
+    streaming: { supported: true, events: ['skills.context_resolved'] },
+  }),
+  createTypedCommand('plugins.list', 'List runtime plugins', {
+    aliases: ['list_plugins'],
+  }),
+  createTypedCommand('plugins.reload', 'Reload runtime plugins', {
+    aliases: ['reload_plugins'],
+    streaming: { supported: true, events: ['plugins.reloaded'] },
+  }),
+  createTypedCommand('plugins.setEnabled', 'Enable or disable a plugin', {
+    aliases: ['set_plugin_enabled'],
+    streaming: { supported: true, events: ['plugins.enabled_changed'] },
+  }),
+  createTypedCommand('plugins.install', 'Install a plugin', {
+    aliases: ['install_plugin'],
+    permissionRisk: {
+      level: 'high',
+      requiresApproval: true,
+      scopes: ['workspace'],
+      reason: 'May install code into the runtime environment',
+    },
+    streaming: { supported: true, events: ['plugins.installed'] },
+  }),
+  createTypedCommand('plugins.uninstall', 'Uninstall a plugin', {
+    aliases: ['uninstall_plugin'],
+    permissionRisk: {
+      level: 'high',
+      requiresApproval: true,
+      scopes: ['workspace'],
+      reason: 'May remove plugin code or metadata',
+    },
+    streaming: { supported: true, events: ['plugins.uninstalled'] },
+  }),
+  createTypedCommand('plugins.update', 'Update a plugin', {
+    aliases: ['update_plugin'],
+    permissionRisk: {
+      level: 'high',
+      requiresApproval: true,
+      scopes: ['workspace'],
+      reason: 'May update code in the runtime environment',
+    },
+    streaming: { supported: true, events: ['plugins.updated'] },
+  }),
+  createTypedCommand('agents.list', 'List available agents', {
+    aliases: ['list_agents'],
+  }),
+  createTypedCommand('agents.reload', 'Reload available agents', {
+    aliases: ['reload_agents'],
+    streaming: { supported: true, events: ['agents.reloaded'] },
+  }),
+  createTypedCommand('agents.spawn', 'Spawn one agent', {
+    aliases: ['spawn_agent'],
+  }),
+  createTypedCommand('agents.runs.list', 'List agent runs', {
+    aliases: ['list_agent_runs'],
+  }),
+  createTypedCommand('agents.runs.get', 'Read one agent run', {
+    aliases: ['get_agent_run'],
+  }),
+  createTypedCommand('agents.runs.cancel', 'Cancel one agent run', {
+    aliases: ['cancel_agent_run'],
+  }),
+  createTypedCommand('agents.output.get', 'Read agent output', {
+    aliases: ['get_agent_output'],
+  }),
+  createTypedCommand('tasks.list', 'List tasks', {
+    aliases: ['list_tasks'],
+  }),
+  createTypedCommand('tasks.get', 'Read one task', {
+    aliases: ['get_task'],
+  }),
+  createTypedCommand('tasks.create', 'Create a task', {
+    aliases: ['create_task'],
+  }),
+  createTypedCommand('tasks.update', 'Update a task', {
+    aliases: ['update_task'],
+  }),
+  createTypedCommand('tasks.assign', 'Assign a task', {
+    aliases: ['assign_task'],
+  }),
+  createTypedCommand('teams.list', 'List teams', {
+    aliases: ['list_teams'],
+  }),
+  createTypedCommand('teams.get', 'Read one team', {
+    aliases: ['get_team'],
+  }),
+  createTypedCommand('teams.create', 'Create a team', {
+    aliases: ['create_team'],
+  }),
+  createTypedCommand('teams.message', 'Send a team message', {
+    aliases: ['send_team_message'],
+  }),
+  createTypedCommand('teams.destroy', 'Destroy a team', {
+    aliases: ['destroy_team'],
+  }),
+  createTypedCommand('companion.state.get', 'Read companion state', {
+    aliases: ['get_companion_state'],
+  }),
+  createTypedCommand(
+    'companion.action.dispatch',
+    'Dispatch a companion action',
+    {
+      aliases: ['dispatch_companion_action'],
+    },
+  ),
+  createTypedCommand('companion.react', 'React companion to a turn', {
+    aliases: ['react_companion'],
+  }),
+  createTypedCommand('kairos.status.get', 'Read Kairos status', {
+    aliases: ['get_kairos_status'],
+  }),
+  createTypedCommand(
+    'kairos.event.enqueue',
+    'Enqueue a Kairos external event',
+    {
+      aliases: ['enqueue_kairos_event'],
+    },
+  ),
+  createTypedCommand('kairos.tick', 'Tick Kairos runtime', {
+    aliases: ['tick_kairos'],
+  }),
+  createTypedCommand('kairos.suspend', 'Suspend Kairos runtime', {
+    aliases: ['suspend_kairos'],
+  }),
+  createTypedCommand('kairos.resume', 'Resume Kairos runtime', {
+    aliases: ['resume_kairos'],
+  }),
+  createTypedCommand('context.read', 'Read assembled context', {
+    aliases: ['read_context'],
+  }),
+  createTypedCommand('context.gitStatus', 'Read git status context', {
+    aliases: ['get_context_git_status'],
+  }),
+  createTypedCommand(
+    'context.systemPrompt.get',
+    'Get system prompt injection',
+    {
+      aliases: ['get_system_prompt_injection'],
+    },
+  ),
+  createTypedCommand(
+    'context.systemPrompt.set',
+    'Set system prompt injection',
+    {
+      aliases: ['set_system_prompt_injection'],
+    },
+  ),
+  createTypedCommand('memory.list', 'List memory documents', {
+    aliases: ['list_memory'],
+  }),
+  createTypedCommand('memory.read', 'Read one memory document', {
+    aliases: ['read_memory'],
+  }),
+  createTypedCommand('memory.update', 'Update memory documents', {
+    aliases: ['update_memory'],
+  }),
 ].map(definition => ({
   ...definition,
   execute(server, params, requestId) {
@@ -1420,27 +2112,23 @@ function createTypedCommand(
       commandId,
       aliases: overrides.aliases ?? [],
       summary,
-      inputSchema:
-        overrides.inputSchema ?? {
-          type: 'object',
-          additionalProperties: true,
-        },
-      resultSchema:
-        overrides.resultSchema ?? {
-          type: 'object',
-          additionalProperties: true,
-        },
-      permissionRisk:
-        overrides.permissionRisk ?? {
-          level: 'low',
-          requiresApproval: false,
-          scopes: ['session', 'workspace'],
-        },
-      streaming:
-        overrides.streaming ?? {
-          supported: false,
-          events: [],
-        },
+      inputSchema: overrides.inputSchema ?? {
+        type: 'object',
+        additionalProperties: true,
+      },
+      resultSchema: overrides.resultSchema ?? {
+        type: 'object',
+        additionalProperties: true,
+      },
+      permissionRisk: overrides.permissionRisk ?? {
+        level: 'low',
+        requiresApproval: false,
+        scopes: ['session', 'workspace'],
+      },
+      streaming: overrides.streaming ?? {
+        supported: false,
+        events: [],
+      },
       deprecated: overrides.deprecated ?? false,
       examples: overrides.examples ?? [],
       source: overrides.source ?? 'typed-core',
@@ -1498,6 +2186,24 @@ function commandKindRiskLevel(
   return 'low'
 }
 
+function toRuntimeCommandGraphEntry(
+  description: ProtocolCommandDescription,
+): RuntimeCommandGraphEntry {
+  return {
+    descriptor: {
+      name: description.commandId,
+      description: description.summary,
+      kind: 'workflow',
+      aliases: description.aliases,
+      sensitive: description.permissionRisk.requiresApproval,
+      disableModelInvocation: description.deprecated,
+    },
+    source: description.source,
+    supportsNonInteractive: true,
+    modelInvocable: !description.deprecated,
+  }
+}
+
 function normalizeCliArguments(params: unknown): string | undefined {
   if (params === undefined || params === null) {
     return undefined
@@ -1513,6 +2219,56 @@ function normalizeCliArguments(params: unknown): string | undefined {
     'invalid_params',
     'CLI graph commands require arguments as a string or { args: string }',
   )
+}
+
+function normalizeCommandExecutionArguments(
+  payload: Record<string, unknown>,
+): string | undefined {
+  if (Object.hasOwn(payload, 'arguments')) {
+    return normalizeCliArguments(payload.arguments)
+  }
+  if (Object.hasOwn(payload, 'args')) {
+    return normalizeCliArguments(payload.args)
+  }
+  return undefined
+}
+
+function normalizeCliExecutionOptions(params: unknown): {
+  args?: string
+  source?: RuntimeCommandExecuteRequest['source']
+  metadata?: Record<string, unknown>
+} {
+  if (typeof params === 'string') {
+    return { args: params }
+  }
+  const payload = expectRecord(params, 'params')
+  return {
+    args: normalizeCommandExecutionArguments(payload),
+    source: optionalCommandSource(payload.source),
+    metadata: optionalRecord(payload.metadata),
+  }
+}
+
+function optionalCommandSource(
+  value: unknown,
+): RuntimeCommandExecuteRequest['source'] | undefined {
+  if (typeof value !== 'string') {
+    return undefined
+  }
+  switch (value) {
+    case 'cli':
+    case 'repl':
+    case 'bridge':
+    case 'daemon':
+    case 'sdk':
+    case 'test':
+      return value
+    default:
+      throw createProtocolFailure(
+        'invalid_params',
+        `Unsupported command execution source: ${value}`,
+      )
+  }
 }
 
 function normalizePermissionDecisionResult(
@@ -1625,7 +2381,7 @@ function parseJsonRpcLiteMessage(line: string): ParsedInboundMessage {
     }
   }
 
-  if (!hasId || hasMethod || (hasResult === hasError)) {
+  if (!hasId || hasMethod || hasResult === hasError) {
     throw createProtocolFailure(
       'invalid_request',
       'Invalid JSON-RPC-lite message shape',
@@ -1659,11 +2415,18 @@ function parseRequestId(value: unknown, path: string): JsonRpcLiteRequestId {
   if (typeof value === 'string' || typeof value === 'number') {
     return value
   }
-  throw createProtocolFailure('invalid_request', `Invalid request id at ${path}`)
+  throw createProtocolFailure(
+    'invalid_request',
+    `Invalid request id at ${path}`,
+  )
 }
 
 function parseResponseId(value: unknown): JsonRpcLiteResponseId {
-  if (value === null || typeof value === 'string' || typeof value === 'number') {
+  if (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'number'
+  ) {
     return value
   }
   throw createProtocolFailure('invalid_request', 'Invalid response id')
@@ -1704,6 +2467,12 @@ function normalizeProtocolFailure(
   if (isProtocolFailure(error)) {
     return error
   }
+  if (error instanceof RuntimeCapabilityUnavailableError) {
+    return createProtocolFailure('unavailable', error.message, {
+      capabilityName: error.capabilityName,
+      code: error.code,
+    })
+  }
   if (
     error instanceof ConversationCoreError ||
     error instanceof CommandGraphCoreError ||
@@ -1711,7 +2480,9 @@ function normalizeProtocolFailure(
     error instanceof McpCoreError ||
     error instanceof AgentCoreError ||
     error instanceof TaskCoreError ||
-    error instanceof TeamCoreError
+    error instanceof TeamCoreError ||
+    error instanceof ExtensionCoreError ||
+    error instanceof RuntimeCoreError
   ) {
     return createProtocolFailure(error.code, error.message, error.data)
   }
@@ -1743,10 +2514,7 @@ function expectRecord(value: unknown, path: string): Record<string, unknown> {
   if (isRecord(value)) {
     return value
   }
-  throw createProtocolFailure(
-    'invalid_params',
-    `Expected object at ${path}`,
-  )
+  throw createProtocolFailure('invalid_params', `Expected object at ${path}`)
 }
 
 function optionalRecord(
@@ -1779,12 +2547,44 @@ function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined
 }
 
+function optionalNullableString(value: unknown, path: string): string | null {
+  if (value === null) {
+    return null
+  }
+  if (typeof value === 'string') {
+    return value
+  }
+  throw createProtocolFailure(
+    'invalid_params',
+    `Expected string or null at ${path}`,
+  )
+}
+
 function optionalNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
 function optionalBoolean(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined
+}
+
+function optionalHostDisconnectPolicy(
+  value: unknown,
+): 'detach' | 'continue' | 'abort_active_turns' | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+  if (
+    value === 'detach' ||
+    value === 'continue' ||
+    value === 'abort_active_turns'
+  ) {
+    return value
+  }
+  throw createProtocolFailure(
+    'invalid_params',
+    'Unsupported host disconnect policy',
+  )
 }
 
 function optionalStringArray(
@@ -1803,9 +2603,7 @@ function optionalStringArray(
   )
 }
 
-function optionalRuntimeObject<T>(
-  value: unknown,
-): T | undefined {
+function optionalRuntimeObject<T>(value: unknown): T | undefined {
   return value as T | undefined
 }
 
@@ -1825,6 +2623,16 @@ function normalizeTurnPrompt(
     'invalid_params',
     'params.prompt must be a string or an array of content blocks',
   )
+}
+
+function expectHostIdentity(value: unknown): never {
+  expectRecord(value, 'params.host')
+  throw createProtocolFailure('invalid_params', 'Invalid runtime host identity')
+}
+
+function expectEvent(value: unknown): never {
+  expectRecord(value, 'params.event')
+  throw createProtocolFailure('invalid_params', 'Invalid runtime event')
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

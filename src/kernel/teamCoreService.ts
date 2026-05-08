@@ -32,6 +32,15 @@ export class TeamCoreService {
     return stripUndefined(await this.teamRegistry.listTeams(this.context()))
   }
 
+  async getTeam(teamName: string): Promise<unknown> {
+    return {
+      team:
+        stripUndefined(
+          await this.teamRegistry.getTeam(teamName, this.context()),
+        ) ?? null,
+    }
+  }
+
   async createTeam(request: RuntimeTeamCreateRequest): Promise<unknown> {
     const createTeam = this.teamRegistry.createTeam
     if (!createTeam) {

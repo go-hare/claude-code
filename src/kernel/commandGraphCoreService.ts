@@ -61,6 +61,7 @@ export class CommandGraphCoreService {
   async executeCommand(request: {
     name: string
     args?: string
+    source?: 'cli' | 'repl' | 'bridge' | 'daemon' | 'sdk' | 'test'
     metadata?: Record<string, unknown>
   }): Promise<RuntimeCommandExecutionResult> {
     const executeCommand = this.commandCatalog.executeCommand
@@ -74,7 +75,7 @@ export class CommandGraphCoreService {
       {
         name: request.name,
         args: request.args,
-        source: 'sdk',
+        source: request.source ?? 'sdk',
         metadata: request.metadata,
       },
       {

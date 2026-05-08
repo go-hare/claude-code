@@ -6,6 +6,13 @@ import type {
   RuntimeCommandGraphEntry,
 } from '../../runtime/contracts/command.js'
 import type {
+  RuntimeHookCatalog,
+  RuntimePluginCatalog,
+  RuntimeSkillCatalog,
+} from '../runtimeExtensionCatalogs.js'
+import type { KernelCompanionRuntime } from '../companion.js'
+import type { KernelKairosRuntime } from '../kairos.js'
+import type {
   RuntimeMcpLifecycleResult,
   RuntimeMcpResourceRef,
   RuntimeMcpServerRef,
@@ -47,10 +54,81 @@ import type {
 } from '../../runtime/contracts/team.js'
 import type { KernelContextSnapshot } from '../context.js'
 import { runKernelRuntimeJsonRpcLiteProtocol } from '../jsonRpcLiteProtocol.js'
-import type {
-  KernelMemoryDescriptor,
-  KernelMemoryDocument,
-} from '../memory.js'
+import type { KernelMemoryDescriptor, KernelMemoryDocument } from '../memory.js'
+
+const LEGACY_WIRE_COMMANDS = [
+  'init_runtime',
+  'connect_host',
+  'disconnect_host',
+  'create_conversation',
+  'run_turn',
+  'abort_turn',
+  'decide_permission',
+  'dispose_conversation',
+  'reload_capabilities',
+  'list_commands',
+  'execute_command',
+  'list_tools',
+  'call_tool',
+  'list_mcp_servers',
+  'list_mcp_tools',
+  'list_mcp_resources',
+  'reload_mcp',
+  'connect_mcp',
+  'authenticate_mcp',
+  'set_mcp_enabled',
+  'list_hooks',
+  'reload_hooks',
+  'run_hook',
+  'register_hook',
+  'list_skills',
+  'reload_skills',
+  'resolve_skill_context',
+  'list_plugins',
+  'reload_plugins',
+  'set_plugin_enabled',
+  'install_plugin',
+  'uninstall_plugin',
+  'update_plugin',
+  'list_agents',
+  'reload_agents',
+  'spawn_agent',
+  'list_agent_runs',
+  'get_agent_run',
+  'get_agent_output',
+  'cancel_agent_run',
+  'list_tasks',
+  'get_task',
+  'create_task',
+  'update_task',
+  'assign_task',
+  'list_teams',
+  'get_team',
+  'create_team',
+  'send_team_message',
+  'destroy_team',
+  'get_companion_state',
+  'dispatch_companion_action',
+  'react_companion',
+  'get_kairos_status',
+  'enqueue_kairos_event',
+  'tick_kairos',
+  'suspend_kairos',
+  'resume_kairos',
+  'list_memory',
+  'read_memory',
+  'update_memory',
+  'read_context',
+  'get_context_git_status',
+  'get_system_prompt_injection',
+  'set_system_prompt_injection',
+  'list_sessions',
+  'resume_session',
+  'get_session_transcript',
+  'publish_host_event',
+  'subscribe_events',
+  'ping',
+] as const
 
 describe('runKernelRuntimeJsonRpcLiteProtocol', () => {
   test('rejects legacy top-level fields instead of accepting old wire messages', async () => {
@@ -257,23 +335,25 @@ describe('runKernelRuntimeJsonRpcLiteProtocol', () => {
         }),
       },
     })
-    expect(output.messages.find(message => message.id === 'tools-call-1'))
-      .toMatchObject({
-        result: {
+    expect(
+      output.messages.find(message => message.id === 'tools-call-1'),
+    ).toMatchObject({
+      result: {
+        toolName: 'EchoTool',
+        output: { text: 'hi' },
+      },
+    })
+    expect(
+      output.messages.find(message => message.method === 'event'),
+    ).toMatchObject({
+      method: 'event',
+      params: {
+        type: 'tools.called',
+        payload: {
           toolName: 'EchoTool',
-          output: { text: 'hi' },
         },
-      })
-    expect(output.messages.find(message => message.method === 'event'))
-      .toMatchObject({
-        method: 'event',
-        params: {
-          type: 'tools.called',
-          payload: {
-            toolName: 'EchoTool',
-          },
-        },
-      })
+      },
+    })
   })
 
   test('serves MCP methods through core service', async () => {
@@ -537,67 +617,75 @@ describe('runKernelRuntimeJsonRpcLiteProtocol', () => {
       conversationJournalPath: false,
     })
 
-    expect(output.messages.find(message => message.id === 'agents-list-1'))
-      .toMatchObject({
-        result: {
-          activeAgents: [
-            {
-              agentType: 'general-purpose',
-            },
-          ],
-        },
-      })
-    expect(output.messages.find(message => message.id === 'agents-spawn-1'))
-      .toMatchObject({
-        result: {
-          status: 'accepted',
+    expect(
+      output.messages.find(message => message.id === 'agents-list-1'),
+    ).toMatchObject({
+      result: {
+        activeAgents: [
+          {
+            agentType: 'general-purpose',
+          },
+        ],
+      },
+    })
+    expect(
+      output.messages.find(message => message.id === 'agents-spawn-1'),
+    ).toMatchObject({
+      result: {
+        status: 'accepted',
+        runId: 'run-1',
+      },
+    })
+    expect(
+      output.messages.find(message => message.id === 'agents-run-1'),
+    ).toMatchObject({
+      result: {
+        run: {
           runId: 'run-1',
         },
-      })
-    expect(output.messages.find(message => message.id === 'agents-run-1'))
-      .toMatchObject({
-        result: {
-          run: {
-            runId: 'run-1',
-          },
-        },
-      })
-    expect(output.messages.find(message => message.id === 'agents-output-1'))
-      .toMatchObject({
-        result: {
-          runId: 'run-1',
-          output: 'ok',
-        },
-      })
-    expect(output.messages.find(message => message.id === 'tasks-create-1'))
-      .toMatchObject({
-        result: {
-          taskId: 'task-1',
-          created: true,
-        },
-      })
-    expect(output.messages.find(message => message.id === 'tasks-assign-1'))
-      .toMatchObject({
-        result: {
-          assigned: true,
-        },
-      })
-    expect(output.messages.find(message => message.id === 'teams-create-1'))
-      .toMatchObject({
-        result: {
-          created: true,
-          team: {
-            teamName: 'alpha',
-          },
-        },
-      })
-    expect(output.messages.find(message => message.id === 'teams-destroy-1'))
-      .toMatchObject({
-        result: {
-          success: true,
+      },
+    })
+    expect(
+      output.messages.find(message => message.id === 'agents-output-1'),
+    ).toMatchObject({
+      result: {
+        runId: 'run-1',
+        output: 'ok',
+      },
+    })
+    expect(
+      output.messages.find(message => message.id === 'tasks-create-1'),
+    ).toMatchObject({
+      result: {
+        taskId: 'task-1',
+        created: true,
+      },
+    })
+    expect(
+      output.messages.find(message => message.id === 'tasks-assign-1'),
+    ).toMatchObject({
+      result: {
+        assigned: true,
+      },
+    })
+    expect(
+      output.messages.find(message => message.id === 'teams-create-1'),
+    ).toMatchObject({
+      result: {
+        created: true,
+        team: {
           teamName: 'alpha',
         },
-      })
+      },
+    })
+    expect(
+      output.messages.find(message => message.id === 'teams-destroy-1'),
+    ).toMatchObject({
+      result: {
+        success: true,
+        teamName: 'alpha',
+      },
+    })
     expect(
       output.messages
         .filter(message => message.method === 'event')
@@ -614,7 +702,559 @@ describe('runKernelRuntimeJsonRpcLiteProtocol', () => {
       ]),
     )
   })
+
+  test('exposes every legacy wire command name on the JSON-RPC-lite surface', async () => {
+    const output = createOutputCollector()
+
+    await runKernelRuntimeJsonRpcLiteProtocol({
+      input: Readable.from([
+        `${JSON.stringify({
+          id: 'commands-list-1',
+          method: 'commands.list',
+        })}\n`,
+      ]),
+      output,
+      commandCatalog: createCommandCatalog(),
+      toolCatalog: createToolCatalog(),
+      mcpRegistry: createMcpRegistry(),
+      contextManager: createContextManager(),
+      memoryManager: createMemoryManager(),
+      agentRegistry: createAgentRegistry(),
+      taskRegistry: createTaskRegistry(),
+      teamRegistry: createTeamRegistry(),
+      hookCatalog: createHookCatalog(),
+      skillCatalog: createSkillCatalog(),
+      pluginCatalog: createPluginCatalog(),
+      companionRuntime: createCompanionRuntime(),
+      kairosRuntime: createKairosRuntime(),
+      eventJournalPath: false,
+      conversationJournalPath: false,
+    })
+
+    const response = output.messages.find(
+      message => message.id === 'commands-list-1',
+    )
+    expect(response).toBeDefined()
+    const commands = (
+      response?.result as {
+        commands: Array<{
+          commandId: string
+          aliases?: readonly string[]
+        }>
+      }
+    ).commands
+    const exposed = new Set(
+      commands.flatMap(command => [
+        command.commandId,
+        ...(command.aliases ?? []),
+      ]),
+    )
+    const missing = LEGACY_WIRE_COMMANDS.filter(
+      command => !exposed.has(command),
+    )
+    expect(missing).toEqual([])
+  })
+
+  test('accepts legacy wire method names and legacy execute payloads', async () => {
+    const output = createOutputCollector()
+    const eventBus = new RuntimeEventBus({
+      runtimeId: 'runtime-test',
+    })
+
+    await runKernelRuntimeJsonRpcLiteProtocol({
+      input: Readable.from([
+        `${JSON.stringify({
+          id: 'list-commands-1',
+          method: 'list_commands',
+        })}\n`,
+        `${JSON.stringify({
+          id: 'execute-command-1',
+          method: 'execute_command',
+          params: {
+            name: 'poor.toggle',
+            args: '--enabled true',
+          },
+        })}\n`,
+        `${JSON.stringify({
+          id: 'list-hooks-1',
+          method: 'list_hooks',
+        })}\n`,
+        `${JSON.stringify({
+          id: 'run-hook-1',
+          method: 'run_hook',
+          params: {
+            event: 'user.prompt.submit',
+            input: { prompt: 'hi' },
+          },
+        })}\n`,
+        `${JSON.stringify({
+          id: 'list-skills-1',
+          method: 'list_skills',
+        })}\n`,
+        `${JSON.stringify({
+          id: 'resolve-skill-1',
+          method: 'resolve_skill_context',
+          params: {
+            name: 'legacy-skill',
+            args: '--mode test',
+          },
+        })}\n`,
+        `${JSON.stringify({
+          id: 'list-plugins-1',
+          method: 'list_plugins',
+        })}\n`,
+        `${JSON.stringify({
+          id: 'plugin-set-1',
+          method: 'set_plugin_enabled',
+          params: {
+            name: 'legacy-plugin',
+            enabled: false,
+          },
+        })}\n`,
+        `${JSON.stringify({
+          id: 'get-system-1',
+          method: 'get_system_prompt_injection',
+        })}\n`,
+        `${JSON.stringify({
+          id: 'set-system-1',
+          method: 'set_system_prompt_injection',
+          params: {
+            value: 'use core',
+          },
+        })}\n`,
+        `${JSON.stringify({
+          id: 'get-system-2',
+          method: 'get_system_prompt_injection',
+        })}\n`,
+        `${JSON.stringify({
+          id: 'get-task-1',
+          method: 'get_task',
+          params: {
+            taskId: 'task-1',
+            taskListId: 'tl-1',
+          },
+        })}\n`,
+        `${JSON.stringify({
+          id: 'get-team-1',
+          method: 'get_team',
+          params: {
+            teamName: 'alpha',
+          },
+        })}\n`,
+        `${JSON.stringify({
+          id: 'dispatch-companion-1',
+          method: 'dispatch_companion_action',
+          params: {
+            action: {
+              type: 'pet',
+              note: 'hello',
+            },
+          },
+        })}\n`,
+        `${JSON.stringify({
+          id: 'get-companion-1',
+          method: 'get_companion_state',
+        })}\n`,
+        `${JSON.stringify({
+          id: 'enqueue-kairos-1',
+          method: 'enqueue_kairos_event',
+          params: {
+            event: {
+              type: 'legacy.signal',
+              payload: { source: 'test' },
+              metadata: { protocol: 'legacy' },
+              replayable: true,
+            },
+          },
+        })}\n`,
+        `${JSON.stringify({
+          id: 'get-kairos-1',
+          method: 'get_kairos_status',
+        })}\n`,
+        `${JSON.stringify({
+          id: 'publish-host-1',
+          method: 'publish_host_event',
+          params: {
+            event: {
+              type: 'host.custom',
+              replayable: true,
+              payload: { ok: true },
+            },
+          },
+        })}\n`,
+      ]),
+      output,
+      eventBus,
+      commandCatalog: createCommandCatalog(),
+      toolCatalog: createToolCatalog(),
+      mcpRegistry: createMcpRegistry(),
+      contextManager: createContextManager(),
+      memoryManager: createMemoryManager(),
+      agentRegistry: createAgentRegistry(),
+      taskRegistry: createTaskRegistry(),
+      teamRegistry: createTeamRegistry(),
+      hookCatalog: createHookCatalog(),
+      skillCatalog: createSkillCatalog(),
+      pluginCatalog: createPluginCatalog(),
+      companionRuntime: createCompanionRuntime(),
+      kairosRuntime: createKairosRuntime(),
+      eventJournalPath: false,
+      conversationJournalPath: false,
+    })
+
+    expect(
+      output.messages.find(message => message.id === 'list-commands-1'),
+    ).toMatchObject({
+      result: {
+        commands: expect.arrayContaining([
+          expect.objectContaining({
+            commandId: 'poor.toggle',
+          }),
+        ]),
+      },
+    })
+    expect(
+      output.messages.find(message => message.id === 'execute-command-1'),
+    ).toMatchObject({
+      result: {
+        name: 'poor.toggle',
+        result: {
+          type: 'text',
+          text: 'ran: --enabled true',
+        },
+      },
+    })
+    expect(
+      output.messages.find(message => message.id === 'list-hooks-1'),
+    ).toMatchObject({
+      result: {
+        hooks: [
+          expect.objectContaining({
+            event: 'user.prompt.submit',
+          }),
+        ],
+      },
+    })
+    expect(
+      output.messages.find(message => message.id === 'run-hook-1'),
+    ).toMatchObject({
+      result: {
+        event: 'user.prompt.submit',
+        handled: true,
+      },
+    })
+    expect(
+      output.messages.find(message => message.id === 'resolve-skill-1'),
+    ).toMatchObject({
+      result: {
+        name: 'legacy-skill',
+        context: 'inline',
+      },
+    })
+    expect(
+      output.messages.find(message => message.id === 'plugin-set-1'),
+    ).toMatchObject({
+      result: {
+        name: 'legacy-plugin',
+        enabled: false,
+      },
+    })
+    expect(
+      output.messages.find(message => message.id === 'get-system-1'),
+    ).toMatchObject({
+      result: {
+        value: null,
+      },
+    })
+    expect(
+      output.messages.find(message => message.id === 'set-system-1'),
+    ).toMatchObject({
+      result: {
+        value: 'use core',
+      },
+    })
+    expect(
+      output.messages.find(message => message.id === 'get-system-2'),
+    ).toMatchObject({
+      result: {
+        value: 'use core',
+      },
+    })
+    expect(
+      output.messages.find(message => message.id === 'get-task-1'),
+    ).toMatchObject({
+      result: {
+        task: expect.objectContaining({
+          id: 'task-1',
+        }),
+      },
+    })
+    expect(
+      output.messages.find(message => message.id === 'get-team-1'),
+    ).toMatchObject({
+      result: {
+        team: expect.objectContaining({
+          teamName: 'alpha',
+        }),
+      },
+    })
+    expect(
+      output.messages.find(message => message.id === 'dispatch-companion-1'),
+    ).toMatchObject({
+      result: {
+        state: null,
+      },
+    })
+    expect(
+      output.messages.find(message => message.id === 'get-companion-1'),
+    ).toMatchObject({
+      result: {
+        state: null,
+      },
+    })
+    expect(
+      output.messages.find(message => message.id === 'enqueue-kairos-1'),
+    ).toMatchObject({
+      result: {
+        status: expect.objectContaining({
+          pendingEvents: 1,
+        }),
+      },
+    })
+    expect(
+      output.messages.find(message => message.id === 'get-kairos-1'),
+    ).toMatchObject({
+      result: {
+        status: expect.objectContaining({
+          pendingEvents: 1,
+        }),
+      },
+    })
+    expect(
+      output.messages.find(message => message.id === 'publish-host-1'),
+    ).toMatchObject({
+      result: {
+        published: true,
+      },
+    })
+  })
 })
+
+function createHookCatalog(): RuntimeHookCatalog {
+  const hook = {
+    event: 'user.prompt.submit',
+    type: 'command' as const,
+    source: 'builtinHook' as const,
+    displayName: 'Legacy hook',
+  }
+  return {
+    async listHooks() {
+      return [hook]
+    },
+    async reload() {},
+    async runHook(request) {
+      return {
+        event: request.event,
+        handled: true,
+        outputs: [request.input],
+        metadata: request.metadata,
+      }
+    },
+    async registerHook(request) {
+      return {
+        hook: request.hook,
+        registered: true,
+        handlerRef: request.handlerRef,
+        metadata: request.metadata,
+      }
+    },
+  }
+}
+
+function createSkillCatalog(): RuntimeSkillCatalog {
+  const skill = {
+    name: 'legacy-skill',
+    description: 'Legacy skill',
+    source: 'builtin' as const,
+    modelInvocable: true,
+    context: 'inline' as const,
+  }
+  return {
+    async listSkills() {
+      return [skill]
+    },
+    async reload() {},
+    async resolvePromptContext(request) {
+      return {
+        name: request.name,
+        descriptor: skill,
+        context: 'inline',
+        content: `resolved:${request.args ?? ''}`.trim(),
+        allowedTools: ['Bash'],
+        metadata: request.metadata,
+      }
+    },
+  }
+}
+
+function createPluginCatalog(): RuntimePluginCatalog {
+  let enabled = true
+  function descriptor() {
+    return {
+      name: 'legacy-plugin',
+      source: 'unit-test',
+      path: 'plugins/legacy-plugin',
+      repository: 'local',
+      status: enabled ? ('enabled' as const) : ('disabled' as const),
+      enabled,
+      components: {
+        commands: true,
+        agents: true,
+        skills: true,
+        hooks: true,
+        mcp: true,
+        lsp: false,
+        outputStyles: false,
+        settings: false,
+      },
+    }
+  }
+  function mutation(
+    name: string,
+    action: 'set_enabled' | 'install' | 'uninstall' | 'update',
+  ) {
+    return {
+      name,
+      action,
+      success: true,
+      enabled,
+      status: enabled ? ('enabled' as const) : ('disabled' as const),
+      plugin: descriptor(),
+      snapshot: {
+        plugins: [descriptor()],
+        errors: [],
+      },
+    }
+  }
+  return {
+    async listPlugins() {
+      return {
+        plugins: [descriptor()],
+        errors: [],
+      }
+    },
+    async reload() {},
+    async setPluginEnabled(request) {
+      enabled = request.enabled
+      return mutation(request.name, 'set_enabled')
+    },
+    async installPlugin(request) {
+      enabled = true
+      return mutation(request.name, 'install')
+    },
+    async uninstallPlugin(request) {
+      enabled = false
+      return mutation(request.name, 'uninstall')
+    },
+    async updatePlugin(request) {
+      return {
+        ...mutation(request.name, 'update'),
+        alreadyUpToDate: true,
+      }
+    },
+  }
+}
+
+function createCompanionRuntime(): KernelCompanionRuntime {
+  const listeners = new Set<Parameters<KernelCompanionRuntime['onEvent']>[0]>()
+  return {
+    async getState() {
+      return null
+    },
+    async dispatch(action) {
+      for (const listener of listeners) {
+        listener({
+          type: action.type === 'pet' ? 'petted' : 'state_changed',
+          action: action.type,
+          note: action.type === 'pet' ? action.note : undefined,
+          state: null,
+        } as Parameters<Parameters<KernelCompanionRuntime['onEvent']>[0]>[0])
+      }
+      return null
+    },
+    async reactToTurn() {},
+    onEvent(handler) {
+      listeners.add(handler)
+      return () => {
+        listeners.delete(handler)
+      }
+    },
+  }
+}
+
+function createKairosRuntime(): KernelKairosRuntime {
+  const listeners = new Set<Parameters<KernelKairosRuntime['onEvent']>[0]>()
+  let pendingEvents = 0
+  let suspended = false
+  const status = () => ({
+    enabled: true,
+    runtimeEnabled: true,
+    suspended,
+    pendingEvents,
+  })
+  return {
+    async getStatus() {
+      return status()
+    },
+    async enqueueEvent(event) {
+      pendingEvents += 1
+      for (const listener of listeners) {
+        listener({
+          type: 'event_enqueued',
+          event,
+          status: status(),
+        })
+      }
+    },
+    async tick(request) {
+      pendingEvents = 0
+      for (const listener of listeners) {
+        listener({
+          type: 'tick',
+          request,
+          drainedEvents: [],
+          status: status(),
+        })
+      }
+    },
+    async suspend(reason) {
+      suspended = true
+      for (const listener of listeners) {
+        listener({
+          type: 'suspended',
+          reason,
+          status: status(),
+        })
+      }
+    },
+    async resume(reason) {
+      suspended = false
+      for (const listener of listeners) {
+        listener({
+          type: 'resumed',
+          reason,
+          status: status(),
+        })
+      }
+    },
+    onEvent(handler) {
+      listeners.add(handler)
+      return () => {
+        listeners.delete(handler)
+      }
+    },
+  }
+}
 
 function createOutputCollector(): {
   messages: Array<Record<string, unknown>>
@@ -826,7 +1466,9 @@ function createMemoryManager(): {
 
 function createAgentRegistry(): {
   listAgents(): Promise<RuntimeAgentRegistrySnapshot>
-  spawnAgent(request: RuntimeAgentSpawnRequest): Promise<RuntimeAgentSpawnResult>
+  spawnAgent(
+    request: RuntimeAgentSpawnRequest,
+  ): Promise<RuntimeAgentSpawnResult>
   listAgentRuns(): Promise<RuntimeAgentRunListSnapshot>
   getAgentRun(runId: string): Promise<RuntimeAgentRunDescriptor | null>
   getAgentOutput(
@@ -963,7 +1605,9 @@ function createTaskRegistry(): {
 function createTeamRegistry(): {
   listTeams(): Promise<RuntimeTeamListSnapshot>
   getTeam(teamName: string): Promise<RuntimeTeamDescriptor | null>
-  createTeam(request: RuntimeTeamCreateRequest): Promise<RuntimeTeamCreateResult>
+  createTeam(
+    request: RuntimeTeamCreateRequest,
+  ): Promise<RuntimeTeamCreateResult>
   sendMessage(
     request: RuntimeTeamMessageRequest,
   ): Promise<RuntimeTeamMessageResult>
@@ -1014,10 +1658,7 @@ function createAgentRun(runId: string): RuntimeAgentRunDescriptor {
   }
 }
 
-function createTask(
-  id: string,
-  taskListId: string,
-): RuntimeTaskDescriptor {
+function createTask(id: string, taskListId: string): RuntimeTaskDescriptor {
   return {
     id,
     taskListId,

@@ -30,6 +30,13 @@ export class AgentCoreService {
     return stripUndefined(snapshot)
   }
 
+  async reloadAgents(): Promise<unknown> {
+    await this.agentRegistry.reload?.(this.context())
+    const snapshot = await this.agentRegistry.listAgents(this.context())
+    this.emit('agents.reloaded', snapshot)
+    return stripUndefined(snapshot)
+  }
+
   async spawnAgent(request: RuntimeAgentSpawnRequest): Promise<unknown> {
     const spawnAgent = this.agentRegistry.spawnAgent
     if (!spawnAgent) {
@@ -67,7 +74,10 @@ export class AgentCoreService {
   async getOutput(request: RuntimeAgentRunOutputRequest): Promise<unknown> {
     const getAgentOutput = this.agentRegistry.getAgentOutput
     if (!getAgentOutput) {
-      throw new AgentCoreError('unavailable', 'Agent run output is not available')
+      throw new AgentCoreError(
+        'unavailable',
+        'Agent run output is not available',
+      )
     }
     return stripUndefined(await getAgentOutput(request, this.context()))
   }
