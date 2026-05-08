@@ -12,10 +12,10 @@ if (shouldReexecFromSourceRoot()) {
   await reexecFromSourceRoot()
 }
 
-const { runKernelRuntimeWireProtocol } = await import(
-  '../kernel/wireProtocol.js'
+const { runKernelRuntimeJsonRpcLiteProtocol } = await import(
+  '../kernel/jsonRpcLiteProtocol.js'
 )
-await runKernelRuntimeWireProtocol()
+await runKernelRuntimeJsonRpcLiteProtocol()
 
 function shouldReexecFromSourceRoot(): boolean {
   if (process.env[SOURCE_REEXEC_ENV] === '1') {

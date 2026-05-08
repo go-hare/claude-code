@@ -27,22 +27,9 @@ import type {
   RuntimeSkillSource,
 } from '../runtime/contracts/skill.js'
 import type {
-  KernelRuntimeWireHookCatalog,
-  KernelRuntimeWirePluginCatalog,
-  KernelRuntimeWireSkillCatalog,
-} from '../runtime/core/wire/KernelRuntimeWireRouter.js'
-import type {
   Command,
   LocalJSXCommandContext,
 } from '../types/command.js'
-import type { MCPServerConnection } from '../services/mcp/types.js'
-import type {
-  ToolPermissionContext,
-  ToolUseContext,
-  Tools,
-} from '../Tool.js'
-import type { Message } from '../types/message.js'
-import type { PermissionMode } from '../types/permissions.js'
 import type { LoadedPlugin, PluginError } from '../types/plugin.js'
 import type { AppState } from '../state/AppState.js'
 import type { HookInput } from 'src/types/protocol/index.js'
@@ -54,16 +41,58 @@ import {
 } from '../types/hooks.js'
 import { normalizeLegacyToolName } from '../utils/permissions/permissionRuleParser.js'
 import { errorMessage } from '../utils/errors.js'
+import {
+  contentBlocksToText,
+  createKernelRuntimeNonInteractiveToolUseContext,
+} from './nonInteractiveToolUseContext.js'
 
 type KernelRuntimeHookCatalogDeps = {
   getRegisteredHooks?(): RuntimeRegisteredHookMatchers | null | undefined
   loadPluginHookMatchers?(): Promise<RuntimeRegisteredHookMatchers>
 }
 
+type RuntimeHookCatalog = {
+  listHooks(): Promise<readonly RuntimeHookDescriptor[]>
+  reload(): Promise<void>
+  runHook(request: RuntimeHookRunRequest): Promise<RuntimeHookRunResult>
+  registerHook(
+    request: RuntimeHookRegisterRequest,
+  ): Promise<RuntimeHookMutationResult>
+}
+
+type RuntimeSkillCatalog = {
+  listSkills(context?: { cwd?: string }): Promise<readonly RuntimeSkillDescriptor[]>
+  reload(context?: { cwd?: string }): Promise<void>
+  resolvePromptContext(
+    request: RuntimeSkillPromptContextRequest,
+    context?: { cwd?: string },
+  ): Promise<RuntimeSkillPromptContextResult>
+}
+
+type RuntimePluginCatalog = {
+  listPlugins(): Promise<{
+    plugins: readonly RuntimePluginDescriptor[]
+    errors: readonly RuntimePluginErrorDescriptor[]
+  }>
+  reload(): Promise<void>
+  setPluginEnabled(
+    request: RuntimePluginSetEnabledRequest,
+  ): Promise<RuntimePluginMutationResult>
+  installPlugin(
+    request: RuntimePluginInstallRequest,
+  ): Promise<RuntimePluginMutationResult>
+  uninstallPlugin(
+    request: RuntimePluginUninstallRequest,
+  ): Promise<RuntimePluginMutationResult>
+  updatePlugin(
+    request: RuntimePluginUpdateRequest,
+  ): Promise<RuntimePluginMutationResult>
+}
+
 export function createDefaultKernelRuntimeHookCatalog(
   _workspacePath: string | undefined,
   deps: KernelRuntimeHookCatalogDeps = {},
-): KernelRuntimeWireHookCatalog {
+): RuntimeHookCatalog {
   let cachedStaticHooks: readonly RuntimeHookDescriptor[] | undefined
   let appStateCache: AppState | undefined
   const registeredHooks: Array<{
@@ -272,7 +301,7 @@ export function createDefaultKernelRuntimeHookCatalog(
 
 export function createDefaultKernelRuntimeSkillCatalog(
   workspacePath: string | undefined,
-): KernelRuntimeWireSkillCatalog {
+): RuntimeSkillCatalog {
   let cachedCommands: readonly Command[] | undefined
   let cachedSkills: readonly RuntimeSkillDescriptor[] | undefined
 
@@ -348,7 +377,7 @@ export function createDefaultKernelRuntimeSkillCatalog(
 
 export function createDefaultKernelRuntimePluginCatalog(
   _workspacePath: string | undefined,
-): KernelRuntimeWirePluginCatalog {
+): RuntimePluginCatalog {
   let cached:
     | {
         plugins: readonly RuntimePluginDescriptor[]
@@ -964,115 +993,6 @@ function toPluginMutationResult(input: {
   }
 }
 
-export type KernelRuntimeNonInteractiveToolUseContextOptions = {
-  permissionMode?: string
-  tools?: Tools
-  messages?: readonly Message[]
-  mcpClients?: readonly MCPServerConnection[]
-}
-
-export async function createKernelRuntimeNonInteractiveToolUseContext(
-  commands: readonly Command[],
-  _cwd: string,
-  options: KernelRuntimeNonInteractiveToolUseContextOptions = {},
-): Promise<ToolUseContext & LocalJSXCommandContext> {
-  const [
-    { getEmptyToolPermissionContext },
-    { getDefaultAppState },
-    { createFileStateCacheWithSizeLimit },
-    { getTools },
-  ] = await Promise.all([
-    import('../Tool.js'),
-    import('../state/AppStateStore.js'),
-    import('../utils/fileStateCache.js'),
-    import('../runtime/capabilities/tools/ToolPolicy.js'),
-  ])
-  const toolPermissionContext = {
-    ...getEmptyToolPermissionContext(),
-    mode: toPermissionMode(options.permissionMode, 'default'),
-    shouldAvoidPermissionPrompts: true,
-  } satisfies ToolPermissionContext
-  let appState = getDefaultAppState()
-  appState.toolPermissionContext = toolPermissionContext
-  let messages = [...(options.messages ?? [])]
-  const tools = options.tools ?? getTools(toolPermissionContext)
-  return {
-    abortController: new AbortController(),
-    options: {
-      commands: [...commands],
-      debug: false,
-      mainLoopModel: process.env.OPENAI_MODEL ?? 'kernel-runtime',
-      tools,
-      verbose: false,
-      thinkingConfig: { type: 'disabled' },
-      mcpClients: [...(options.mcpClients ?? [])],
-      mcpResources: {},
-      isNonInteractiveSession: true,
-      ideInstallationStatus: null,
-      theme: 'dark',
-      agentDefinitions: {
-        activeAgents: [],
-        allAgents: [],
-        allowedAgentTypes: undefined,
-      },
-    },
-    readFileState: createFileStateCacheWithSizeLimit(100),
-    getAppState: () => appState,
-    setAppState: updater => {
-      appState = updater(appState)
-    },
-    messages,
-    setMessages: updater => {
-      messages = updater(messages)
-    },
-    onChangeAPIKey: () => {},
-    setInProgressToolUseIDs: () => {},
-    setResponseLength: () => {},
-    updateFileHistoryState: () => {},
-    updateAttributionState: () => {},
-  }
-}
-
-export function contentBlocksToText(
-  blocks: readonly unknown[],
-): string | undefined {
-  const text = blocks
-    .map(block => {
-      if (typeof block === 'string') {
-        return block
-      }
-      if (
-        block &&
-        typeof block === 'object' &&
-        (block as { type?: unknown }).type === 'text' &&
-        typeof (block as { text?: unknown }).text === 'string'
-      ) {
-        return (block as { text: string }).text
-      }
-      return undefined
-    })
-    .filter((item): item is string => !!item)
-    .join('\n')
-  return text.length > 0 ? text : undefined
-}
-
-function toPermissionMode(
-  value: string | undefined,
-  fallback: PermissionMode,
-): PermissionMode {
-  switch (value) {
-    case 'acceptEdits':
-    case 'auto':
-    case 'bubble':
-    case 'bypassPermissions':
-    case 'default':
-    case 'dontAsk':
-    case 'plan':
-      return value
-    default:
-      return fallback
-  }
-}
 
 function toRuntimeHookType(value: unknown): RuntimeHookType {
   switch (value) {

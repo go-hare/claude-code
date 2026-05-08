@@ -3,10 +3,6 @@ import type {
   KernelCapabilityName,
   KernelCapabilityReloadScope,
 } from '../runtime/contracts/capability.js'
-import type {
-  KernelRuntime,
-  KernelRuntimeCapabilities,
-} from './runtime.js'
 import {
   filterKernelCapabilities,
   groupKernelCapabilities,
@@ -25,6 +21,23 @@ type KernelRuntimeCapabilitySource = {
   reloadCapabilities(
     scope?: KernelCapabilityReloadScope,
   ): Promise<readonly KernelCapabilityDescriptor[]>
+}
+
+export type KernelRuntimeCapabilities = {
+  list(): readonly KernelCapabilityDescriptor[]
+  views(): readonly KernelCapabilityView[]
+  get(name: KernelCapabilityName): KernelCapabilityDescriptor | undefined
+  getView(name: KernelCapabilityName): KernelCapabilityView | undefined
+  filter(filter?: KernelCapabilityFilter): readonly KernelCapabilityDescriptor[]
+  groupByFamily(): Record<KernelCapabilityFamily, readonly KernelCapabilityDescriptor[]>
+  listByFamily(family: KernelCapabilityFamily): readonly KernelCapabilityDescriptor[]
+  reload(
+    scope?: KernelCapabilityReloadScope,
+  ): Promise<readonly KernelCapabilityDescriptor[]>
+}
+
+export type KernelRuntimeCapabilityContainer = {
+  readonly capabilities: KernelRuntimeCapabilities
 }
 
 export function createKernelRuntimeCapabilitiesFacade(
@@ -49,7 +62,7 @@ export function createKernelRuntimeCapabilitiesFacade(
 
 export function resolveKernelRuntimeCapabilities(
   source:
-    | KernelRuntime
+    | KernelRuntimeCapabilityContainer
     | KernelRuntimeCapabilities
     | readonly KernelCapabilityDescriptor[],
 ): readonly KernelCapabilityView[] {
@@ -60,7 +73,7 @@ export function resolveKernelRuntimeCapabilities(
 }
 
 export async function reloadKernelRuntimeCapabilities(
-  source: KernelRuntime | KernelRuntimeCapabilities,
+  source: KernelRuntimeCapabilityContainer | KernelRuntimeCapabilities,
   scope?: KernelCapabilityReloadScope,
 ): Promise<readonly KernelCapabilityView[]> {
   const descriptors = await getKernelRuntimeCapabilities(source).reload(scope)
@@ -68,20 +81,20 @@ export async function reloadKernelRuntimeCapabilities(
 }
 
 function getKernelRuntimeCapabilities(
-  source: KernelRuntime | KernelRuntimeCapabilities,
+  source: KernelRuntimeCapabilityContainer | KernelRuntimeCapabilities,
 ): KernelRuntimeCapabilities {
   return hasKernelRuntime(source) ? source.capabilities : source
 }
 
 function hasKernelRuntime(
-  source: KernelRuntime | KernelRuntimeCapabilities,
-): source is KernelRuntime {
+  source: KernelRuntimeCapabilityContainer | KernelRuntimeCapabilities,
+): source is KernelRuntimeCapabilityContainer {
   return 'capabilities' in source
 }
 
 function isKernelCapabilityDescriptorList(
   source:
-    | KernelRuntime
+    | KernelRuntimeCapabilityContainer
     | KernelRuntimeCapabilities
     | readonly KernelCapabilityDescriptor[],
 ): source is readonly KernelCapabilityDescriptor[] {

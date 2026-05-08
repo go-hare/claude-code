@@ -87,6 +87,10 @@ interface TestResult {
   error?: string
 }
 
+type JsonRpcLiteMessage = Record<string, unknown>
+
+type JsonRpcLiteRunnerOverrides = Record<string, unknown>
+
 const results: TestResult[] = []
 
 async function test(name: string, feature: string, fn: () => Promise<void>): Promise<void> {
@@ -157,17 +161,365 @@ async function chat(messages: Array<{ role: string; content: string }>): Promise
 
   if (!resp.ok) {
     const body = await resp.text().catch(() => '')
+    const responsesContent = await responsesApiChat(messages)
+    if (responsesContent) {
+      return responsesContent
+    }
     throw new Error(`API ${resp.status}: ${resp.statusText} — ${body.slice(0, 300)}`)
   }
 
-  const json = (await resp.json()) as {
-    choices?: Array<{ message?: { content?: string } }>
+  const body = await resp.text()
+  const content = parseChatCompletionContent(
+    body,
+    resp.headers.get('content-type') ?? '',
+  )
+  if (content) {
+    return content
   }
-  const content = json.choices?.[0]?.message?.content?.trim()
-  if (!content) {
+
+  const responsesContent = await responsesApiChat(messages)
+  if (!responsesContent) {
     throw new Error('API returned empty response')
   }
-  return content
+  return responsesContent
+}
+
+function parseChatCompletionContent(
+  body: string,
+  contentType: string,
+): string | undefined {
+  if (
+    contentType.toLowerCase().includes('text/event-stream') ||
+    body.trimStart().startsWith('data:')
+  ) {
+    return parseChatCompletionStreamContent(body)
+  }
+
+  const json = JSON.parse(body) as {
+    choices?: Array<{ message?: { content?: string } }>
+  }
+  return json.choices?.[0]?.message?.content?.trim()
+}
+
+function parseChatCompletionStreamContent(body: string): string | undefined {
+  const chunks: string[] = []
+  for (const line of body.split(/\r?\n/)) {
+    const trimmed = line.trim()
+    if (!trimmed.startsWith('data:')) {
+      continue
+    }
+    const data = trimmed.slice('data:'.length).trim()
+    if (!data || data === '[DONE]') {
+      continue
+    }
+    let parsed: {
+      choices?: Array<{
+        delta?: { content?: string }
+        message?: { content?: string }
+      }>
+    }
+    try {
+      parsed = JSON.parse(data) as typeof parsed
+    } catch {
+      continue
+    }
+    for (const choice of parsed.choices ?? []) {
+      const content = choice.delta?.content ?? choice.message?.content
+      if (content) {
+        chunks.push(content)
+      }
+    }
+  }
+  return chunks.join('').trim() || undefined
+}
+
+async function responsesApiChat(
+  messages: Array<{ role: string; content: string }>,
+): Promise<string | undefined> {
+  if (!API_CONFIG) {
+    return undefined
+  }
+  const resp = await fetch(`${API_CONFIG.baseUrl}/responses`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${API_CONFIG.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: API_CONFIG.model,
+      input: messages
+        .map(message => `${message.role}: ${message.content}`)
+        .join('\n\n'),
+      max_output_tokens: 2048,
+      temperature: 0,
+    }),
+  })
+  if (!resp.ok) {
+    return undefined
+  }
+  const json = (await resp.json()) as {
+    output_text?: string
+    output?: Array<{
+      content?: Array<{
+        text?: string
+        type?: string
+      }>
+    }>
+  }
+  if (json.output_text?.trim()) {
+    return json.output_text.trim()
+  }
+  return json.output
+    ?.flatMap(item => item.content ?? [])
+    .map(item => item.text)
+    .filter((item): item is string => typeof item === 'string')
+    .join('')
+    .trim()
+}
+
+async function runJsonRpcLiteMessages(
+  messages: readonly JsonRpcLiteMessage[],
+  overrides: JsonRpcLiteRunnerOverrides = {},
+): Promise<JsonRpcLiteMessage[]> {
+  const { Readable } = await import('stream')
+  const { runKernelRuntimeJsonRpcLiteProtocol } = await import(
+    '../src/kernel/jsonRpcLiteProtocol.js'
+  )
+  const output = createJsonRpcLiteOutputCollector()
+  await runKernelRuntimeJsonRpcLiteProtocol({
+    commandCatalog: createJsonRpcLiteCommandCatalog(),
+    eventJournalPath: false,
+    conversationJournalPath: false,
+    ...overrides,
+    input: Readable.from(
+      messages.map(message => `${JSON.stringify(message)}\n`),
+    ),
+    output,
+  })
+  return output.messages
+}
+
+function createJsonRpcLiteOutputCollector(): {
+  messages: JsonRpcLiteMessage[]
+  write(chunk: string): boolean
+} {
+  const messages: JsonRpcLiteMessage[] = []
+  return {
+    messages,
+    write(chunk: string) {
+      for (const line of chunk.split(/\r?\n/)) {
+        if (line.trim()) {
+          messages.push(JSON.parse(line) as JsonRpcLiteMessage)
+        }
+      }
+      return true
+    },
+  }
+}
+
+function createJsonRpcLiteCommandCatalog(): {
+  listCommands(): Promise<readonly unknown[]>
+  executeCommand(request: {
+    name: string
+    args?: string
+  }): Promise<Record<string, unknown>>
+} {
+  return {
+    async listCommands() {
+      return [
+        {
+          descriptor: {
+            name: 'poor.toggle',
+            description: 'Toggle poor mode',
+            kind: 'local',
+            aliases: ['poor'],
+            argumentHint: '--enabled true',
+          },
+          source: 'e2e-test',
+          supportsNonInteractive: true,
+          modelInvocable: true,
+        },
+      ]
+    },
+    async executeCommand(request) {
+      return {
+        name: request.name,
+        result: {
+          type: 'text',
+          text: `ran: ${request.args ?? ''}`.trim(),
+        },
+      }
+    },
+  }
+}
+
+function createJsonRpcLiteAgentRegistry(): {
+  listAgents(): Promise<Record<string, unknown>>
+  spawnAgent(request: Record<string, unknown>): Promise<Record<string, unknown>>
+  listAgentRuns(): Promise<Record<string, unknown>>
+  getAgentRun(runId: string): Promise<Record<string, unknown> | null>
+  getAgentOutput(request: Record<string, unknown>): Promise<Record<string, unknown>>
+  cancelAgentRun(request: Record<string, unknown>): Promise<Record<string, unknown>>
+} {
+  const agents = [
+    {
+      agentType: 'general-purpose',
+      whenToUse: 'General purpose agent for complex tasks',
+      source: 'built-in',
+      active: true,
+      background: false,
+    },
+    {
+      agentType: 'explore',
+      whenToUse: 'Fast agent for exploring codebases',
+      source: 'built-in',
+      active: true,
+      background: false,
+    },
+    {
+      agentType: 'worker',
+      whenToUse: 'Worker agent for coordinator mode',
+      source: 'built-in',
+      active: true,
+      background: true,
+    },
+  ]
+  const run = {
+    runId: 'run-1',
+    status: 'completed',
+    prompt: 'test prompt',
+    createdAt: new Date(0).toISOString(),
+    updatedAt: new Date(0).toISOString(),
+  }
+  return {
+    async listAgents() {
+      return {
+        activeAgents: agents,
+        allAgents: agents,
+      }
+    },
+    async spawnAgent(request) {
+      return {
+        status: 'accepted',
+        prompt: request.prompt,
+        runId: run.runId,
+        agentType: request.agentType,
+        description: request.description,
+      }
+    },
+    async listAgentRuns() {
+      return {
+        runs: [run],
+      }
+    },
+    async getAgentRun(runId) {
+      return runId === run.runId ? run : null
+    },
+    async getAgentOutput(request) {
+      return {
+        runId: request.runId,
+        available: true,
+        output: 'Agent has completed the task.',
+      }
+    },
+    async cancelAgentRun(request) {
+      return {
+        runId: request.runId,
+        cancelled: true,
+        status: 'cancelled',
+        run: null,
+      }
+    },
+  }
+}
+
+function createJsonRpcLiteTaskRegistry(): {
+  listTasks(taskListId?: string): Promise<Record<string, unknown>>
+  getTask(
+    taskId: string,
+    taskListId?: string,
+  ): Promise<Record<string, unknown> | null>
+  createTask(request: Record<string, unknown>): Promise<Record<string, unknown>>
+  updateTask(request: Record<string, unknown>): Promise<Record<string, unknown>>
+  assignTask(request: Record<string, unknown>): Promise<Record<string, unknown>>
+} {
+  const task = {
+    id: 'task-1',
+    subject: 'Research auth libraries',
+    description: 'Find the best auth library for our needs',
+    status: 'pending',
+    taskListId: 'main',
+    blocks: [],
+    blockedBy: [],
+  }
+  return {
+    async listTasks(taskListId = 'main') {
+      return {
+        taskListId,
+        tasks: [task],
+      }
+    },
+    async getTask(taskId) {
+      return taskId === task.id ? task : null
+    },
+    async createTask(request) {
+      return {
+        task: {
+          ...task,
+          subject: request.subject,
+          description: request.description,
+          taskListId: request.taskListId ?? task.taskListId,
+        },
+        taskId: task.id,
+        taskListId: request.taskListId ?? task.taskListId,
+        updatedFields: ['subject', 'description'],
+        created: true,
+      }
+    },
+    async updateTask(request) {
+      return {
+        task: {
+          ...task,
+          status: request.status,
+        },
+        taskId: request.taskId,
+        taskListId: request.taskListId ?? task.taskListId,
+        updatedFields: ['status'],
+      }
+    },
+    async assignTask(request) {
+      return {
+        task: {
+          ...task,
+          owner: request.owner,
+          status: request.status ?? task.status,
+        },
+        taskId: request.taskId,
+        taskListId: request.taskListId ?? task.taskListId,
+        updatedFields: ['owner'],
+        assigned: true,
+      }
+    },
+  }
+}
+
+function responseById(
+  messages: readonly JsonRpcLiteMessage[],
+  id: string,
+): JsonRpcLiteMessage {
+  const message = messages.find(item => item.id === id)
+  if (!message) {
+    throw new Error(`missing JSON-RPC-lite response: ${id}`)
+  }
+  return message
+}
+
+function resultOf(message: JsonRpcLiteMessage): Record<string, unknown> {
+  const result = message.result
+  if (!result || typeof result !== 'object' || Array.isArray(result)) {
+    throw new Error(`response missing object result: ${String(message.id)}`)
+  }
+  return result as Record<string, unknown>
 }
 
 // ---------------------------------------------------------------------------
@@ -178,10 +530,27 @@ async function validateKernelExports(): Promise<void> {
   // Verify the kernel index exports all expected symbols
   const kernel = await import('../src/kernel/index.js')
 
-  // Core runtime
-  if (typeof kernel.createKernelRuntime !== 'function') {
-    throw new Error('createKernelRuntime missing from kernel exports')
+  // Protocol runtime
+  if (typeof kernel.runKernelRuntimeJsonRpcLiteProtocol !== 'function') {
+    throw new Error('runKernelRuntimeJsonRpcLiteProtocol missing')
   }
+  if (
+    typeof kernel.KERNEL_RUNTIME_JSON_RPC_LITE_PROTOCOL_VERSION !== 'string'
+  ) {
+    throw new Error('JSON-RPC-lite protocol version missing')
+  }
+
+  // Explicitly reject the removed legacy SDK / wire surface
+  if ('createKernelRuntime' in kernel) {
+    throw new Error('legacy createKernelRuntime should not be exported')
+  }
+  if ('createDefaultKernelRuntimeWireRouter' in kernel) {
+    throw new Error('legacy wire router should not be exported')
+  }
+  if ('createKernelRuntimeWireClient' in kernel) {
+    throw new Error('legacy wire client should not be exported')
+  }
+
   if (typeof kernel.createKernelKairosRuntime !== 'function') {
     throw new Error('createKernelKairosRuntime missing from kernel exports')
   }
@@ -213,17 +582,6 @@ async function validateKernelExports(): Promise<void> {
   }
   if (typeof kernel.isKernelTurnTerminalEvent !== 'function') {
     throw new Error('isKernelTurnTerminalEvent missing')
-  }
-
-  // Wire protocol
-  if (typeof kernel.createDefaultKernelRuntimeWireRouter !== 'function') {
-    throw new Error('createDefaultKernelRuntimeWireRouter missing')
-  }
-  if (typeof kernel.createKernelRuntimeInProcessWireTransport !== 'function') {
-    throw new Error('createKernelRuntimeInProcessWireTransport missing')
-  }
-  if (typeof kernel.createKernelRuntimeWireClient !== 'function') {
-    throw new Error('createKernelRuntimeWireClient missing')
   }
 
   // Headless / SDK
@@ -273,17 +631,10 @@ async function validateTypes(): Promise<void> {
   const types = await import('../src/kernel/index.d.ts')
   // Key types that must exist
   const requiredTypes = [
-    'KernelRuntime',
-    'KernelRuntimeAgents',
-    'KernelRuntimeTasks',
+    'KernelRuntimeJsonRpcLiteProtocolOptions',
+    'KernelRuntimeJsonRpcLiteRunnerOptions',
     'KernelKairosRuntime',
     'KernelCompanionRuntime',
-    'KernelConversation',
-    'KernelTurn',
-    'KernelAgentDescriptor',
-    'KernelAgentSpawnResult',
-    'KernelTaskDescriptor',
-    'KernelTaskMutationResult',
     'KernelRuntimeEventEnvelope',
     'KernelRuntimeEnvelopeBase',
     'KernelPermissionDecision',
@@ -528,7 +879,7 @@ async function testEventFacadeEncodeDecode(): Promise<void> {
     isKernelRuntimeEventOfType,
     isKernelTurnTerminalEvent,
     getKernelRuntimeEventCategory,
-  } = await import('../src/kernel/runtime.js')
+  } = await import('../src/kernel/index.js')
 
   const receivedEnvelopes: Array<{ kind: string; type?: string }> = []
 
@@ -600,78 +951,68 @@ async function testEventFacadeEncodeDecode(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Wire Protocol Route Coverage Tests
+// JSON-RPC-lite Protocol Coverage Tests
 // ---------------------------------------------------------------------------
 
-async function testWireProtocolCommandCoverage(): Promise<void> {
-  // Verify that ALL 50 command types have corresponding handlers in the router
-  const wireProtocol = await import('../src/kernel/wireProtocol.js')
+async function testJsonRpcLiteProtocolCoverage(): Promise<void> {
+  const messages = await runJsonRpcLiteMessages([
+    { id: 'ping-1', method: 'runtime.ping' },
+    {
+      id: 'init-1',
+      method: 'runtime.initialize',
+      params: { client: { name: 'kernel-e2e', version: '0.1.0' } },
+    },
+    { id: 'caps-1', method: 'runtime.capabilities' },
+    { id: 'commands-1', method: 'commands.list' },
+    {
+      id: 'describe-1',
+      method: 'commands.describe',
+      params: { commandId: 'turn.run' },
+    },
+    {
+      id: 'execute-1',
+      method: 'commands.execute',
+      params: { commandId: 'poor.toggle', arguments: '--enabled true' },
+    },
+    {
+      id: 'legacy-1',
+      method: 'runtime.ping',
+      schemaVersion: 'kernel.runtime.command.v1',
+    },
+  ])
 
-  const allCommandTypes = [
-    'init_runtime',
-    'connect_host',
-    'disconnect_host',
-    'create_conversation',
-    'run_turn',
-    'abort_turn',
-    'decide_permission',
-    'dispose_conversation',
-    'reload_capabilities',
-    'list_commands',
-    'execute_command',
-    'list_tools',
-    'call_tool',
-    'list_mcp_servers',
-    'list_mcp_tools',
-    'list_mcp_resources',
-    'reload_mcp',
-    'connect_mcp',
-    'authenticate_mcp',
-    'set_mcp_enabled',
-    'list_hooks',
-    'reload_hooks',
-    'run_hook',
-    'register_hook',
-    'list_skills',
-    'reload_skills',
-    'resolve_skill_context',
-    'list_plugins',
-    'reload_plugins',
-    'set_plugin_enabled',
-    'install_plugin',
-    'uninstall_plugin',
-    'update_plugin',
-    'list_agents',
-    'reload_agents',
-    'spawn_agent',
-    'list_agent_runs',
-    'get_agent_run',
-    'get_agent_output',
-    'cancel_agent_run',
-    'list_tasks',
-    'get_task',
-    'create_task',
-    'update_task',
-    'assign_task',
-    'publish_host_event',
-    'subscribe_events',
-    'ping',
-  ]
-
-  // Verify schema version
-  if (wireProtocol.KERNEL_RUNTIME_COMMAND_SCHEMA_VERSION !== 'kernel.runtime.command.v1') {
-    throw new Error('unexpected schema version')
+  if (resultOf(responseById(messages, 'ping-1')).pong !== true) {
+    throw new Error('runtime.ping should return pong')
   }
-
-  // Create a minimal router and verify it can be created
-  const router = wireProtocol.createDefaultKernelRuntimeWireRouter({
-    runtimeId: 'test-router-coverage',
-  })
-  if (!router) throw new Error('failed to create router')
-  if (typeof router.handleCommand !== 'function') throw new Error('router missing handleCommand')
-  if (typeof router.handleMessage !== 'function') throw new Error('router missing handleMessage')
-  if (typeof router.handleCommandLine !== 'function') throw new Error('router missing handleCommandLine')
-  if (!router.eventBus) throw new Error('router missing eventBus')
+  const init = resultOf(responseById(messages, 'init-1'))
+  if (init.protocolVersion !== '2026-05-08') {
+    throw new Error(`unexpected protocol version: ${String(init.protocolVersion)}`)
+  }
+  const caps = resultOf(responseById(messages, 'caps-1'))
+  const methods = caps.methods
+  if (!Array.isArray(methods) || !methods.includes('turn.run')) {
+    throw new Error('runtime.capabilities missing turn.run')
+  }
+  if (!methods.includes('commands.execute')) {
+    throw new Error('runtime.capabilities missing commands.execute')
+  }
+  const commands = resultOf(responseById(messages, 'commands-1')).commands
+  if (!Array.isArray(commands) || commands.length < 10) {
+    throw new Error('commands.list should expose typed core and CLI graph')
+  }
+  const described = resultOf(responseById(messages, 'describe-1'))
+  if (described.commandId !== 'turn.run') {
+    throw new Error('commands.describe should return graph node details')
+  }
+  const executed = resultOf(responseById(messages, 'execute-1'))
+  if (executed.name !== 'poor.toggle') {
+    throw new Error('commands.execute should execute only graph nodes')
+  }
+  const legacy = responseById(messages, 'legacy-1')
+  const legacyError = legacy.error as { code?: string } | undefined
+  if (legacyError?.code !== 'invalid_request') {
+    throw new Error('legacy top-level fields must be rejected')
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -679,165 +1020,72 @@ async function testWireProtocolCommandCoverage(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function testAgentRegistryFacade(): Promise<void> {
-  const {
-    createDefaultKernelRuntimeWireRouter,
-    createKernelRuntimeInProcessWireTransport,
-    createKernelRuntimeWireClient,
-  } = await import('../src/kernel/wireProtocol.js')
-  const { createKernelRuntimeAgentsFacade } = await import('../src/kernel/runtimeAgents.js')
-
-  // Stub agent data
-  const stubAgents = [
+  const messages = await runJsonRpcLiteMessages(
+    [
+      { id: 'agents-list-1', method: 'agents.list' },
+      {
+        id: 'agents-spawn-1',
+        method: 'agents.spawn',
+        params: {
+          agentType: 'explore',
+          prompt: 'find all test files',
+          description: 'Testing agent spawn',
+        },
+      },
+      { id: 'agents-runs-1', method: 'agents.runs.list' },
+      {
+        id: 'agents-run-1',
+        method: 'agents.runs.get',
+        params: { runId: 'run-1' },
+      },
+      {
+        id: 'agents-output-1',
+        method: 'agents.output.get',
+        params: { runId: 'run-1' },
+      },
+      {
+        id: 'agents-cancel-1',
+        method: 'agents.runs.cancel',
+        params: { runId: 'run-1', reason: 'test' },
+      },
+    ],
     {
-      agentType: 'general-purpose',
-      whenToUse: 'General purpose agent for complex tasks',
-      source: 'built-in' as const,
-      active: true,
-      background: false,
-      filename: 'generalPurposeAgent.ts',
-      baseDir: '/built-in',
-      tools: ['Bash', 'Read', 'Edit'],
-      skills: [],
-      mcpServers: [],
+      agentRegistry: createJsonRpcLiteAgentRegistry(),
     },
-    {
-      agentType: 'explore',
-      whenToUse: 'Fast agent for exploring codebases',
-      source: 'built-in' as const,
-      active: true,
-      background: false,
-      filename: 'exploreAgent.ts',
-      baseDir: '/built-in',
-      tools: ['Glob', 'Grep', 'Read'],
-      skills: [],
-      mcpServers: [],
-    },
-    {
-      agentType: 'worker',
-      whenToUse: 'Worker agent for coordinator mode',
-      source: 'built-in' as const,
-      active: true,
-      background: true,
-      filename: 'workerAgent.ts',
-      baseDir: '/built-in',
-      tools: ['Bash', 'Read', 'Edit', 'Write'],
-      skills: [],
-      mcpServers: [],
-    },
-  ]
+  )
 
-  const router = createDefaultKernelRuntimeWireRouter({
-    runtimeId: 'test-agent-registry',
-    agentRegistry: {
-      listAgents: async () => ({
-        activeAgents: stubAgents,
-        allAgents: stubAgents,
-      }),
-      reloadAgents: async () => ({
-        activeAgents: stubAgents,
-        allAgents: stubAgents,
-      }),
-      spawnAgent: async (req) => ({
-        status: 'accepted' as const,
-        prompt: req.prompt,
-        runId: 'run-1',
-        agentType: req.agentType,
-        description: req.description,
-        outputFile: '/tmp/output.txt',
-        isAsync: false,
-        canReadOutputFile: true,
-      }),
-      listAgentRuns: async () => ({
-        runs: [{
-          runId: 'run-1',
-          status: 'completed' as const,
-          prompt: 'test prompt',
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        }],
-      }),
-      getAgentRun: async (runId) => ({
-        runId: runId || 'run-1',
-        status: 'completed' as const,
-        prompt: 'test prompt',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      }),
-      getAgentOutput: async () => ({
-        runId: 'run-1',
-        available: true,
-        output: 'Agent has completed the task.',
-        outputFile: '/tmp/output.txt',
-      }),
-      cancelAgentRun: async () => ({
-        runId: 'run-1',
-        cancelled: true,
-        status: 'cancelled' as const,
-        run: null,
-      }),
-    },
-  })
+  const list = resultOf(responseById(messages, 'agents-list-1'))
+  const activeAgents = list.activeAgents
+  if (!Array.isArray(activeAgents) || activeAgents.length !== 3) {
+    throw new Error('agents.list should return 3 active agents')
+  }
 
-  const transport = createKernelRuntimeInProcessWireTransport({ router })
-  const client = createKernelRuntimeWireClient(transport)
-  const agents = createKernelRuntimeAgentsFacade(client)
+  const spawn = resultOf(responseById(messages, 'agents-spawn-1'))
+  if (spawn.status !== 'accepted' || spawn.runId !== 'run-1') {
+    throw new Error('agents.spawn should accept and return run-1')
+  }
 
-  // List agents
-  const all = await agents.all()
-  if (all.length !== 3) throw new Error(`expected 3 agents, got ${all.length}`)
+  const runs = resultOf(responseById(messages, 'agents-runs-1')).runs
+  if (!Array.isArray(runs) || runs.length !== 1) {
+    throw new Error('agents.runs.list should return one run')
+  }
 
-  // Filter by background
-  const bgAgents = await agents.list({ background: true })
-  if (bgAgents.length !== 1) throw new Error(`expected 1 background agent, got ${bgAgents.length}`)
-  if (bgAgents[0].agentType !== 'worker') throw new Error('background agent should be worker')
+  const run = resultOf(responseById(messages, 'agents-run-1')).run as
+    | Record<string, unknown>
+    | undefined
+  if (run?.status !== 'completed') {
+    throw new Error('agents.runs.get should return completed run')
+  }
 
-  // Filter by agent type
-  const filtered = await agents.list({ agentTypes: ['explore', 'general-purpose'] })
-  if (filtered.length !== 2) throw new Error(`expected 2 filtered agents, got ${filtered.length}`)
+  const output = resultOf(responseById(messages, 'agents-output-1'))
+  if (output.available !== true || typeof output.output !== 'string') {
+    throw new Error('agents.output.get should return readable output')
+  }
 
-  // Get specific agent
-  const explore = await agents.get('explore')
-  if (!explore) throw new Error('explore agent not found')
-  if (explore.agentType !== 'explore') throw new Error('wrong agent type')
-
-  // Get non-existent agent
-  const nonexistent = await agents.get('nonexistent')
-  if (nonexistent) throw new Error('should not find nonexistent agent')
-
-  // Snapshot
-  const snapshot = await agents.snapshot()
-  if (snapshot.activeAgents.length !== 3) throw new Error('snapshot should have 3 active agents')
-
-  // Spawn
-  const spawnResult = await agents.spawn({
-    agentType: 'explore',
-    prompt: 'find all test files',
-    description: 'Testing agent spawn',
-  })
-  if (spawnResult.status !== 'accepted') throw new Error(`expected accepted, got ${spawnResult.status}`)
-  if (!spawnResult.runId) throw new Error('spawn result missing runId')
-
-  // List runs
-  const runs = await agents.runs()
-  if (runs.length !== 1) throw new Error(`expected 1 run, got ${runs.length}`)
-
-  // Get run
-  const run = await agents.getRun('run-1')
-  if (!run) throw new Error('run not found')
-  if (run.status !== 'completed') throw new Error('run should be completed')
-
-  // Get output
-  const output = await agents.output('run-1')
-  if (!output.available) throw new Error('output should be available')
-  if (!output.output) throw new Error('output should have content')
-
-  // Cancel
-  const cancel = await agents.cancel('run-1')
-  if (!cancel.cancelled) throw new Error('cancel should succeed')
-
-  // Reload
-  const reloaded = await agents.reload()
-  if (reloaded.activeAgents.length !== 3) throw new Error('reload should have 3 agents')
+  const cancel = resultOf(responseById(messages, 'agents-cancel-1'))
+  if (cancel.cancelled !== true) {
+    throw new Error('agents.runs.cancel should cancel the run')
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -845,153 +1093,59 @@ async function testAgentRegistryFacade(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function testTaskRegistryFacade(): Promise<void> {
-  const {
-    createDefaultKernelRuntimeWireRouter,
-    createKernelRuntimeInProcessWireTransport,
-    createKernelRuntimeWireClient,
-  } = await import('../src/kernel/wireProtocol.js')
-  const { createKernelRuntimeTasksFacade } = await import('../src/kernel/runtimeTasks.js')
-
-  let tasks: Array<{
-    id: string
-    subject: string
-    description: string
-    status: string
-    taskListId: string
-    owner?: string
-    blocks: string[]
-    blockedBy: string[]
-    ownedFiles?: string[]
-    execution?: { linkedBackgroundTaskId?: string; linkedAgentId?: string }
-  }> = []
-
-  const router = createDefaultKernelRuntimeWireRouter({
-    runtimeId: 'test-task-registry',
-    taskRegistry: {
-      listTasks: async () => ({
-        taskListId: 'main',
-        tasks,
-      }),
-      getTask: async (taskId) => tasks.find(t => t.id === taskId) ?? null,
-      createTask: async (req) => {
-        const id = `task-${tasks.length + 1}`
-        const task = {
-          id,
-          subject: req.subject,
-          description: req.description,
-          status: req.status ?? 'pending',
-          taskListId: req.taskListId ?? 'main',
-          owner: req.owner,
-          blocks: req.blocks ?? [],
-          blockedBy: req.blockedBy ?? [],
-          ownedFiles: req.ownedFiles,
-          execution: req.metadata as { linkedBackgroundTaskId?: string; linkedAgentId?: string } | undefined,
-        }
-        tasks.push(task)
-        return { task, taskId: id, taskListId: task.taskListId, updatedFields: Object.keys(req), created: true }
+  const messages = await runJsonRpcLiteMessages(
+    [
+      { id: 'tasks-list-1', method: 'tasks.list' },
+      {
+        id: 'tasks-create-1',
+        method: 'tasks.create',
+        params: {
+          taskListId: 'main',
+          subject: 'Research auth libraries',
+          description: 'Find the best auth library for our needs',
+        },
       },
-      updateTask: async (req) => {
-        const idx = tasks.findIndex(t => t.id === req.taskId)
-        if (idx === -1) throw new Error(`task ${req.taskId} not found`)
-        const updated = { ...tasks[idx] }
-        if (req.subject !== undefined) updated.subject = req.subject
-        if (req.status !== undefined) updated.status = req.status
-        if (req.owner !== undefined) updated.owner = req.owner
-        if (req.addBlocks) updated.blocks = [...new Set([...updated.blocks, ...req.addBlocks])]
-        if (req.addBlockedBy) updated.blockedBy = [...new Set([...updated.blockedBy, ...req.addBlockedBy])]
-        tasks[idx] = updated
-        return { task: updated, taskListId: updated.taskListId, updatedFields: Object.keys(req) }
+      {
+        id: 'tasks-update-1',
+        method: 'tasks.update',
+        params: { taskId: 'task-1', status: 'completed' },
       },
-      assignTask: async (req) => {
-        const idx = tasks.findIndex(t => t.id === req.taskId)
-        if (idx === -1) throw new Error(`task ${req.taskId} not found`)
-        tasks[idx] = { ...tasks[idx], owner: req.owner, status: req.status ?? tasks[idx].status }
-        return { task: tasks[idx], taskListId: tasks[idx].taskListId, updatedFields: ['owner'], assigned: true }
+      {
+        id: 'tasks-assign-1',
+        method: 'tasks.assign',
+        params: {
+          taskId: 'task-1',
+          owner: 'worker-1',
+          status: 'in_progress',
+        },
       },
+    ],
+    {
+      taskRegistry: createJsonRpcLiteTaskRegistry(),
     },
-  })
+  )
 
-  const transport = createKernelRuntimeInProcessWireTransport({ router })
-  const client = createKernelRuntimeWireClient(transport)
-  const taskMgr = createKernelRuntimeTasksFacade(client)
+  const list = resultOf(responseById(messages, 'tasks-list-1'))
+  if (!Array.isArray(list.tasks)) {
+    throw new Error('tasks.list should return a task list snapshot')
+  }
 
-  // Create tasks with dependencies
-  const t1 = await taskMgr.create({
-    subject: 'Research auth libraries',
-    description: 'Find the best auth library for our needs',
-    taskListId: 'main',
-  })
-  if (!t1.created) throw new Error('task 1 should be created')
-  const task1Id = t1.taskId!
-  if (!task1Id) throw new Error('task 1 missing id')
+  const created = resultOf(responseById(messages, 'tasks-create-1'))
+  if (created.created !== true || created.taskId !== 'task-1') {
+    throw new Error('tasks.create should create task-1')
+  }
 
-  const t2 = await taskMgr.create({
-    subject: 'Implement auth',
-    description: 'Implement authentication using the chosen library',
-    taskListId: 'main',
-    blockedBy: [task1Id],
-  })
-  if (!t2.created) throw new Error('task 2 should be created')
-  const task2Id = t2.taskId!
+  const updated = resultOf(responseById(messages, 'tasks-update-1'))
+  const updatedTask = updated.task as Record<string, unknown> | undefined
+  if (updatedTask?.status !== 'completed') {
+    throw new Error('tasks.update should update task status')
+  }
 
-  const t3 = await taskMgr.create({
-    subject: 'Write tests',
-    description: 'Write integration tests for auth',
-    taskListId: 'main',
-    blockedBy: [task2Id],
-  })
-  const task3Id = t3.taskId!
-
-  // List tasks
-  const allTasks = await taskMgr.list()
-  if (allTasks.length !== 3) throw new Error(`expected 3 tasks, got ${allTasks.length}`)
-
-  // Filter by blocked
-  const blockedTasks = await taskMgr.list({ blocked: true })
-  if (blockedTasks.length !== 2) throw new Error(`expected 2 blocked tasks, got ${blockedTasks.length}`)
-
-  const unblockedTasks = await taskMgr.list({ blocked: false })
-  if (unblockedTasks.length !== 1) throw new Error(`expected 1 unblocked task, got ${unblockedTasks.length}`)
-
-  // Get specific task
-  const task = await taskMgr.get(task2Id)
-  if (!task) throw new Error('task 2 not found')
-  if (task.blockedBy.length !== 1) throw new Error('task 2 should have 1 blocker')
-  if (task.blockedBy[0] !== task1Id) throw new Error('task 2 should be blocked by task 1')
-
-  // Update task status
-  const updated = await taskMgr.update({ taskId: task1Id, status: 'completed' })
-  if (updated.task?.status !== 'completed') throw new Error('task 1 should be completed')
-
-  // Assign task
-  const assigned = await taskMgr.assign({ taskId: task2Id, owner: 'worker-1', status: 'in_progress' })
-  if (!assigned.assigned) throw new Error('task 2 should be assigned')
-  if (assigned.task?.owner !== 'worker-1') throw new Error('task 2 owner should be worker-1')
-  if (assigned.task?.status !== 'in_progress') throw new Error('task 2 should be in_progress')
-
-  // Filter by owner
-  const ownedTasks = await taskMgr.list({ owner: 'worker-1' })
-  if (ownedTasks.length !== 1) throw new Error(`expected 1 owned task, got ${ownedTasks.length}`)
-
-  // Filter by status
-  const completedTasks = await taskMgr.list({ status: 'completed' })
-  if (completedTasks.length !== 1) throw new Error(`expected 1 completed task, got ${completedTasks.length}`)
-
-  // Snapshot
-  const snap = await taskMgr.snapshot()
-  if (snap.tasks.length !== 3) throw new Error(`snapshot should have 3 tasks, got ${snap.tasks.length}`)
-
-  // Filter with execution metadata
-  await taskMgr.create({
-    subject: 'Background task',
-    description: 'A task linked to a background job',
-    metadata: { linkedBackgroundTaskId: 'bg-123', linkedAgentId: 'agent-456' },
-  })
-  const linkedTasks = await taskMgr.list({ linkedBackgroundTaskId: 'bg-123' })
-  if (linkedTasks.length !== 1) throw new Error(`expected 1 linked task, got ${linkedTasks.length}`)
-
-  const agentLinked = await taskMgr.list({ linkedAgentId: 'agent-456' })
-  if (agentLinked.length !== 1) throw new Error(`expected 1 agent-linked task, got ${agentLinked.length}`)
+  const assigned = resultOf(responseById(messages, 'tasks-assign-1'))
+  const assignedTask = assigned.task as Record<string, unknown> | undefined
+  if (assigned.assigned !== true || assignedTask?.owner !== 'worker-1') {
+    throw new Error('tasks.assign should assign task owner')
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1008,7 +1162,7 @@ async function testCapabilitySystem(): Promise<void> {
     groupKernelCapabilities,
     isKernelCapabilityReady,
     isKernelCapabilityUnavailable,
-  } = await import('../src/kernel/runtime.js')
+  } = await import('../src/kernel/index.js')
 
   // Verify all 8 families exist
   const expectedFamilies = ['core', 'execution', 'model', 'extension', 'security', 'host', 'autonomy', 'observability']
@@ -1414,10 +1568,14 @@ async function main() {
   await test('Capability system (8 families)', 'capabilities', testCapabilitySystem)
   await test('All public capability modules', 'public-capabilities', testKernelPublicCapabilityIntegration)
 
-  // Phase 2: Event & Wire system
-  console.log('\n── Phase 2: Event System & Wire Protocol ──')
+  // Phase 2: Event & JSON-RPC-lite system
+  console.log('\n── Phase 2: Event System & JSON-RPC-lite Protocol ──')
   await test('Event facade encode/decode', 'events', testEventFacadeEncodeDecode)
-  await test('Wire protocol command coverage', 'wire-protocol', testWireProtocolCommandCoverage)
+  await test(
+    'JSON-RPC-lite protocol coverage',
+    'json-rpc-lite',
+    testJsonRpcLiteProtocolCoverage,
+  )
 
   // Phase 3: Core subsystems
   console.log('\n── Phase 3: Core Subsystems ──')

@@ -1,10 +1,15 @@
 import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
+import type { KernelCapabilityPlane } from '../../contracts/capability.js'
 import type { KernelConversationSnapshot } from '../../contracts/conversation.js'
 import type { KernelConversationId } from '../../contracts/conversation.js'
-import type { KernelTurnSnapshot } from '../../contracts/turn.js'
-import type { KernelRuntimeRunTurnCommand } from '../../contracts/wire.js'
+import type { KernelContextAssembly } from '../../contracts/context.js'
+import type { RuntimeProviderSelection } from '../../contracts/provider.js'
+import type {
+  KernelExecutionMode,
+  KernelTurnSnapshot,
+} from '../../contracts/turn.js'
 
 type JsonPrimitive = boolean | null | number | string
 type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
@@ -12,7 +17,20 @@ type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
 export type RuntimeConversationSnapshotJournalEntry = {
   conversation: KernelConversationSnapshot
   activeTurn?: KernelTurnSnapshot
-  activeExecution?: KernelRuntimeRunTurnCommand
+  activeExecution?: RuntimeConversationActiveExecution
+}
+
+export type RuntimeConversationActiveExecution = {
+  requestId: string
+  conversationId: KernelConversationId
+  turnId: string
+  prompt: string | readonly unknown[]
+  attachments?: readonly unknown[]
+  providerOverride?: RuntimeProviderSelection
+  executionMode?: KernelExecutionMode
+  contextAssembly?: KernelContextAssembly
+  capabilityPlane?: KernelCapabilityPlane
+  metadata?: Record<string, unknown>
 }
 
 export type RuntimeConversationSnapshotJournalOptions = {
@@ -156,14 +174,14 @@ function isTurnSnapshot(value: unknown): value is KernelTurnSnapshot {
   )
 }
 
-function isRunTurnCommand(value: unknown): value is KernelRuntimeRunTurnCommand {
+function isActiveExecutionRequest(
+  value: unknown,
+): value is RuntimeConversationActiveExecution {
   if (!isPlainRecord(value)) {
     return false
   }
 
   return (
-    typeof value.schemaVersion === 'string' &&
-    value.type === 'run_turn' &&
     typeof value.requestId === 'string' &&
     typeof value.conversationId === 'string' &&
     typeof value.turnId === 'string' &&
@@ -171,6 +189,9 @@ function isRunTurnCommand(value: unknown): value is KernelRuntimeRunTurnCommand 
       (Array.isArray(value.prompt) && isJsonValue(value.prompt))) &&
     (value.attachments === undefined ||
       (Array.isArray(value.attachments) && isJsonValue(value.attachments))) &&
+    (value.providerOverride === undefined ||
+      (isPlainRecord(value.providerOverride) &&
+        isJsonValue(value.providerOverride))) &&
     isOptionalString(value.executionMode) &&
     (value.contextAssembly === undefined ||
       (isPlainRecord(value.contextAssembly) &&
@@ -214,7 +235,7 @@ function isJournalEntry(
   }
 
   return (
-    isRunTurnCommand(value.activeExecution) &&
+    isActiveExecutionRequest(value.activeExecution) &&
     value.activeTurn !== undefined &&
     value.activeExecution.conversationId ===
       value.conversation.conversationId &&

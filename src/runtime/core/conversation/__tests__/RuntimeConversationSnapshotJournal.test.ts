@@ -8,7 +8,6 @@ import {
   RuntimeConversationSnapshotJournal,
   type RuntimeConversationSnapshotJournalEntry,
 } from '../RuntimeConversationSnapshotJournal.js'
-import { KERNEL_RUNTIME_COMMAND_SCHEMA_VERSION } from '../../../contracts/wire.js'
 
 function createConversationSnapshot(
   overrides: Partial<
@@ -40,14 +39,12 @@ function createTurnSnapshot(
   }
 }
 
-function createRunTurnCommand(
+function createActiveExecutionRequest(
   overrides: Partial<
     NonNullable<RuntimeConversationSnapshotJournalEntry['activeExecution']>
   > = {},
 ): NonNullable<RuntimeConversationSnapshotJournalEntry['activeExecution']> {
   return {
-    schemaVersion: KERNEL_RUNTIME_COMMAND_SCHEMA_VERSION,
-    type: 'run_turn',
     requestId: 'run-1',
     conversationId: 'conversation-1',
     turnId: 'turn-1',
@@ -149,7 +146,7 @@ describe('RuntimeConversationSnapshotJournal', () => {
     }
   })
 
-  test('persists active execution commands for durable turn resume', async () => {
+  test('persists active execution requests for durable turn resume', async () => {
     const journalPath = await createJournalPath()
     const journal = new RuntimeConversationSnapshotJournal(journalPath)
     const entry: RuntimeConversationSnapshotJournalEntry = {
@@ -158,7 +155,7 @@ describe('RuntimeConversationSnapshotJournal', () => {
         activeTurnId: 'turn-1',
       }),
       activeTurn: createTurnSnapshot(),
-      activeExecution: createRunTurnCommand({
+      activeExecution: createActiveExecutionRequest({
         prompt: [{ type: 'text', text: 'hello' }],
         attachments: [{ type: 'file', path: '/tmp/a.txt' }],
         metadata: { reason: 'test' },

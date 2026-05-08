@@ -11,7 +11,6 @@ import type {
   RuntimeTeamMessageRequest,
   RuntimeTeamMessageResult,
 } from '../runtime/contracts/team.js'
-import type { KernelRuntimeWireTeamRegistry } from '../runtime/core/wire/KernelRuntimeWireRouter.js'
 import { formatAgentId } from '../utils/agentId.js'
 import { getTeamsDir } from '../utils/envUtils.js'
 import { writeToMailbox } from '../utils/teammateMailbox.js'
@@ -33,6 +32,31 @@ import {
   setLeaderTeamName,
 } from '../utils/tasks.js'
 import { generateWordSlug } from '../utils/words.js'
+import type { KernelRuntimeCoreRequestContext } from './runtimeAgentTaskRegistries.js'
+
+type Awaitable<T> = T | Promise<T>
+
+export type KernelRuntimeTeamRegistry = {
+  listTeams(
+    context?: KernelRuntimeCoreRequestContext,
+  ): Awaitable<RuntimeTeamListSnapshot>
+  getTeam(
+    teamName: string,
+    context?: KernelRuntimeCoreRequestContext,
+  ): Awaitable<RuntimeTeamDescriptor | null>
+  createTeam?(
+    request: RuntimeTeamCreateRequest,
+    context?: KernelRuntimeCoreRequestContext,
+  ): Awaitable<RuntimeTeamCreateResult>
+  sendMessage?(
+    request: RuntimeTeamMessageRequest,
+    context?: KernelRuntimeCoreRequestContext,
+  ): Awaitable<RuntimeTeamMessageResult>
+  destroyTeam?(
+    request: RuntimeTeamDestroyRequest,
+    context?: KernelRuntimeCoreRequestContext,
+  ): Awaitable<RuntimeTeamDestroyResult>
+}
 
 type KernelRuntimeTeamRegistryDeps = {
   getSessionId?(): string | undefined
@@ -40,7 +64,7 @@ type KernelRuntimeTeamRegistryDeps = {
 
 export function createDefaultKernelRuntimeTeamRegistry(
   deps: KernelRuntimeTeamRegistryDeps = {},
-): KernelRuntimeWireTeamRegistry {
+): KernelRuntimeTeamRegistry {
   return {
     async listTeams() {
       const teamsDir = getTeamsDir()

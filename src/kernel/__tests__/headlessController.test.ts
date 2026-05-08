@@ -2,7 +2,6 @@ import { describe, expect, test } from 'bun:test'
 
 import {
   createKernelHeadlessController,
-  createKernelRuntime,
   normalizeKernelHeadlessEvent,
   type KernelHeadlessEvent,
 } from '../index.js'
@@ -35,14 +34,18 @@ async function waitFor(
 
 describe('createKernelHeadlessController', () => {
   test('normalizes runtime events through the controller facade', async () => {
-    const runtime = await createKernelRuntime({
+    const controller = await createKernelHeadlessController({
       workspacePath: '/tmp/kernel-headless-controller-test',
-      eventJournalPath: false,
-      conversationJournalPath: false,
-      runTurnExecutor: async function* ({ command }) {
+      runtimeOptions: {
+        eventJournalPath: false,
+      },
+      conversationOptions: {
+        conversationJournalPath: false,
+      },
+      runTurnExecutor: async function* ({ request }) {
         yield {
           type: 'output',
-          payload: { text: `echo:${String(command.prompt)}` },
+          payload: { text: `echo:${String(request.prompt)}` },
         }
         yield {
           type: 'event',
@@ -51,7 +54,7 @@ describe('createKernelHeadlessController', () => {
             replayable: true,
             payload: {
               type: 'assistant',
-              text: `sdk:${String(command.prompt)}`,
+              text: `sdk:${String(request.prompt)}`,
             },
           },
         }
@@ -60,67 +63,66 @@ describe('createKernelHeadlessController', () => {
           stopReason: 'success',
         }
       },
+      sessionId: 'session-controller-1',
+      conversationId: 'conversation-controller-1',
+    })
+    const seen: KernelHeadlessEvent[] = []
+    controller.onEvent(event => {
+      seen.push(event)
     })
 
-    try {
-      const controller = await createKernelHeadlessController({
-        runtime,
-        sessionId: 'session-controller-1',
-        conversationId: 'conversation-controller-1',
-      })
-      const seen: KernelHeadlessEvent[] = []
-      controller.onEvent(event => {
-        seen.push(event)
-      })
+    await controller.start()
+    expect(controller.state.status).toBe('ready')
 
-      await controller.start()
-      expect(controller.state.status).toBe('ready')
+    const started = await controller.runTurn({
+      prompt: 'hello',
+      turnId: 'turn-1',
+    })
 
-      const started = await controller.runTurn({
-        prompt: 'hello',
-        turnId: 'turn-1',
-      })
+    expect(started).toEqual({
+      sessionId: 'session-controller-1',
+      conversationId: 'conversation-controller-1',
+      turnId: 'turn-1',
+    })
 
-      expect(started).toEqual({
-        sessionId: 'session-controller-1',
-        conversationId: 'conversation-controller-1',
-        turnId: 'turn-1',
-      })
+    await waitFor(() => seen.some(event => event.type === 'turn.completed'))
 
-      await waitFor(() =>
-        seen.some(event => event.type === 'turn.completed'),
-      )
-
-      expect(
-        seen.some(
-          event => event.type === 'turn.output' && event.text === 'echo:hello',
-        ),
-      ).toBe(true)
-      expect(
-        seen.some(
-          event =>
-            event.type === 'compat.protocol_message' &&
-            (event.message as { text?: string }).text === 'sdk:hello',
-        ),
-      ).toBe(true)
-      expect(controller.state.status).toBe('ready')
-    } finally {
-      await runtime.dispose()
-    }
+    expect(
+      seen.some(
+        event => event.type === 'turn.output' && event.text === 'echo:hello',
+      ),
+    ).toBe(true)
+    expect(
+      seen.some(
+        event =>
+          event.type === 'compat.protocol_message' &&
+          (event.message as { text?: string }).text === 'sdk:hello',
+      ),
+    ).toBe(true)
+    expect(controller.state.status).toBe('ready')
+    await controller.dispose()
   })
 
   test('rejects concurrent turns and drains queued input turns sequentially', async () => {
     const firstTurn = createDeferred()
-    const runtime = await createKernelRuntime({
+    const queue = createKernelHeadlessInputQueue()
+    const controller = await createKernelHeadlessController({
       workspacePath: '/tmp/kernel-headless-controller-queue-test',
-      eventJournalPath: false,
-      conversationJournalPath: false,
-      runTurnExecutor: async function* ({ command }) {
+      runtimeOptions: {
+        eventJournalPath: false,
+      },
+      conversationOptions: {
+        conversationJournalPath: false,
+      },
+      inputQueue: queue,
+      sessionId: 'session-controller-2',
+      conversationId: 'conversation-controller-2',
+      runTurnExecutor: async function* ({ request }) {
         yield {
           type: 'output',
-          payload: { text: `echo:${String(command.prompt)}` },
+          payload: { text: `echo:${String(request.prompt)}` },
         }
-        if (command.turnId === 'turn-1') {
+        if (request.turnId === 'turn-1') {
           await firstTurn.promise
         }
         yield {
@@ -129,46 +131,35 @@ describe('createKernelHeadlessController', () => {
         }
       },
     })
+    const outputs: string[] = []
+    controller.onEvent(event => {
+      if (event.type === 'turn.output' && event.text) {
+        outputs.push(event.text)
+      }
+    })
 
-    try {
-      const queue = createKernelHeadlessInputQueue()
-      const controller = await createKernelHeadlessController({
-        runtime,
-        sessionId: 'session-controller-2',
-        conversationId: 'conversation-controller-2',
-        inputQueue: queue,
-      })
-      const outputs: string[] = []
-      controller.onEvent(event => {
-        if (event.type === 'turn.output' && event.text) {
-          outputs.push(event.text)
-        }
-      })
+    await controller.start()
+    await controller.runTurn({
+      prompt: 'first',
+      turnId: 'turn-1',
+    })
 
-      await controller.start()
-      await controller.runTurn({
-        prompt: 'first',
-        turnId: 'turn-1',
-      })
+    await expect(
+      controller.runTurn({
+        prompt: 'second',
+        turnId: 'turn-2',
+      }),
+    ).rejects.toThrow('Kernel headless controller already has active turn')
 
-      await expect(
-        controller.runTurn({
-          prompt: 'second',
-          turnId: 'turn-2',
-        }),
-      ).rejects.toThrow('Kernel headless controller already has active turn')
+    queue.pushUserTurn({
+      prompt: 'queued',
+      turnId: 'turn-queued',
+    })
+    firstTurn.resolve()
 
-      queue.pushUserTurn({
-        prompt: 'queued',
-        turnId: 'turn-queued',
-      })
-      firstTurn.resolve()
-
-      await waitFor(() => outputs.includes('echo:queued'))
-      expect(controller.state.status).toBe('ready')
-    } finally {
-      await runtime.dispose()
-    }
+    await waitFor(() => outputs.includes('echo:queued'))
+    expect(controller.state.status).toBe('ready')
+    await controller.dispose()
   })
 })
 
