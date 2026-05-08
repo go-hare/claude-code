@@ -1,28 +1,35 @@
 import { randomUUID } from 'crypto'
 
 import type { KernelEvent, KernelRuntimeEnvelopeBase } from '../runtime/contracts/events.js'
+import type {
+  KernelCapabilityPlane,
+  KernelRuntimeCapabilityIntent,
+} from '../runtime/contracts/capability.js'
+import type { RuntimeProviderSelection } from '../runtime/contracts/provider.js'
+import type {
+  KernelExecutionMode,
+  KernelTurnSnapshot,
+} from '../runtime/contracts/turn.js'
+import type { KernelContextAssembly } from '../runtime/contracts/context.js'
 import {
   getKernelRuntimeFailedError,
   getKernelRuntimeStopReason,
   getProtocolMessageFromKernelRuntimeEnvelope,
   getTextOutputDeltaFromKernelRuntimeEnvelope,
 } from '../runtime/core/events/KernelRuntimeHostProjection.js'
+import { RuntimeCoreService } from './runtimeCoreService.js'
 import {
-  createKernelRuntime,
-  type KernelAbortTurnOptions,
-  type KernelConversation,
-  type KernelConversationOptions,
-  type KernelRunTurnOptions,
-  type KernelRuntime,
-  type KernelRuntimeCapabilityIntent,
+  ConversationCoreService,
+  type ConversationCoreTurnExecutor,
+  type ConversationCoreRunTurnRequest,
+  type ConversationCoreServiceOptions,
+} from './conversationCoreService.js'
+import {
   type KernelRuntimeEventEnvelope,
-  type KernelRuntimeOptions,
-  type RuntimeProviderSelection,
   isKernelRuntimeEventEnvelope,
-} from './runtime.js'
+} from './runtimeEvents.js'
 import {
   type KernelHeadlessInputQueue,
-  type KernelHeadlessQueuedInterrupt,
   type KernelHeadlessQueuedUserTurn,
   isKernelHeadlessInputQueue,
   subscribeKernelHeadlessInputQueue,
@@ -47,9 +54,9 @@ export type KernelHeadlessRunTurnRequest = {
   turnId?: string
   attachments?: readonly unknown[]
   providerOverride?: RuntimeProviderSelection
-  executionMode?: KernelRunTurnOptions['executionMode']
-  contextAssembly?: KernelRunTurnOptions['contextAssembly']
-  capabilityPlane?: KernelRunTurnOptions['capabilityPlane']
+  executionMode?: KernelExecutionMode
+  contextAssembly?: KernelContextAssembly
+  capabilityPlane?: KernelCapabilityPlane
   metadata?: Record<string, unknown>
 }
 
@@ -59,8 +66,10 @@ export type KernelHeadlessTurnStarted = {
   turnId: string
 }
 
-export type KernelHeadlessAbortRequest = KernelAbortTurnOptions & {
+export type KernelHeadlessAbortRequest = {
   turnId?: string
+  reason?: string
+  metadata?: Record<string, unknown>
 }
 
 export type KernelHeadlessEvent =
@@ -96,8 +105,20 @@ export type KernelHeadlessEvent =
     }
 
 export type KernelHeadlessControllerOptions = {
-  runtime?: KernelRuntime
-  runtimeOptions?: KernelRuntimeOptions
+  runtimeCore?: RuntimeCoreService
+  conversationCore?: ConversationCoreService
+  runtimeOptions?: {
+    runtimeId?: string
+    eventJournalPath?: string | false
+    maxReplayEvents?: number
+  }
+  conversationOptions?: Partial<
+    Pick<
+      ConversationCoreServiceOptions,
+      'conversationJournalPath' | 'sessionManager'
+    >
+  >
+  runTurnExecutor?: ConversationCoreTurnExecutor
   workspacePath?: string
   conversationId?: string
   sessionId?: string
@@ -129,14 +150,33 @@ type TrackedTurn = {
 export async function createKernelHeadlessController(
   options: KernelHeadlessControllerOptions = {},
 ): Promise<KernelHeadlessController> {
-  const runtime =
-    options.runtime ??
-    (await createKernelRuntime({
+  const runtimeCore =
+    options.runtimeCore ??
+    new RuntimeCoreService({
+      runtimeId: options.runtimeOptions?.runtimeId,
       workspacePath: options.workspacePath ?? process.cwd(),
-      ...withDefaultHeadlessExecutor(options.runtimeOptions),
-    }))
+      eventJournalPath: options.runtimeOptions?.eventJournalPath,
+      maxReplayEvents: options.runtimeOptions?.maxReplayEvents,
+    })
+  const conversationCore =
+    options.conversationCore ??
+    new ConversationCoreService({
+      runtimeId: runtimeCore.runtimeId,
+      workspacePath: options.workspacePath ?? runtimeCore.workspacePath,
+      eventBus: runtimeCore.eventBus,
+      permissionBroker: runtimeCore.permissionBroker,
+      conversationJournalPath:
+        options.conversationOptions?.conversationJournalPath,
+      sessionManager: options.conversationOptions?.sessionManager,
+      runTurnExecutor:
+        options.runTurnExecutor ?? defaultHeadlessControllerTurnExecutor,
+    })
 
-  const controller = new RuntimeKernelHeadlessController(runtime, options)
+  const controller = new CoreKernelHeadlessController(
+    runtimeCore,
+    conversationCore,
+    options,
+  )
 
   if (options.autoStart) {
     await controller.start()
@@ -190,46 +230,53 @@ export function normalizeKernelHeadlessEvent(
   }
 }
 
-class RuntimeKernelHeadlessController implements KernelHeadlessController {
+class CoreKernelHeadlessController implements KernelHeadlessController {
   private readonly listeners = new Set<(event: KernelHeadlessEvent) => void>()
-  private readonly ownRuntime: boolean
+  private readonly ownRuntimeCore: boolean
   private readonly resume: boolean
-  private readonly conversationOptions: KernelConversationOptions
   private readonly inputQueue: KernelHeadlessInputQueue | undefined
   private readonly disposeRuntime: boolean
   private readonly queueTurns: KernelHeadlessQueuedUserTurn[] = []
+  private readonly conversationId: string
 
-  private conversation: KernelConversation | null = null
+  private conversationSnapshot: { id: string; sessionId?: string } | null = null
   private startPromise: Promise<void> | null = null
   private activeTurn: TrackedTurn | null = null
   private inputQueueUnsubscribe: (() => void) | null = null
   private inputQueueConsumer: Promise<void> | null = null
-  private conversationUnsubscribe: (() => void) | null = null
+  private eventBusUnsubscribe: (() => void) | null = null
   private currentState: KernelHeadlessControllerState = {
     status: 'idle',
   }
   private currentSessionId: string
 
   constructor(
-    private readonly runtime: KernelRuntime,
+    private readonly runtimeCore: RuntimeCoreService,
+    private readonly conversationCore: ConversationCoreService,
     options: KernelHeadlessControllerOptions,
   ) {
-    this.ownRuntime = !options.runtime
-    this.disposeRuntime =
-      options.disposeRuntime ?? this.ownRuntime
+    this.ownRuntimeCore = !options.runtimeCore
+    this.disposeRuntime = options.disposeRuntime ?? this.ownRuntimeCore
     this.resume = options.resume ?? false
     this.inputQueue = options.inputQueue
     this.currentSessionId =
       options.sessionId ?? options.conversationId ?? randomUUID()
-    this.conversationOptions = {
-      id: options.conversationId,
+    this.conversationId = options.conversationId ?? this.currentSessionId
+    this.pendingCreateSession = {
       workspacePath: options.workspacePath,
-      sessionId: this.currentSessionId,
       sessionMeta: options.sessionMeta,
       capabilityIntent: options.capabilityIntent,
       provider: options.provider,
       metadata: options.metadata,
     }
+  }
+
+  private readonly pendingCreateSession: {
+    workspacePath?: string
+    sessionMeta?: Record<string, unknown>
+    capabilityIntent?: KernelRuntimeCapabilityIntent
+    provider?: RuntimeProviderSelection
+    metadata?: Record<string, unknown>
   }
 
   get sessionId(): string {
@@ -244,7 +291,7 @@ class RuntimeKernelHeadlessController implements KernelHeadlessController {
     if (this.currentState.status === 'disposed') {
       throw new Error('Kernel headless controller is already disposed')
     }
-    if (this.conversation) {
+    if (this.conversationSnapshot) {
       return
     }
     if (this.startPromise) {
@@ -258,22 +305,42 @@ class RuntimeKernelHeadlessController implements KernelHeadlessController {
     })
 
     this.startPromise = (async () => {
-      await this.runtime.start()
-      this.conversation = this.resume
-        ? await this.runtime.sessions.resume(this.currentSessionId, {
-            conversationId: this.conversationOptions.id,
-            workspacePath: this.conversationOptions.workspacePath,
-            metadata: this.conversationOptions.metadata,
-          })
-        : await this.runtime.createConversation(this.conversationOptions)
-      this.currentSessionId =
-        this.conversation.sessionId ?? this.currentSessionId
-      this.conversationUnsubscribe = this.conversation.onEvent(envelope => {
-        this.handleRuntimeEnvelope(envelope)
+      this.runtimeCore.initialize({
+        workspacePath:
+          this.pendingCreateSession.workspacePath ??
+          this.runtimeCore.workspacePath,
       })
+      this.eventBusUnsubscribe = this.runtimeCore.eventBus.subscribe(
+        envelope => {
+          this.handleRuntimeEnvelope(envelope)
+        },
+      )
+      const session = this.resume
+        ? await this.conversationCore.resumeSession({
+            transcriptSessionId: this.currentSessionId,
+            targetSessionId: this.conversationId,
+            workspacePath: this.pendingCreateSession.workspacePath,
+            metadata: this.pendingCreateSession.metadata,
+          })
+        : await this.conversationCore.createSession({
+            sessionId: this.currentSessionId,
+            conversationId: this.conversationId,
+            workspacePath: this.pendingCreateSession.workspacePath,
+            sessionMeta: this.pendingCreateSession.sessionMeta,
+            capabilityIntent: this.pendingCreateSession.capabilityIntent,
+            provider: this.pendingCreateSession.provider,
+            metadata: this.pendingCreateSession.metadata,
+          })
+      const conversation = getConversationSnapshot(session)
+      this.conversationSnapshot = {
+        id: conversation.conversationId,
+        sessionId: conversation.sessionId,
+      }
+      this.currentSessionId =
+        conversation.sessionId ?? this.currentSessionId
       this.setState({
         status: 'ready',
-        conversationId: this.conversation.id,
+        conversationId: this.conversationSnapshot.id,
       })
       this.attachInputQueue()
     })()
@@ -296,33 +363,44 @@ class RuntimeKernelHeadlessController implements KernelHeadlessController {
     }
 
     const conversation = this.requireConversation()
-    const turn = await conversation.startTurn(
-      request.prompt,
-      this.toKernelRunTurnOptions(request),
-    )
+    const turnId = request.turnId ?? randomUUID()
+    const terminal = waitForTurnTerminal(this.runtimeCore, {
+      conversationId: conversation.id,
+      turnId,
+    })
 
     this.activeTurn = {
-      turnId: turn.id,
-      terminal: turn
-        .wait()
+      turnId,
+      terminal: terminal
         .then(() => {})
         .finally(() => {
-          if (this.activeTurn?.turnId === turn.id) {
+          if (this.activeTurn?.turnId === turnId) {
             this.activeTurn = null
           }
         }),
     }
 
+    try {
+      await this.conversationCore.runTurn(
+        this.toCoreRunTurnRequest(request, conversation.id, turnId),
+      )
+    } catch (error) {
+      if (this.activeTurn?.turnId === turnId) {
+        this.activeTurn = null
+      }
+      throw error
+    }
+
     this.setState({
       status: 'running',
       conversationId: conversation.id,
-      activeTurnId: turn.id,
+      activeTurnId: turnId,
     })
 
     return {
       sessionId: this.currentSessionId,
       conversationId: conversation.id,
-      turnId: turn.id,
+      turnId,
     }
   }
 
@@ -340,9 +418,10 @@ class RuntimeKernelHeadlessController implements KernelHeadlessController {
       activeTurnId: turnId,
     })
 
-    await conversation.abortTurn(turnId, {
+    await this.conversationCore.abortTurn({
+      sessionId: conversation.id,
+      turnId,
       reason: request.reason,
-      metadata: request.metadata,
     })
   }
 
@@ -353,18 +432,21 @@ class RuntimeKernelHeadlessController implements KernelHeadlessController {
 
     this.inputQueueUnsubscribe?.()
     this.inputQueueUnsubscribe = null
-    this.conversationUnsubscribe?.()
-    this.conversationUnsubscribe = null
+    this.eventBusUnsubscribe?.()
+    this.eventBusUnsubscribe = null
 
-    const conversation = this.conversation
-    this.conversation = null
+    const conversation = this.conversationSnapshot
+    this.conversationSnapshot = null
 
     if (conversation) {
-      await conversation.dispose(reason)
+      await this.conversationCore.disposeSession({
+        sessionId: conversation.id,
+        reason,
+      })
     }
 
     if (this.disposeRuntime) {
-      await this.runtime.dispose(reason)
+      this.runtimeCore.permissionBroker.dispose?.(reason)
     }
 
     this.activeTurn = null
@@ -511,18 +593,23 @@ class RuntimeKernelHeadlessController implements KernelHeadlessController {
     }
   }
 
-  private requireConversation(): KernelConversation {
-    if (!this.conversation) {
+  private requireConversation(): { id: string; sessionId?: string } {
+    if (!this.conversationSnapshot) {
       throw new Error('Kernel headless controller has not been started')
     }
-    return this.conversation
+    return this.conversationSnapshot
   }
 
-  private toKernelRunTurnOptions(
+  private toCoreRunTurnRequest(
     request: KernelHeadlessRunTurnRequest,
-  ): KernelRunTurnOptions {
+    conversationId: string,
+    turnId: string,
+  ): ConversationCoreRunTurnRequest {
     return {
-      turnId: request.turnId,
+      requestId: `headless-turn-${turnId}`,
+      conversationId,
+      turnId,
+      prompt: request.prompt,
       attachments: request.attachments,
       providerOverride: request.providerOverride,
       executionMode: request.executionMode ?? 'headless',
@@ -533,21 +620,102 @@ class RuntimeKernelHeadlessController implements KernelHeadlessController {
   }
 }
 
-function withDefaultHeadlessExecutor(
-  options: KernelRuntimeOptions | undefined,
-): KernelRuntimeOptions {
-  if (!options) {
-    return {
-      headlessExecutor: {},
+async function* defaultHeadlessControllerTurnExecutor(): AsyncIterable<{
+  type: 'completed'
+  stopReason: string
+}> {
+  yield {
+    type: 'completed',
+    stopReason: 'end_turn',
+  }
+}
+
+function getConversationSnapshot(
+  session: Awaited<ReturnType<ConversationCoreService['createSession']>> | Record<string, unknown>,
+): {
+  conversationId: string
+  sessionId?: string
+} {
+  const record = session as Record<string, unknown>
+  const conversation = record.conversation
+  if (conversation && typeof conversation === 'object') {
+    const snapshot = conversation as Record<string, unknown>
+    if (typeof snapshot.conversationId === 'string') {
+      return {
+        conversationId: snapshot.conversationId,
+        sessionId:
+          typeof snapshot.sessionId === 'string'
+            ? snapshot.sessionId
+            : undefined,
+      }
     }
   }
-
-  if ('headlessExecutor' in options) {
-    return options
-  }
-
+  const sessionId =
+    typeof record.sessionId === 'string' ? record.sessionId : randomUUID()
   return {
-    ...options,
-    headlessExecutor: {},
+    conversationId: sessionId,
+    sessionId,
   }
+}
+
+function waitForTurnTerminal(
+  runtimeCore: RuntimeCoreService,
+  scope: { conversationId: string; turnId: string },
+): Promise<KernelTurnSnapshot> {
+  return new Promise(resolve => {
+    const unsubscribe = runtimeCore.eventBus.subscribe(envelope => {
+      const event = getKernelEventFromEnvelope(envelope)
+      if (
+        envelope.kind !== 'event' ||
+        envelope.conversationId !== scope.conversationId ||
+        envelope.turnId !== scope.turnId ||
+        !event
+      ) {
+        return
+      }
+      if (event.type !== 'turn.completed' && event.type !== 'turn.failed') {
+        return
+      }
+      unsubscribe()
+      resolve(
+        getTurnSnapshotFromEnvelope(envelope) ?? {
+          conversationId: scope.conversationId,
+          turnId: scope.turnId,
+          state: event.type === 'turn.failed' ? 'failed' : 'completed',
+        },
+      )
+    })
+  })
+}
+
+function getKernelEventFromEnvelope(
+  envelope: KernelRuntimeEnvelopeBase,
+): KernelEvent | undefined {
+  if (envelope.kind !== 'event') {
+    return undefined
+  }
+  const payload = envelope.payload
+  if (!payload || typeof payload !== 'object') {
+    return undefined
+  }
+  const event = payload as Partial<KernelEvent>
+  return typeof event.type === 'string' ? (event as KernelEvent) : undefined
+}
+
+function getTurnSnapshotFromEnvelope(
+  envelope: KernelRuntimeEnvelopeBase,
+): KernelTurnSnapshot | undefined {
+  const payload = getKernelEventFromEnvelope(envelope)?.payload
+  if (!payload || typeof payload !== 'object') {
+    return undefined
+  }
+  const record = payload as Record<string, unknown>
+  if (
+    typeof record.conversationId !== 'string' ||
+    typeof record.turnId !== 'string' ||
+    typeof record.state !== 'string'
+  ) {
+    return undefined
+  }
+  return record as KernelTurnSnapshot
 }

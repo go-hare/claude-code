@@ -125,9 +125,8 @@ describe('kernel package smoke', () => {
         const runtimeOutput = execFileSync(binPath, {
           cwd: consumerDir,
           input: `${JSON.stringify({
-            schemaVersion: 'kernel.runtime.command.v1',
-            type: 'ping',
-            requestId: 'packaged-bin-ping',
+            id: 'packaged-bin-ping',
+            method: 'runtime.ping',
           })}\n`,
           encoding: 'utf8',
         })
@@ -137,10 +136,10 @@ describe('kernel package smoke', () => {
           .map(line => JSON.parse(line) as Record<string, unknown>)
 
         expect(pong).toMatchObject({
-          schemaVersion: 'kernel.runtime.v1',
-          kind: 'pong',
-          requestId: 'packaged-bin-ping',
-          source: 'kernel_runtime',
+          id: 'packaged-bin-ping',
+          result: {
+            pong: true,
+          },
         })
 
         const workerOutput = execFileSync(
@@ -150,7 +149,7 @@ describe('kernel package smoke', () => {
             '-e',
             `
               import { Readable, Writable } from 'node:stream'
-              import { runKernelRuntimeWireProtocol } from 'claude-code/kernel'
+              import { runKernelRuntimeJsonRpcLiteProtocol } from 'claude-code/kernel'
 
               const chunks = []
               const output = new Writable({
@@ -159,19 +158,16 @@ describe('kernel package smoke', () => {
                   callback()
                 },
               })
-              await runKernelRuntimeWireProtocol({
+              await runKernelRuntimeJsonRpcLiteProtocol({
                 input: Readable.from([
                   JSON.stringify({
-                    schemaVersion: 'kernel.runtime.command.v1',
-                    type: 'ping',
-                    requestId: 'package-worker-ping',
+                    id: 'package-worker-ping',
+                    method: 'runtime.ping',
                   }) + '\\n',
                 ]),
                 output,
                 eventJournalPath: false,
                 conversationJournalPath: false,
-                headlessExecutor: false,
-                agentExecutor: false,
               })
               process.stdout.write(chunks.join(''))
             `,
@@ -187,10 +183,10 @@ describe('kernel package smoke', () => {
           .map(line => JSON.parse(line) as Record<string, unknown>)
 
         expect(workerPong).toMatchObject({
-          schemaVersion: 'kernel.runtime.v1',
-          kind: 'pong',
-          requestId: 'package-worker-ping',
-          source: 'kernel_runtime',
+          id: 'package-worker-ping',
+          result: {
+            pong: true,
+          },
         })
       } finally {
         rmSync(tempRoot, { recursive: true, force: true })

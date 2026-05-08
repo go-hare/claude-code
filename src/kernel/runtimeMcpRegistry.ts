@@ -1,9 +1,12 @@
-import type { KernelRuntimeWireMcpRegistry } from '../runtime/core/wire/KernelRuntimeWireRouter.js'
 import type {
+  RuntimeMcpAuthRequest,
   RuntimeMcpConnectionState,
+  RuntimeMcpConnectRequest,
   RuntimeMcpLifecycleResult,
+  RuntimeMcpRegistrySnapshot,
   RuntimeMcpResourceRef,
   RuntimeMcpServerRef,
+  RuntimeMcpSetEnabledRequest,
   RuntimeMcpToolBinding,
   RuntimeMcpTransport,
 } from '../runtime/contracts/mcp.js'
@@ -25,6 +28,41 @@ type InteractiveAuthMcpServerConfig =
       type: 'sse'
       oauth: NonNullable<McpSSEServerConfig['oauth']>
     } & Pick<ScopedMcpServerConfig, 'scope' | 'pluginSource'>)
+
+type Awaitable<T> = T | Promise<T>
+
+export type KernelRuntimeMcpRegistryContext = {
+  cwd?: string
+  metadata?: Record<string, unknown>
+}
+
+export type KernelRuntimeMcpRegistry = {
+  listServers(
+    context?: KernelRuntimeMcpRegistryContext,
+  ): Awaitable<readonly RuntimeMcpServerRef[]>
+  listResources(
+    serverName?: string,
+    context?: KernelRuntimeMcpRegistryContext,
+  ): Awaitable<readonly RuntimeMcpResourceRef[]>
+  listToolBindings(
+    context?: KernelRuntimeMcpRegistryContext,
+  ): Awaitable<readonly RuntimeMcpToolBinding[]>
+  reload?(
+    context?: KernelRuntimeMcpRegistryContext,
+  ): Awaitable<void | Partial<RuntimeMcpRegistrySnapshot>>
+  connectServer?(
+    request: RuntimeMcpConnectRequest,
+    context?: KernelRuntimeMcpRegistryContext,
+  ): Awaitable<RuntimeMcpLifecycleResult>
+  authenticateServer?(
+    request: RuntimeMcpAuthRequest,
+    context?: KernelRuntimeMcpRegistryContext,
+  ): Awaitable<RuntimeMcpLifecycleResult>
+  setServerEnabled?(
+    request: RuntimeMcpSetEnabledRequest,
+    context?: KernelRuntimeMcpRegistryContext,
+  ): Awaitable<RuntimeMcpLifecycleResult>
+}
 
 type KernelRuntimeMcpRegistryDeps = {
   getClaudeCodeMcpConfigs(): Promise<{
@@ -125,7 +163,7 @@ type DefaultKernelRuntimeMcpSnapshot = {
 
 export type DefaultKernelRuntimeMcpPlane = {
   listClients(): Promise<readonly MCPServerConnection[]>
-  registry: KernelRuntimeWireMcpRegistry
+  registry: KernelRuntimeMcpRegistry
   listTools(): Promise<readonly Tool[]>
   invalidate(): void
 }
@@ -373,7 +411,7 @@ export function createDefaultKernelRuntimeMcpPlane(
 export function createDefaultKernelRuntimeMcpRegistry(
   workspacePath: string | undefined,
   deps: KernelRuntimeMcpRegistryDeps = defaultDeps,
-): KernelRuntimeWireMcpRegistry {
+): KernelRuntimeMcpRegistry {
   return createDefaultKernelRuntimeMcpPlane(workspacePath, deps).registry
 }
 

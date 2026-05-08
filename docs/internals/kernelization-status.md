@@ -17,6 +17,13 @@
 
 ## 当前判断
 
+> 2026-05-08 closeout 口径：**外部 runtime protocol 已切到
+> JSON-RPC-lite + core services**。旧 `createKernelRuntime()` SDK façade、
+> `KernelRuntimeWire*` contract、wire router/client/transport 源文件和旧 wire
+> 测试链已从 active source / package surface 下线；保留的
+> `createKernelRuntimeEventFacade`、capability facade、agent process executor 等
+> 名称属于当前事件/能力/执行 helper，不是旧 wire 协议栈。
+
 > 2026-05-07 closeout 口径：**internal headless / server / wire kernel 可运行，
 > 核心 runtime owner 已收口，指定 OpenAI-compatible endpoint 的 source /
 > built Bun / built Node / ACP live 验证已闭环**。当前不再有 kernelization

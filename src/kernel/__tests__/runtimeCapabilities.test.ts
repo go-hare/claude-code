@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 
 import {
-  createKernelRuntime,
   reloadKernelRuntimeCapabilities,
   resolveKernelRuntimeCapabilities,
   type KernelCapabilityDescriptor,
   type KernelCapabilityReloadScope,
 } from '../index.js'
+import { createKernelRuntimeCapabilitiesFacade } from '../runtimeCapabilities.js'
 
 function createCapabilityDescriptor(
   name: string,
@@ -65,52 +65,45 @@ describe('kernel runtime capability helpers', () => {
       createCapabilityDescriptor('tools', 'declared', ['runtime']),
     ]
 
-    const runtime = await createKernelRuntime({
-      id: 'runtime-capability-helper-test',
-      workspacePath: process.cwd(),
-      eventJournalPath: false,
-      conversationJournalPath: false,
-      capabilityResolver: {
-        listDescriptors: () => descriptors,
-        reloadCapabilities: async scope => {
-          reloadScopes.push(scope)
-          descriptors = descriptors.map(descriptor =>
-            scope.type === 'capability' && descriptor.name === scope.name
-              ? { ...descriptor, status: 'ready', lazy: false }
-              : descriptor,
-          )
-          return descriptors
-        },
+    const capabilities = createKernelRuntimeCapabilitiesFacade({
+      listCapabilities: () => descriptors,
+      getCapability: name =>
+        descriptors.find(descriptor => descriptor.name === name),
+      reloadCapabilities: async (scope = { type: 'runtime' }) => {
+        reloadScopes.push(scope)
+        descriptors = descriptors.map(descriptor =>
+          scope.type === 'capability' && descriptor.name === scope.name
+            ? { ...descriptor, status: 'ready', lazy: false }
+            : descriptor,
+        )
+        return descriptors
       },
     })
+    const runtime = { capabilities }
 
-    try {
-      const initialViews = await reloadKernelRuntimeCapabilities(runtime)
-      expect(reloadScopes).toEqual([{ type: 'runtime' }])
-      expect(namesOf(initialViews)).toEqual(['events', 'runtime', 'tools'])
-      expect(resolveKernelRuntimeCapabilities(runtime)).toEqual(initialViews)
+    const initialViews = await reloadKernelRuntimeCapabilities(runtime)
+    expect(reloadScopes).toEqual([{ type: 'runtime' }])
+    expect(namesOf(initialViews)).toEqual(['events', 'runtime', 'tools'])
+    expect(resolveKernelRuntimeCapabilities(runtime)).toEqual(initialViews)
 
-      const reloadedViews = await reloadKernelRuntimeCapabilities(
-        runtime.capabilities,
-        {
-          type: 'capability',
-          name: 'tools',
-        },
-      )
+    const reloadedViews = await reloadKernelRuntimeCapabilities(
+      runtime.capabilities,
+      {
+        type: 'capability',
+        name: 'tools',
+      },
+    )
 
-      expect(reloadScopes).toEqual([
-        { type: 'runtime' },
-        { type: 'capability', name: 'tools' },
-      ])
-      expect(
-        resolveKernelRuntimeCapabilities(runtime.capabilities),
-      ).toEqual(reloadedViews)
-      expect(reloadedViews.find(view => view.name === 'tools')).toMatchObject({
-        ready: true,
-        loaded: true,
-      })
-    } finally {
-      await runtime.dispose()
-    }
+    expect(reloadScopes).toEqual([
+      { type: 'runtime' },
+      { type: 'capability', name: 'tools' },
+    ])
+    expect(
+      resolveKernelRuntimeCapabilities(runtime.capabilities),
+    ).toEqual(reloadedViews)
+    expect(reloadedViews.find(view => view.name === 'tools')).toMatchObject({
+      ready: true,
+      loaded: true,
+    })
   })
 })

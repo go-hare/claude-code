@@ -1,5 +1,12 @@
 # hare-code 公共 Kernel / CLI 能力接口清单
 
+> 2026-05-08 更新：本文保留早期 public kernel 蓝图与历史判断轨迹，但其中
+> `KernelRuntimeWireProtocol`、`createKernelRuntime()`、wire router / client /
+> transport 等表述已经被 JSON-RPC-lite + core services 路线取代。当前对外
+> runtime protocol 以 `docs/internals/json-rpc-lite-protocol.md`、
+> `src/kernel/index.ts` 与 package `./kernel` surface 为准；旧 wire / SDK
+> façade 不再是可导出或可实现的 contract。
+
 ## 1. 目的
 
 本文整理新 `claude-code` 内核要开放的公共接口与语言无关运行协议。

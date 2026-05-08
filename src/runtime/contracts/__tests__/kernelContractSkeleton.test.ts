@@ -19,7 +19,6 @@ const CONTRACT_FILES = [
   'plugin.ts',
   'task.ts',
   'permissions.ts',
-  'wire.ts',
 ] as const
 
 const BANNED_IMPORT_PATTERNS = [
@@ -66,7 +65,6 @@ describe('public kernel contract skeleton', () => {
     expect(index).toContain("export * from './turn.js'")
     expect(index).toContain("export * from './events.js'")
     expect(index).toContain("export * from './capability.js'")
-    expect(index).toContain("export * from './wire.js'")
 
     expect(await readContract('runtime.ts')).toContain('KernelRuntimeId')
     expect(await readContract('conversation.ts')).toContain(
@@ -107,10 +105,6 @@ describe('public kernel contract skeleton', () => {
     expect(await readContract('task.ts')).toContain('RuntimeTaskDescriptor')
     expect(await readContract('permissions.ts')).toContain(
       'KernelPermissionRequestId',
-    )
-    expect(await readContract('wire.ts')).toContain('KernelRuntimeCommand')
-    expect(await readContract('wire.ts')).toContain(
-      'KernelRuntimeAbortTurnCommand',
     )
   })
 })

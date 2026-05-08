@@ -1,5 +1,10 @@
 # 内核化收口执行文档
 
+> 2026-05-08 更新：本文保留内核化收口的历史执行记录。当前外部协议已从旧
+> wire router / SDK façade 收口到 JSON-RPC-lite + core services；旧
+> `KernelRuntimeWire*` / `createKernelRuntime()` 相关条目只作为历史上下文，
+> 不再表示当前源码或 package `./kernel` surface。
+
 ## 目标
 
 本文原本只回答一个问题：

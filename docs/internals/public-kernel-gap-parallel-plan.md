@@ -2,6 +2,11 @@
 
 日期：2026-04-27
 
+> 2026-05-08 状态：本文是历史并行补齐计划，不再作为当前实现入口。
+> 旧 `KernelRuntimeWireProtocol` / wire router / typed client 方案已经由
+> JSON-RPC-lite + core services 取代；当前执行面见
+> `docs/internals/json-rpc-lite-protocol.md` 与 `src/kernel/index.ts`。
+
 ## 1. 目标
 
 这份文档回答一个执行问题：

@@ -30,10 +30,6 @@ import type {
   RuntimeTaskMutationResult,
   RuntimeTaskUpdateRequest,
 } from '../runtime/contracts/task.js'
-import type {
-  KernelRuntimeWireAgentRegistry,
-  KernelRuntimeWireTaskRegistry,
-} from '../runtime/core/wire/KernelRuntimeWireRouter.js'
 import type { Task } from '../utils/tasks.js'
 import {
   createKernelRuntimeAgentProcessExecutor,
@@ -43,15 +39,74 @@ import {
 } from './runtimeAgentProcessExecutor.js'
 import { formatAgentId } from '../utils/agentId.js'
 
+type Awaitable<T> = T | Promise<T>
+
+export type KernelRuntimeCoreRequestContext = {
+  cwd?: string
+  metadata?: Record<string, unknown>
+}
+
+export type KernelRuntimeAgentRegistry = {
+  listAgents(
+    context?: KernelRuntimeCoreRequestContext,
+  ): Awaitable<RuntimeAgentRegistrySnapshot>
+  reload?(
+    context?: KernelRuntimeCoreRequestContext,
+  ): Awaitable<void | Partial<RuntimeAgentRegistrySnapshot>>
+  spawnAgent?(
+    request: RuntimeAgentSpawnRequest,
+    context?: KernelRuntimeCoreRequestContext,
+  ): Awaitable<RuntimeAgentSpawnResult>
+  listAgentRuns?(
+    context?: KernelRuntimeCoreRequestContext,
+  ): Awaitable<RuntimeAgentRunListSnapshot>
+  getAgentRun?(
+    runId: string,
+    context?: KernelRuntimeCoreRequestContext,
+  ): Awaitable<RuntimeAgentRunDescriptor | null>
+  getAgentOutput?(
+    request: RuntimeAgentRunOutputRequest,
+    context?: KernelRuntimeCoreRequestContext,
+  ): Awaitable<RuntimeAgentRunOutput>
+  cancelAgentRun?(
+    request: RuntimeAgentRunCancelRequest,
+    context?: KernelRuntimeCoreRequestContext,
+  ): Awaitable<RuntimeAgentRunCancelResult>
+}
+
+export type KernelRuntimeTaskRegistry = {
+  listTasks(
+    taskListId?: string,
+    context?: KernelRuntimeCoreRequestContext,
+  ): Awaitable<RuntimeTaskListSnapshot>
+  getTask(
+    taskId: string,
+    taskListId?: string,
+    context?: KernelRuntimeCoreRequestContext,
+  ): Awaitable<RuntimeTaskDescriptor | null>
+  createTask?(
+    request: RuntimeTaskCreateRequest,
+    context?: KernelRuntimeCoreRequestContext,
+  ): Awaitable<RuntimeTaskMutationResult>
+  updateTask?(
+    request: RuntimeTaskUpdateRequest,
+    context?: KernelRuntimeCoreRequestContext,
+  ): Awaitable<RuntimeTaskMutationResult>
+  assignTask?(
+    request: RuntimeTaskAssignRequest,
+    context?: KernelRuntimeCoreRequestContext,
+  ): Awaitable<RuntimeTaskMutationResult>
+}
+
 export type KernelRuntimeAgentRegistryOptions = {
   executor?: false | KernelRuntimeAgentExecutor
-  listAgents?: KernelRuntimeWireAgentRegistry['listAgents']
+  listAgents?: KernelRuntimeAgentRegistry['listAgents']
 }
 
 export function createDefaultKernelRuntimeAgentRegistry(
   workspacePath: string | undefined,
   options: KernelRuntimeAgentRegistryOptions = {},
-): KernelRuntimeWireAgentRegistry {
+): KernelRuntimeAgentRegistry {
   let cached: RuntimeAgentRegistrySnapshot | undefined
   const runs = new Map<string, RuntimeAgentRunDescriptor>()
   const controllers = new Map<string, AbortController>()
@@ -122,7 +177,7 @@ export function createDefaultKernelRuntimeAgentRegistry(
 
 export function createDefaultKernelRuntimeTaskRegistry(
   _workspacePath: string | undefined,
-): KernelRuntimeWireTaskRegistry {
+): KernelRuntimeTaskRegistry {
   async function resolveTaskListId(taskListId?: string): Promise<string> {
     if (taskListId) {
       return taskListId

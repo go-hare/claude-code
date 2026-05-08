@@ -2,6 +2,13 @@
 
 日期：2026-04-28
 
+2026-05-08 复核：本文现在作为早期 public kernel / wire 方案的 review 记录保留。
+当前外部 runtime protocol 已切到 JSON-RPC-lite + core services；package
+`./kernel` 不再导出 `createKernelRuntime()`、wire router/client/transport 或
+旧 `KernelRuntimeWire*` surface。新的当前态以
+`docs/internals/json-rpc-lite-protocol.md`、`src/kernel/index.ts` 和对应
+surface/package-entry 测试为准。
+
 2026-04-28 复核：本文保留 public runtime API 的审查历史与分层分析，但封板结论已经更新。本轮“内核 + 开发接口”收口已完成：root surface、runtime/wire contract、capability lifecycle 与 developer-facing manager 均已打通，`companion` / `Kairos` / `memory` / `context` / `sessions` 已进入 package root 且连通 in-process / stdio runtime。剩余工作不再属于 blocker，而是 deeper parity，例如继续追平 tool context 等 richer runtime-owned resume state、以及未来非 NDJSON transport 扩展。
 
 2026-04-27 复核：本文保留 public runtime API 的审查结论，但内部 kernel

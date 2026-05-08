@@ -26,23 +26,7 @@ import type {
   RuntimeSkillPromptContextResult,
   RuntimeSkillSource,
 } from '../runtime/contracts/skill.js'
-import type {
-  KernelRuntimeWireHookCatalog,
-  KernelRuntimeWirePluginCatalog,
-  KernelRuntimeWireSkillCatalog,
-} from '../runtime/core/wire/KernelRuntimeWireRouter.js'
-import type {
-  Command,
-  LocalJSXCommandContext,
-} from '../types/command.js'
-import type { MCPServerConnection } from '../services/mcp/types.js'
-import type {
-  ToolPermissionContext,
-  ToolUseContext,
-  Tools,
-} from '../Tool.js'
-import type { Message } from '../types/message.js'
-import type { PermissionMode } from '../types/permissions.js'
+import type { Command, LocalJSXCommandContext } from '../types/command.js'
 import type { LoadedPlugin, PluginError } from '../types/plugin.js'
 import type { AppState } from '../state/AppState.js'
 import type { HookInput } from 'src/types/protocol/index.js'
@@ -54,16 +38,80 @@ import {
 } from '../types/hooks.js'
 import { normalizeLegacyToolName } from '../utils/permissions/permissionRuleParser.js'
 import { errorMessage } from '../utils/errors.js'
+import {
+  contentBlocksToText,
+  createKernelRuntimeNonInteractiveToolUseContext,
+} from './nonInteractiveToolUseContext.js'
 
 type KernelRuntimeHookCatalogDeps = {
   getRegisteredHooks?(): RuntimeRegisteredHookMatchers | null | undefined
   loadPluginHookMatchers?(): Promise<RuntimeRegisteredHookMatchers>
 }
 
+export type RuntimeHookCatalog = {
+  listHooks(context?: {
+    cwd?: string
+    metadata?: Record<string, unknown>
+  }): Promise<readonly RuntimeHookDescriptor[]>
+  reload(context?: {
+    cwd?: string
+    metadata?: Record<string, unknown>
+  }): Promise<void>
+  runHook(
+    request: RuntimeHookRunRequest,
+    context?: { cwd?: string; metadata?: Record<string, unknown> },
+  ): Promise<RuntimeHookRunResult>
+  registerHook(
+    request: RuntimeHookRegisterRequest,
+    context?: { cwd?: string; metadata?: Record<string, unknown> },
+  ): Promise<RuntimeHookMutationResult>
+}
+
+export type RuntimeSkillCatalog = {
+  listSkills(context?: {
+    cwd?: string
+  }): Promise<readonly RuntimeSkillDescriptor[]>
+  reload(context?: { cwd?: string }): Promise<void>
+  resolvePromptContext(
+    request: RuntimeSkillPromptContextRequest,
+    context?: { cwd?: string },
+  ): Promise<RuntimeSkillPromptContextResult>
+}
+
+export type RuntimePluginCatalog = {
+  listPlugins(context?: {
+    cwd?: string
+    metadata?: Record<string, unknown>
+  }): Promise<{
+    plugins: readonly RuntimePluginDescriptor[]
+    errors: readonly RuntimePluginErrorDescriptor[]
+  }>
+  reload(context?: {
+    cwd?: string
+    metadata?: Record<string, unknown>
+  }): Promise<void>
+  setPluginEnabled(
+    request: RuntimePluginSetEnabledRequest,
+    context?: { cwd?: string; metadata?: Record<string, unknown> },
+  ): Promise<RuntimePluginMutationResult>
+  installPlugin(
+    request: RuntimePluginInstallRequest,
+    context?: { cwd?: string; metadata?: Record<string, unknown> },
+  ): Promise<RuntimePluginMutationResult>
+  uninstallPlugin(
+    request: RuntimePluginUninstallRequest,
+    context?: { cwd?: string; metadata?: Record<string, unknown> },
+  ): Promise<RuntimePluginMutationResult>
+  updatePlugin(
+    request: RuntimePluginUpdateRequest,
+    context?: { cwd?: string; metadata?: Record<string, unknown> },
+  ): Promise<RuntimePluginMutationResult>
+}
+
 export function createDefaultKernelRuntimeHookCatalog(
   _workspacePath: string | undefined,
   deps: KernelRuntimeHookCatalogDeps = {},
-): KernelRuntimeWireHookCatalog {
+): RuntimeHookCatalog {
   let cachedStaticHooks: readonly RuntimeHookDescriptor[] | undefined
   let appStateCache: AppState | undefined
   const registeredHooks: Array<{
@@ -98,7 +146,8 @@ export function createDefaultKernelRuntimeHookCatalog(
     for (const [event, matchers] of Object.entries(registered)) {
       for (const matcher of matchers ?? []) {
         const source = 'pluginRoot' in matcher ? 'pluginHook' : 'builtinHook'
-        const pluginName = 'pluginName' in matcher ? matcher.pluginName : undefined
+        const pluginName =
+          'pluginName' in matcher ? matcher.pluginName : undefined
         for (const hook of matcher.hooks) {
           descriptors.push(
             toRuntimeHookDescriptor({
@@ -118,28 +167,23 @@ export function createDefaultKernelRuntimeHookCatalog(
 
   async function listHooks(): Promise<readonly RuntimeHookDescriptor[]> {
     if (!cachedStaticHooks) {
-      const [
-        hooksModule,
-        hooksSettings,
-        { loadAllPluginsCacheOnly },
-      ] = await Promise.all([
-        import('../utils/hooks.js'),
-        import('../utils/hooks/hooksSettings.js'),
-        import('../utils/plugins/pluginLoader.js'),
-      ])
+      const [hooksModule, hooksSettings, { loadAllPluginsCacheOnly }] =
+        await Promise.all([
+          import('../utils/hooks.js'),
+          import('../utils/hooks/hooksSettings.js'),
+          import('../utils/plugins/pluginLoader.js'),
+        ])
       const appState = await ensureAppState()
-      const appStateHooks = hooksSettings
-        .getAllHooks(appState)
-        .map(hook =>
-          toRuntimeHookDescriptor({
-            event: hook.event,
-            config: hook.config,
-            matcher: hook.matcher,
-            source: hook.source,
-            pluginName: hook.pluginName,
-            displayName: hooksSettings.getHookDisplayText(hook.config),
-          }),
-        )
+      const appStateHooks = hooksSettings.getAllHooks(appState).map(hook =>
+        toRuntimeHookDescriptor({
+          event: hook.event,
+          config: hook.config,
+          matcher: hook.matcher,
+          source: hook.source,
+          pluginName: hook.pluginName,
+          displayName: hooksSettings.getHookDisplayText(hook.config),
+        }),
+      )
       const { enabled } = await loadAllPluginsCacheOnly()
       cachedStaticHooks = [
         ...appStateHooks,
@@ -167,9 +211,9 @@ export function createDefaultKernelRuntimeHookCatalog(
         { createBaseHookInput, executeHooksOutsideREPL },
         { isHookEvent },
       ] = await Promise.all([
-          import('../utils/hooks.js'),
-          import('../types/hooks.js'),
-        ])
+        import('../utils/hooks.js'),
+        import('../types/hooks.js'),
+      ])
       const loadPluginHookMatchers =
         deps.loadPluginHookMatchers ??
         (await import('../utils/plugins/loadPluginHooks.js'))
@@ -194,13 +238,15 @@ export function createDefaultKernelRuntimeHookCatalog(
       )
       const appState = await ensureAppState()
       const pluginHookLoadErrors: RuntimeHookRunError[] = []
-      const extraRegisteredHooks = await loadPluginHookMatchers().catch(error => {
-        pluginHookLoadErrors.push({
-          message: `Failed to load plugin hooks: ${errorMessage(error)}`,
-          code: 'plugin_load_failed',
-        })
-        return undefined
-      })
+      const extraRegisteredHooks = await loadPluginHookMatchers().catch(
+        error => {
+          pluginHookLoadErrors.push({
+            message: `Failed to load plugin hooks: ${errorMessage(error)}`,
+            code: 'plugin_load_failed',
+          })
+          return undefined
+        },
+      )
       const results = await executeHooksOutsideREPL({
         getAppState: () => appState,
         hookInput,
@@ -226,20 +272,23 @@ export function createDefaultKernelRuntimeHookCatalog(
 
       return {
         event: request.event,
-        handled:
-          allResults.length > 0 || unboundRegisteredHooks.length > 0,
+        handled: allResults.length > 0 || unboundRegisteredHooks.length > 0,
         outputs:
           allResults.length > 0
-            ? allResults.map(result => stripUndefinedFields({
-                command: result.command,
-                succeeded: result.succeeded,
-                output: result.output,
-                blocked: result.blocked,
-                watchPaths:
-                  'watchPaths' in result ? result.watchPaths : undefined,
-                systemMessage:
-                  'systemMessage' in result ? result.systemMessage : undefined,
-              }))
+            ? allResults.map(result =>
+                stripUndefinedFields({
+                  command: result.command,
+                  succeeded: result.succeeded,
+                  output: result.output,
+                  blocked: result.blocked,
+                  watchPaths:
+                    'watchPaths' in result ? result.watchPaths : undefined,
+                  systemMessage:
+                    'systemMessage' in result
+                      ? result.systemMessage
+                      : undefined,
+                }),
+              )
             : undefined,
         errors: errors.length > 0 ? errors : undefined,
         metadata: request.metadata,
@@ -272,7 +321,7 @@ export function createDefaultKernelRuntimeHookCatalog(
 
 export function createDefaultKernelRuntimeSkillCatalog(
   workspacePath: string | undefined,
-): KernelRuntimeWireSkillCatalog {
+): RuntimeSkillCatalog {
   let cachedCommands: readonly Command[] | undefined
   let cachedSkills: readonly RuntimeSkillDescriptor[] | undefined
 
@@ -348,7 +397,7 @@ export function createDefaultKernelRuntimeSkillCatalog(
 
 export function createDefaultKernelRuntimePluginCatalog(
   _workspacePath: string | undefined,
-): KernelRuntimeWirePluginCatalog {
+): RuntimePluginCatalog {
   let cached:
     | {
         plugins: readonly RuntimePluginDescriptor[]
@@ -571,7 +620,9 @@ function toRuntimeHookRunErrors(
     .map(result => ({
       message:
         result.output ||
-        (result.blocked ? 'Hook blocked continuation' : 'Hook execution failed'),
+        (result.blocked
+          ? 'Hook blocked continuation'
+          : 'Hook execution failed'),
       code: result.blocked ? 'blocked' : 'execution_failed',
     }))
 }
@@ -806,7 +857,9 @@ function matchesRuntimeHookMatcher(
       return patterns.includes(normalizeLegacyToolName(matchQuery))
     }
 
-    return normalizeLegacyToolName(matchQuery) === normalizeLegacyToolName(matcher)
+    return (
+      normalizeLegacyToolName(matchQuery) === normalizeLegacyToolName(matcher)
+    )
   }
 
   try {
@@ -961,116 +1014,6 @@ function toPluginMutationResult(input: {
     newVersion: input.operation.newVersion,
     alreadyUpToDate: input.operation.alreadyUpToDate,
     metadata: input.metadata,
-  }
-}
-
-export type KernelRuntimeNonInteractiveToolUseContextOptions = {
-  permissionMode?: string
-  tools?: Tools
-  messages?: readonly Message[]
-  mcpClients?: readonly MCPServerConnection[]
-}
-
-export async function createKernelRuntimeNonInteractiveToolUseContext(
-  commands: readonly Command[],
-  _cwd: string,
-  options: KernelRuntimeNonInteractiveToolUseContextOptions = {},
-): Promise<ToolUseContext & LocalJSXCommandContext> {
-  const [
-    { getEmptyToolPermissionContext },
-    { getDefaultAppState },
-    { createFileStateCacheWithSizeLimit },
-    { getTools },
-  ] = await Promise.all([
-    import('../Tool.js'),
-    import('../state/AppStateStore.js'),
-    import('../utils/fileStateCache.js'),
-    import('../runtime/capabilities/tools/ToolPolicy.js'),
-  ])
-  const toolPermissionContext = {
-    ...getEmptyToolPermissionContext(),
-    mode: toPermissionMode(options.permissionMode, 'default'),
-    shouldAvoidPermissionPrompts: true,
-  } satisfies ToolPermissionContext
-  let appState = getDefaultAppState()
-  appState.toolPermissionContext = toolPermissionContext
-  let messages = [...(options.messages ?? [])]
-  const tools = options.tools ?? getTools(toolPermissionContext)
-  return {
-    abortController: new AbortController(),
-    options: {
-      commands: [...commands],
-      debug: false,
-      mainLoopModel: process.env.OPENAI_MODEL ?? 'kernel-runtime',
-      tools,
-      verbose: false,
-      thinkingConfig: { type: 'disabled' },
-      mcpClients: [...(options.mcpClients ?? [])],
-      mcpResources: {},
-      isNonInteractiveSession: true,
-      ideInstallationStatus: null,
-      theme: 'dark',
-      agentDefinitions: {
-        activeAgents: [],
-        allAgents: [],
-        allowedAgentTypes: undefined,
-      },
-    },
-    readFileState: createFileStateCacheWithSizeLimit(100),
-    getAppState: () => appState,
-    setAppState: updater => {
-      appState = updater(appState)
-    },
-    messages,
-    setMessages: updater => {
-      messages = updater(messages)
-    },
-    onChangeAPIKey: () => {},
-    setInProgressToolUseIDs: () => {},
-    setResponseLength: () => {},
-    updateFileHistoryState: () => {},
-    updateAttributionState: () => {},
-  }
-}
-
-export function contentBlocksToText(
-  blocks: readonly unknown[],
-): string | undefined {
-  const text = blocks
-    .map(block => {
-      if (typeof block === 'string') {
-        return block
-      }
-      if (
-        block &&
-        typeof block === 'object' &&
-        (block as { type?: unknown }).type === 'text' &&
-        typeof (block as { text?: unknown }).text === 'string'
-      ) {
-        return (block as { text: string }).text
-      }
-      return undefined
-    })
-    .filter((item): item is string => !!item)
-    .join('\n')
-  return text.length > 0 ? text : undefined
-}
-
-function toPermissionMode(
-  value: string | undefined,
-  fallback: PermissionMode,
-): PermissionMode {
-  switch (value) {
-    case 'acceptEdits':
-    case 'auto':
-    case 'bubble':
-    case 'bypassPermissions':
-    case 'default':
-    case 'dontAsk':
-    case 'plan':
-      return value
-    default:
-      return fallback
   }
 }
 

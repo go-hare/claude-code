@@ -17,11 +17,12 @@ import * as kairos from '../kairos.js'
 import * as memory from '../memory.js'
 import * as outputProjection from '../outputProjection.js'
 import * as permissions from '../permissions.js'
-import * as runtime from '../runtime.js'
+import * as capabilities from '../capabilities.js'
+import * as runtimeCapabilities from '../runtimeCapabilities.js'
 import * as runtimeEvents from '../runtimeEvents.js'
 import * as sessions from '../sessions.js'
 import * as serverHost from '../serverHost.js'
-import * as wireProtocol from '../wireProtocol.js'
+import * as jsonRpcLiteProtocol from '../jsonRpcLiteProtocol.js'
 import * as serverTypes from '../../server/types.js'
 import {
   EXPECTED_KERNEL_PUBLIC_EXPORTS,
@@ -49,7 +50,7 @@ describe('kernel index surface', () => {
       [...EXPECTED_KERNEL_PUBLIC_EXPORTS].sort(),
     )
     expect(KERNEL_PUBLIC_SURFACE_TIERS.stable_contract).toContain(
-      'runKernelRuntimeWireProtocol',
+      'runKernelRuntimeJsonRpcLiteProtocol',
     )
     expect(KERNEL_PUBLIC_SURFACE_TIERS.host_integration).toContain(
       'runBridgeHeadless',
@@ -58,7 +59,7 @@ describe('kernel index surface', () => {
       'createKernelKairosRuntime',
     )
     expect(KERNEL_PUBLIC_SURFACE_TIERS.compat_projection).toContain(
-      'getCompatibilityProjectionFromKernelEvent',
+      'getCanonicalProjectionFromKernelEvent',
     )
   })
 
@@ -313,14 +314,11 @@ describe('kernel index surface', () => {
         sessions.createKernelSessionManager,
       ),
     ).toBe(true)
-    expect(
-      Object.is(kernel.createKernelRuntime, runtime.createKernelRuntime),
-    ).toBe(true)
-    expect(kernel.KernelRuntimeRequestError).toBe(
-      runtime.KernelRuntimeRequestError,
-    )
     const kernelRecord = kernel as unknown as Record<string, unknown>
-    const runtimeRecord = runtime as unknown as Record<string, unknown>
+    const capabilitiesRecord = capabilities as unknown as Record<
+      string,
+      unknown
+    >
     for (const exportName of [
       'KERNEL_CAPABILITY_FAMILIES',
       'filterKernelCapabilities',
@@ -328,50 +326,32 @@ describe('kernel index surface', () => {
       'groupKernelCapabilities',
       'isKernelCapabilityReady',
       'isKernelCapabilityUnavailable',
-      'reloadKernelRuntimeCapabilities',
-      'resolveKernelRuntimeCapabilities',
       'toKernelCapabilityView',
       'toKernelCapabilityViews',
     ]) {
-      expect(kernelRecord[exportName]).toBe(runtimeRecord[exportName])
+      expect(kernelRecord[exportName]).toBe(capabilitiesRecord[exportName])
       if (exportName === 'KERNEL_CAPABILITY_FAMILIES') {
         expect(Array.isArray(kernelRecord[exportName])).toBe(true)
       } else {
         expect(typeof kernelRecord[exportName]).toBe('function')
       }
     }
+    for (const exportName of [
+      'reloadKernelRuntimeCapabilities',
+      'resolveKernelRuntimeCapabilities',
+    ]) {
+      expect(kernelRecord[exportName]).toBe(
+        (runtimeCapabilities as unknown as Record<string, unknown>)[exportName],
+      )
+    }
     expect(
       Object.is(
-        kernel.createDefaultKernelRuntimeWireRouter,
-        wireProtocol.createDefaultKernelRuntimeWireRouter,
+        kernel.runKernelRuntimeJsonRpcLiteProtocol,
+        jsonRpcLiteProtocol.runKernelRuntimeJsonRpcLiteProtocol,
       ),
     ).toBe(true)
-    expect(
-      Object.is(
-        kernel.createKernelRuntimeInProcessWireTransport,
-        wireProtocol.createKernelRuntimeInProcessWireTransport,
-      ),
-    ).toBe(true)
-    expect(
-      Object.is(
-        kernel.createKernelRuntimeStdioWireTransport,
-        wireProtocol.createKernelRuntimeStdioWireTransport,
-      ),
-    ).toBe(true)
-    expect(
-      Object.is(
-        kernel.createKernelRuntimeWireClient,
-        wireProtocol.createKernelRuntimeWireClient,
-      ),
-    ).toBe(true)
-    expect(
-      Object.is(
-        kernel.runKernelRuntimeWireProtocol,
-        wireProtocol.runKernelRuntimeWireProtocol,
-      ),
-    ).toBe(true)
-    expect(kernel.KERNEL_RUNTIME_COMMAND_SCHEMA_VERSION).toBe(
-      wireProtocol.KERNEL_RUNTIME_COMMAND_SCHEMA_VERSION,
+    expect(kernel.KERNEL_RUNTIME_JSON_RPC_LITE_PROTOCOL_VERSION).toBe(
+      jsonRpcLiteProtocol.KERNEL_RUNTIME_JSON_RPC_LITE_PROTOCOL_VERSION,
     )
   })
 })
