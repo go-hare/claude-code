@@ -71,12 +71,19 @@ const input: InputPlatform = {
 const screenshot: ScreenshotPlatform = {
   async captureScreen(displayId) {
     const swift = requireComputerUseSwift()
-    return swift.screenshot.captureExcluding([], undefined, undefined, undefined, displayId)
+    const display = swift.display.getSize(displayId)
+    return swift.screenshot.captureExcluding(
+      [],
+      0.75,
+      display.width,
+      display.height,
+      displayId,
+    )
   },
 
   async captureRegion(x, y, w, h) {
     const swift = requireComputerUseSwift()
-    return swift.screenshot.captureRegion([], x, y, w, h)
+    return swift.screenshot.captureRegion([], x, y, w, h, w, h, 0.75)
   },
 
   // macOS could use SCContentFilter for window capture but we don't expose
