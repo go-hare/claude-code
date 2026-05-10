@@ -32,6 +32,8 @@ import {
   CRON_DELETE_TOOL_NAME,
   CRON_LIST_TOOL_NAME,
 } from '@go-hare/builtin-tools/tools/ScheduleCronTool/prompt.js'
+import { LOCAL_MEMORY_RECALL_TOOL_NAME } from '@go-hare/builtin-tools/tools/LocalMemoryRecallTool/constants.js'
+import { VAULT_HTTP_FETCH_TOOL_NAME } from '@go-hare/builtin-tools/tools/VaultHttpFetchTool/constants.js'
 
 export const ALL_AGENT_DISALLOWED_TOOLS = new Set([
   TASK_OUTPUT_TOOL_NAME,
@@ -43,6 +45,10 @@ export const ALL_AGENT_DISALLOWED_TOOLS = new Set([
   TASK_STOP_TOOL_NAME,
   // Prevent recursive workflow execution inside subagents.
   ...(feature('WORKFLOW_SCRIPTS') ? [WORKFLOW_TOOL_NAME] : []),
+  // Keep local memory and vault-backed network access on the main thread.
+  // Fork paths also apply filterParentToolsForFork before exact tool reuse.
+  LOCAL_MEMORY_RECALL_TOOL_NAME,
+  VAULT_HTTP_FETCH_TOOL_NAME,
 ])
 
 export const CUSTOM_AGENT_DISALLOWED_TOOLS = new Set([

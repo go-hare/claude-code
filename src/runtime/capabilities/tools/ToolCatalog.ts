@@ -81,6 +81,8 @@ import { AskUserQuestionTool } from '@go-hare/builtin-tools/tools/AskUserQuestio
 import { LSPTool } from '@go-hare/builtin-tools/tools/LSPTool/LSPTool.js'
 import { ListMcpResourcesTool } from '@go-hare/builtin-tools/tools/ListMcpResourcesTool/ListMcpResourcesTool.js'
 import { ReadMcpResourceTool } from '@go-hare/builtin-tools/tools/ReadMcpResourceTool/ReadMcpResourceTool.js'
+import { LocalMemoryRecallTool } from '@go-hare/builtin-tools/tools/LocalMemoryRecallTool/LocalMemoryRecallTool.js'
+import { VaultHttpFetchTool } from '@go-hare/builtin-tools/tools/VaultHttpFetchTool/VaultHttpFetchTool.js'
 import { ToolSearchTool } from '@go-hare/builtin-tools/tools/ToolSearchTool/ToolSearchTool.js'
 import { EnterPlanModeTool } from '@go-hare/builtin-tools/tools/EnterPlanModeTool/EnterPlanModeTool.js'
 import { EnterWorktreeTool } from '@go-hare/builtin-tools/tools/EnterWorktreeTool/EnterWorktreeTool.js'
@@ -208,6 +210,8 @@ export function getAllBaseTools(): Tools {
     AskUserQuestionTool,
     SkillTool,
     EnterPlanModeTool,
+    LocalMemoryRecallTool,
+    VaultHttpFetchTool,
     ...(process.env.USER_TYPE === 'ant' ? [ConfigTool] : []),
     ...(process.env.USER_TYPE === 'ant' ? [TungstenTool] : []),
     ...(SuggestBackgroundPRTool ? [SuggestBackgroundPRTool] : []),

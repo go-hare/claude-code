@@ -8,6 +8,7 @@ import { registerAsyncAgent } from 'src/tasks/LocalAgentTask/LocalAgentTask.js'
 import { assembleToolPool } from 'src/tools.js'
 import { asAgentId } from 'src/types/ids.js'
 import { runWithAgentContext } from 'src/utils/agentContext.js'
+import { filterParentToolsForFork } from 'src/utils/agentToolFilter.js'
 import { runWithCwdOverride } from 'src/utils/cwd.js'
 import { logForDebugging } from 'src/utils/debug.js'
 import {
@@ -163,7 +164,7 @@ export async function resumeAgentBackground({
     mode: selectedAgent.permissionMode ?? 'acceptEdits',
   }
   const workerTools = isResumedFork
-    ? toolUseContext.options.tools
+    ? filterParentToolsForFork(toolUseContext.options.tools)
     : assembleToolPool(workerPermissionContext, appState.mcp.tools)
 
   const runAgentParams: Parameters<typeof runAgent>[0] = {
