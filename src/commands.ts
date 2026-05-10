@@ -47,12 +47,11 @@ import skills from './commands/skills/index.js'
 import status from './commands/status/index.js'
 import tasks from './commands/tasks/index.js'
 import teleport from './commands/teleport/index.js'
-/* eslint-disable @typescript-eslint/no-require-imports */
-const agentsPlatform =
-  process.env.USER_TYPE === 'ant'
-    ? require('./commands/agents-platform/index.js').default
-    : null
-/* eslint-enable @typescript-eslint/no-require-imports */
+import agentsPlatform from './commands/agents-platform/index.js'
+import scheduleCommand from './commands/schedule/index.js'
+import memoryStoresCommand from './commands/memory-stores/index.js'
+import skillStoreCommand from './commands/skill-store/index.js'
+import vaultCommand from './commands/vault/index.js'
 import securityReview from './commands/security-review.js'
 import bughunter from './commands/bughunter/index.js'
 import terminalSetup from './commands/terminalSetup/index.js'
@@ -299,7 +298,6 @@ export const INTERNAL_ONLY_COMMANDS = [
   env,
   oauthRefresh,
   debugToolCall,
-  agentsPlatform,
   autofixPr,
 ].filter(Boolean)
 
@@ -308,6 +306,13 @@ export const INTERNAL_ONLY_COMMANDS = [
 const COMMANDS = memoize((): Command[] => [
   addDir,
   advisor,
+  agentsPlatform,
+  scheduleCommand,
+  memoryStoresCommand,
+  skillStoreCommand,
+  vaultCommand,
+  localMemoryCommand,
+  localVaultCommand,
   autonomy,
   autonomyNonInteractive,
   provider,
@@ -340,8 +345,6 @@ const COMMANDS = memoize((): Command[] => [
   installSlackApp,
   mcp,
   memory,
-  localMemoryCommand,
-  localVaultCommand,
   mobile,
   model,
   outputStyle,

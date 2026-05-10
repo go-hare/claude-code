@@ -4,6 +4,7 @@ import { getOauthConfig } from 'src/constants/oauth.js'
 import { getOrganizationUUID } from 'src/services/oauth/client.js'
 import z from 'zod/v4'
 import { getClaudeAIOAuthTokens } from '../auth.js'
+import { getGlobalConfig } from '../config.js'
 import { logForDebugging } from '../debug.js'
 import { parseGitHubRepository } from '../detectRepository.js'
 import { errorMessage, toError } from '../errors.js'
@@ -173,6 +174,46 @@ export const CodeSessionSchema = lazySchema(() =>
 
 // Export the inferred type from the Zod schema
 export type CodeSession = z.infer<ReturnType<typeof CodeSessionSchema>>
+
+export function isWorkspaceKeyCleared(rawValue: unknown): boolean {
+  return (
+    rawValue === null ||
+    (typeof rawValue === 'string' && rawValue.trim() === '')
+  )
+}
+
+export async function prepareWorkspaceApiRequest(): Promise<{
+  apiKey: string
+}> {
+  const config = getGlobalConfig()
+  const apiKey =
+    process.env['ANTHROPIC_API_KEY']?.trim() || config.workspaceApiKey?.trim()
+
+  if (!apiKey) {
+    const rawValue = (config as { workspaceApiKey?: string | null })
+      .workspaceApiKey
+    const wasCleared = isWorkspaceKeyCleared(rawValue)
+    const preface = wasCleared
+      ? 'Your workspace API key was cleared. '
+      : 'A workspace API key (sk-ant-api03-*) is required to use workspace endpoints ' +
+        '(/v1/agents, /v1/vaults, /v1/memory_stores, /v1/skills). '
+    throw new Error(
+      preface +
+        'Press W in /login to save your key directly (no restart needed), or ' +
+        'set ANTHROPIC_API_KEY=<key> and restart. ' +
+        'Obtain a key from https://console.anthropic.com/settings/keys. ' +
+        'Subscription OAuth (claude.ai login) cannot reach these endpoints.',
+    )
+  }
+  if (!apiKey.startsWith('sk-ant-api03-')) {
+    throw new Error(
+      `Workspace API key must start with sk-ant-api03-, got prefix "${apiKey.slice(0, 4)}...". ` +
+        'Obtain a workspace API key from https://console.anthropic.com/settings/keys. ' +
+        'Press W in /login to save your key, or set ANTHROPIC_API_KEY.',
+    )
+  }
+  return { apiKey }
+}
 
 /**
  * Validates and prepares for API requests
