@@ -27,7 +27,9 @@ export function getMacroDefines(): Record<string, string> {
  *   - scripts/dev.ts (bun run dev)
  */
 export const DEFAULT_BUILD_FEATURES = [
-    'BUDDY', 'TRANSCRIPT_CLASSIFIER', 'BRIDGE_MODE',
+    'BUDDY',
+    'TRANSCRIPT_CLASSIFIER',
+    'BRIDGE_MODE',
     'AGENT_TRIGGERS_REMOTE',
     'CHICAGO_MCP',
     'VOICE_MODE',
@@ -46,22 +48,34 @@ export const DEFAULT_BUILD_FEATURES = [
     'AWAY_SUMMARY',
     'ULTRAPLAN',
     // P2: daemon + remote control server
-    'DAEMON',
+    // 'DAEMON',
     // ACP (Agent Client Protocol) agent mode
     'ACP',
     // PR-package restored features
     'WORKFLOW_SCRIPTS',
     'HISTORY_SNIP',
-    'CONTEXT_COLLAPSE',
+    // 'CONTEXT_COLLAPSE',
     'MONITOR_TOOL',
     'FORK_SUBAGENT',
-    // 'UDS_INBOX',
+    'UDS_INBOX',
     'KAIROS',
     'COORDINATOR_MODE',
     'LAN_PIPES',
     'BG_SESSIONS',
     'TEMPLATES',
-    // 'REVIEW_ARTIFACT', // API 请求无响应，需进一步排查 schema 兼容性
-    // P3: poor mode (disable extract_memories + prompt_suggestion)
+    // API content block types
+    'CONNECTOR_TEXT',
+    // Attribution tracking
+    'COMMIT_ATTRIBUTION',
+    // Server mode (claude server / claude open)
+    'DIRECT_CONNECT',
+    // Skill search & learning
+    'EXPERIMENTAL_SKILL_SEARCH',
+    'SKILL_LEARNING',
+    // P3: poor mode
     'POOR',
+    // Team Memory
+    'TEAMMEM',
+    // SSH Remote
+    'SSH_REMOTE',
 ] as const;

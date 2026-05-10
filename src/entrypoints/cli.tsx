@@ -140,6 +140,33 @@ async function main(): Promise<void> {
     return
   }
 
+  // Fast-path for `claude autonomy ...`: reuse the slash-style autonomy parser
+  // and keep its usage/help text independent from the commander global help.
+  if (args[0] === 'autonomy') {
+    profileCheckpoint('cli_autonomy_path')
+    const { enableConfigs } = await import('../utils/config.js')
+    enableConfigs()
+    const { AUTONOMY_USAGE } = await import('../utils/autonomyCommandSpec.js')
+    const { getAutonomyCommandText } = await import(
+      '../cli/handlers/autonomy.js'
+    )
+
+    const autonomyArgs = args.slice(1)
+    if (autonomyArgs.length === 0) {
+      process.stdout.write(`${await getAutonomyCommandText('status')}\n`)
+      return
+    }
+    if (autonomyArgs.length === 1 && (autonomyArgs[0] === '--help' || autonomyArgs[0] === '-h')) {
+      process.stdout.write(`${AUTONOMY_USAGE}\n`)
+      return
+    }
+
+    process.stdout.write(
+      `${await getAutonomyCommandText(autonomyArgs.join(' '))}\n`,
+    )
+    return
+  }
+
   if (args[0] === 'weixin') {
     profileCheckpoint('cli_weixin_path')
     const { handleWeixinCli } = await import('@go-hare/weixin')

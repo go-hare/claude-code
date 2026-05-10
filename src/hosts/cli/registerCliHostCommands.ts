@@ -260,6 +260,10 @@ export function registerCliHostCommands(
         'Skip all permission prompts on the remote (dangerous)',
       )
       .option(
+        '--remote-bin <command>',
+        "Custom remote binary command (skips probe/deploy). Example: --remote-bin 'bun /path/to/project/dist/cli.js'",
+      )
+      .option(
         '--local',
         'e2e test mode - spawn the child CLI locally (skip ssh/deploy). Exercises the auth proxy and unix-socket plumbing without a remote host.',
       )
