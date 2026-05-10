@@ -78,4 +78,6 @@ export const DEFAULT_BUILD_FEATURES = [
     'TEAMMEM',
     // SSH Remote
     'SSH_REMOTE',
+    // Autofix PR
+    'AUTOFIX_PR',
 ] as const;
