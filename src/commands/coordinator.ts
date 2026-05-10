@@ -6,12 +6,15 @@
  * The coordinator can only use Agent, SendMessage, and TaskStop.
  */
 import { feature } from 'bun:bundle'
+import { getOriginalCwd } from '../bootstrap/state.js'
 import type { ToolUseContext } from '../Tool.js'
 import type {
   Command,
   LocalJSXCommandContext,
   LocalJSXCommandOnDone,
 } from '../types/command.js'
+import { refreshAgentDefinitionsFromCurrentState } from '../utils/agentDefinitionsRefresh.js'
+import { saveMode } from '../utils/sessionStorage.js'
 
 const coordinator = {
   type: 'local-jsx',
@@ -28,14 +31,32 @@ const coordinator = {
     Promise.resolve({
       async call(
         onDone: LocalJSXCommandOnDone,
-        _context: ToolUseContext & LocalJSXCommandContext,
+        context: ToolUseContext & LocalJSXCommandContext,
       ): Promise<React.ReactNode> {
         const mod =
           require('../coordinator/coordinatorMode.js') as typeof import('../coordinator/coordinatorMode.js')
+        const shouldEnable = !mod.isCoordinatorMode()
 
-        if (mod.isCoordinatorMode()) {
-          // Disable: clear the env var
+        if (shouldEnable) {
+          process.env.CLAUDE_CODE_COORDINATOR_MODE = '1'
+        } else {
           delete process.env.CLAUDE_CODE_COORDINATOR_MODE
+        }
+
+        const refreshedAgentDefinitions =
+          await refreshAgentDefinitionsFromCurrentState(
+            getOriginalCwd(),
+            context.getAppState().agentDefinitions,
+          )
+
+        context.setAppState(prev => ({
+          ...prev,
+          agentDefinitions: refreshedAgentDefinitions,
+        }))
+
+        saveMode(shouldEnable ? 'coordinator' : 'normal')
+
+        if (!shouldEnable) {
           onDone('Coordinator mode disabled — back to normal mode', {
             display: 'system',
             metaMessages: [
@@ -43,8 +64,6 @@ const coordinator = {
             ],
           })
         } else {
-          // Enable: set the env var
-          process.env.CLAUDE_CODE_COORDINATOR_MODE = '1'
           onDone(
             'Coordinator mode enabled — use Agent(subagent_type: "worker") to dispatch tasks',
             {
