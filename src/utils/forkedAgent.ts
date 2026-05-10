@@ -24,6 +24,7 @@ import type { ToolUseContext } from '../Tool.js'
 import type { AgentDefinition } from '@go-hare/builtin-tools/tools/AgentTool/loadAgentsDir.js'
 import type { AgentId } from '../types/ids.js'
 import type { Message } from '../types/message.js'
+import type { ActiveTaskExecutionContext } from './tasks.js'
 import { createChildAbortController } from './abortController.js'
 import { logForDebugging } from './debug.js'
 import { cloneFileStateCache } from './fileStateCache.js'
@@ -301,6 +302,8 @@ export type SubagentContextOverrides = {
    * state reconstructed from the resumed sidechain so the same results
    * are re-replaced (prompt cache stability). */
   contentReplacementState?: ContentReplacementState
+  /** Optional task context to carry into the spawned agent. */
+  activeTaskExecutionContext?: ActiveTaskExecutionContext
 }
 
 /**
@@ -451,6 +454,7 @@ export function createSubagentContext(
     // Generate new agentId for subagents (each subagent should have its own ID)
     agentId: overrides?.agentId ?? createAgentId(),
     agentType: overrides?.agentType,
+    activeTaskExecutionContext: overrides?.activeTaskExecutionContext,
 
     // Create new query tracking chain for subagent with incremented depth
     queryTracking: {

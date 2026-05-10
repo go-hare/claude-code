@@ -89,6 +89,7 @@ import {
 } from 'src/utils/telemetry/perfettoTracing.js'
 import type { ContentReplacementState } from 'src/utils/toolResultStorage.js'
 import { createAgentId } from 'src/utils/uuid.js'
+import type { ActiveTaskExecutionContext } from 'src/utils/tasks.js'
 import { resolveAgentTools } from './agentToolUtils.js'
 import { type AgentDefinition, isBuiltInAgent } from './loadAgentsDir.js'
 
@@ -272,6 +273,8 @@ export async function* runAgent({
   allowedTools,
   onCacheSafeParams,
   contentReplacementState,
+  ownedFiles,
+  activeTaskExecutionContext,
   useExactTools,
   worktreePath,
   description,
@@ -316,6 +319,10 @@ export async function* runAgent({
    * the same tool results are re-replaced (prompt cache stability). When
    * omitted, createSubagentContext clones the parent's state. */
   contentReplacementState?: ContentReplacementState
+  /** Coordinator-owned file set for write serialization. */
+  ownedFiles?: string[]
+  /** Optional task context to carry into the spawned agent. */
+  activeTaskExecutionContext?: ActiveTaskExecutionContext
   /** When true, use availableTools directly without filtering through
    * resolveAgentTools(). Also inherits the parent's thinkingConfig and
    * isNonInteractiveSession instead of overriding them. Used by the fork
@@ -721,6 +728,8 @@ export async function* runAgent({
     criticalSystemReminder_EXPERIMENTAL:
       agentDefinition.criticalSystemReminder_EXPERIMENTAL,
     contentReplacementState,
+    ...(ownedFiles && ownedFiles.length > 0 && { ownedFiles }),
+    activeTaskExecutionContext,
   })
 
   // Preserve tool use results for subagents with viewable transcripts (in-process teammates)

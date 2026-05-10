@@ -6,9 +6,17 @@ export default () =>
   ({
     type: 'local-jsx',
     name: 'login',
-    description: hasAnthropicApiKeyAuth()
+    description: hasAnthropicApiKeyAuthSafe()
       ? 'Switch Anthropic accounts'
       : 'Sign in with your Anthropic account',
     isEnabled: () => !isEnvTruthy(process.env.DISABLE_LOGIN_COMMAND),
     load: () => import('./login.js'),
   }) satisfies Command
+
+function hasAnthropicApiKeyAuthSafe(): boolean {
+  try {
+    return hasAnthropicApiKeyAuth()
+  } catch {
+    return false
+  }
+}

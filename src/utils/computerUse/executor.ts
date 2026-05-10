@@ -126,6 +126,53 @@ async function writeClipboardViaPbcopy(text: string): Promise<void> {
 
 type Input = ReturnType<typeof requireComputerUseInput>
 
+type SwiftDisplayGeometry = {
+  displayId: number
+  width: number
+  height: number
+  scaleFactor: number
+  originX?: number
+  originY?: number
+  label?: string
+  isPrimary?: boolean
+}
+
+type SwiftScreenshotResult = {
+  base64: string
+  width: number
+  height: number
+  displayWidth?: number
+  displayHeight?: number
+  originX?: number
+  originY?: number
+  displayId?: number
+  accessibilityText?: string
+}
+
+function normalizeDisplayGeometry(
+  geometry: SwiftDisplayGeometry,
+): DisplayGeometry {
+  return {
+    ...geometry,
+    originX: geometry.originX ?? 0,
+    originY: geometry.originY ?? 0,
+  }
+}
+
+function normalizeScreenshotResult(
+  result: SwiftScreenshotResult,
+  display: DisplayGeometry,
+): ScreenshotResult {
+  return {
+    ...result,
+    displayWidth: result.displayWidth ?? display.width,
+    displayHeight: result.displayHeight ?? display.height,
+    originX: result.originX ?? display.originX,
+    originY: result.originY ?? display.originY,
+    displayId: result.displayId ?? display.displayId,
+  }
+}
+
 /**
  * Single-element key sequence matching "escape" or "esc" (case-insensitive).
  * Used to hole-punch the CGEventTap abort for model-synthesized Escape — enigo
@@ -390,11 +437,11 @@ export function createCliExecutor(opts: {
     // ── Display ──────────────────────────────────────────────────────────
 
     async getDisplaySize(displayId?: number): Promise<DisplayGeometry> {
-      return cu.display.getSize(displayId)
+      return normalizeDisplayGeometry(cu.display.getSize(displayId))
     },
 
     async listDisplays(): Promise<DisplayGeometry[]> {
-      return cu.display.listAll()
+      return cu.display.listAll().map(normalizeDisplayGeometry)
     },
 
     async findWindowDisplays(
@@ -409,7 +456,9 @@ export function createCliExecutor(opts: {
       autoResolve: boolean
       doHide?: boolean
     }): Promise<ResolvePrepareCaptureResult> {
-      const d = cu.display.getSize(opts.preferredDisplayId)
+      const d = normalizeDisplayGeometry(
+        cu.display.getSize(opts.preferredDisplayId),
+      )
       const [targetW, targetH] = computeTargetDims(
         d.width,
         d.height,
@@ -428,13 +477,16 @@ export function createCliExecutor(opts: {
       // Ensure the result has fields expected by toolCalls.ts (hidden, displayId).
       // macOS native returns these from Swift; our cross-platform ComputerUseAPI
       // returns {base64, width, height} — fill in the missing fields.
-      const baseResult = raw as Partial<ResolvePrepareCaptureResult> & { width?: number; height?: number }
+      const baseResult = raw as Partial<ResolvePrepareCaptureResult> & {
+        width?: number
+        height?: number
+      }
       return {
         ...raw,
         displayWidth: baseResult.displayWidth ?? baseResult.width,
         displayHeight: baseResult.displayHeight ?? baseResult.height,
-        originX: baseResult.originX ?? 0,
-        originY: baseResult.originY ?? 0,
+        originX: baseResult.originX ?? d.originX,
+        originY: baseResult.originY ?? d.originY,
         hidden: baseResult.hidden ?? [],
         displayId: baseResult.displayId ?? opts.preferredDisplayId ?? d.displayId,
       } as ResolvePrepareCaptureResult
@@ -449,13 +501,13 @@ export function createCliExecutor(opts: {
       allowedBundleIds: string[]
       displayId?: number
     }): Promise<ScreenshotResult> {
-      const d = cu.display.getSize(opts.displayId)
+      const d = normalizeDisplayGeometry(cu.display.getSize(opts.displayId))
       const [targetW, targetH] = computeTargetDims(
         d.width,
         d.height,
         d.scaleFactor,
       )
-      return drainRunLoop(() =>
+      const result = await drainRunLoop(() =>
         cu.screenshot.captureExcluding(
           withoutTerminal(opts.allowedBundleIds),
           SCREENSHOT_JPEG_QUALITY,
@@ -464,6 +516,7 @@ export function createCliExecutor(opts: {
           opts.displayId,
         ),
       )
+      return normalizeScreenshotResult(result, d)
     },
 
     async zoom(

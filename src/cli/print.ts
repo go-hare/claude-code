@@ -2225,10 +2225,12 @@ function runHeadlessStreaming(
                     structuredIO.handleElicitation(
                       serverName,
                       params.message,
-                      undefined,
+                      'requestedSchema' in params
+                        ? params.requestedSchema
+                        : undefined,
                       elicitSignal,
                       params.mode,
-                      params.url,
+                      'url' in params ? params.url : undefined,
                       'elicitationId' in params
                         ? params.elicitationId
                         : undefined,

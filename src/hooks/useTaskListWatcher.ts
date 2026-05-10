@@ -7,6 +7,7 @@ import {
   ensureTasksDir,
   getTasksDir,
   listTasks,
+  runWithActiveTaskExecutionContext,
   type Task,
   updateTask,
 } from '../utils/tasks.js'
@@ -113,7 +114,10 @@ export function useTaskListWatcher({
       `[TaskListWatcher] Submitting task #${availableTask.id} as prompt`,
     )
 
-    const submitted = onSubmitTaskRef.current(prompt)
+    const submitted = runWithActiveTaskExecutionContext(
+      { taskListId, taskId: availableTask.id },
+      () => onSubmitTaskRef.current(prompt),
+    )
     if (!submitted) {
       logForDebugging(
         `[TaskListWatcher] Failed to submit task #${availableTask.id}, releasing claim`,

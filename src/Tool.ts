@@ -4,7 +4,7 @@ import type {
 } from '@anthropic-ai/sdk/resources/index.mjs'
 export type { ToolResultBlockParam }
 import type {
-  ElicitRequestURLParams,
+  ElicitRequestParams,
   ElicitResult,
 } from '@modelcontextprotocol/sdk/types.js'
 import type { UUID } from 'crypto'
@@ -204,7 +204,7 @@ export type ToolUseContext = {
    */
   handleElicitation?: (
     serverName: string,
-    params: ElicitRequestURLParams,
+    params: ElicitRequestParams,
     signal: AbortSignal,
   ) => Promise<ElicitResult>
   setToolJSX?: SetToolJSXFn

@@ -19,7 +19,10 @@ import type { AssistantMessage } from 'src/types/message.js'
 import { logForDebugging } from 'src/utils/debug.js'
 import type { EffortLevel } from 'src/utils/effort.js'
 import { logError } from 'src/utils/log.js'
-import { getAPIProviderForStatsig } from 'src/utils/model/providers.js'
+import {
+  getAPIProviderForStatsig,
+} from 'src/utils/model/providers.js'
+import { getProviderModelEnvSetting } from 'src/utils/model/model.js'
 import type { PermissionMode } from 'src/utils/permissions/PermissionMode.js'
 import { jsonStringify } from 'src/utils/slowOperations.js'
 import { logOTelEvent } from 'src/utils/telemetry/events.js'
@@ -139,6 +142,7 @@ function detectGateway({
 }
 
 function getAnthropicEnvMetadata() {
+  const envModel = getProviderModelEnvSetting()
   return {
     ...(process.env.ANTHROPIC_BASE_URL
       ? {
@@ -146,10 +150,9 @@ function getAnthropicEnvMetadata() {
             .ANTHROPIC_BASE_URL as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
         }
       : {}),
-    ...(process.env.ANTHROPIC_MODEL
+    ...(envModel
       ? {
-          envModel: process.env
-            .ANTHROPIC_MODEL as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+          envModel: envModel as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
         }
       : {}),
     ...(process.env.ANTHROPIC_SMALL_FAST_MODEL

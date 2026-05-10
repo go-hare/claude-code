@@ -95,6 +95,9 @@ export async function resumeAgentBackground({
     const now = new Date()
     await fsp.utimes(resumedWorktreePath, now, now)
   }
+  const resumedTaskExecutionContext = meta?.activeTaskExecutionContext
+  const resumedOwnedFiles =
+    meta?.ownedFiles ?? resumedTaskExecutionContext?.ownedFiles
 
   // Skip filterDeniedAgents re-gating — original spawn already passed permission checks
   let selectedAgent: AgentDefinition
@@ -191,7 +194,9 @@ export async function resumeAgentBackground({
     // Re-persist so metadata survives runAgent's writeAgentMetadata overwrite
     worktreePath: resumedWorktreePath,
     description: meta?.description,
+    ownedFiles: resumedOwnedFiles,
     contentReplacementState: resumedReplacementState,
+    activeTaskExecutionContext: resumedTaskExecutionContext,
   }
 
   // Skip name-registry write — original entry persists from the initial spawn
@@ -202,6 +207,9 @@ export async function resumeAgentBackground({
     selectedAgent,
     setAppState: rootSetAppState,
     toolUseId: toolUseContext.toolUseId,
+    notificationTargetAgentId: toolUseContext.agentId,
+    ownedFiles: resumedOwnedFiles,
+    activeTaskExecutionContext: resumedTaskExecutionContext,
   })
 
   const metadata = {
@@ -240,6 +248,8 @@ export async function resumeAgentBackground({
               agentId: asAgentId(agentBackgroundTask.agentId),
               abortController: agentBackgroundTask.abortController!,
             },
+            ownedFiles: resumedOwnedFiles,
+            activeTaskExecutionContext: meta?.activeTaskExecutionContext,
             onCacheSafeParams,
           }),
         metadata,
