@@ -20,6 +20,7 @@ import type {
 import type { TextBlockParam } from '@anthropic-ai/sdk/resources/index.mjs'
 import type { Stream } from '@anthropic-ai/sdk/streaming.mjs'
 import { randomUUID } from 'crypto'
+import { existsSync, unlinkSync } from 'node:fs'
 import {
   getAPIProvider,
   isFirstPartyAnthropicBaseUrl,
@@ -93,6 +94,10 @@ import {
   asSystemPrompt,
   type SystemPrompt,
 } from '../../utils/systemPromptType.js'
+import {
+  getBreakCacheAlwaysPath,
+  getBreakCacheMarkerPath,
+} from '../../commands/break-cache/index.js'
 import { tokenCountFromLastAPIResponse } from '../../utils/tokens.js'
 import { getDynamicConfig_BLOCKS_ON_INIT } from '../analytics/growthbook.js'
 import {
@@ -238,7 +243,6 @@ import {
   type NonNullableUsage,
 } from './logging.js'
 import {
-  CACHE_TTL_1HOUR_MS,
   checkResponseForCacheBreak,
   recordPromptState,
 } from './promptCacheBreakDetection.js'
@@ -1421,6 +1425,31 @@ async function* queryModel(
     ].filter(Boolean),
   )
 
+  // ── Break-cache integration ──
+  // If a one-time break-cache marker exists, or always-mode is on, append a
+  // unique ephemeral nonce comment to the system prompt so the prefix-cache
+  // hash changes for this request, forcing a cache miss.
+  {
+    const onceMarker = getBreakCacheMarkerPath()
+    const alwaysFlag = getBreakCacheAlwaysPath()
+    const shouldBreak = existsSync(onceMarker) || existsSync(alwaysFlag)
+    if (shouldBreak) {
+      const nonce = randomUUID()
+      systemPrompt = asSystemPrompt([
+        ...systemPrompt,
+        `<!-- cache-break nonce: ${nonce} -->`,
+      ])
+      // Only delete the once marker; the always flag persists until /break-cache off
+      if (existsSync(onceMarker)) {
+        try {
+          unlinkSync(onceMarker)
+        } catch {
+          /* best-effort */
+        }
+      }
+    }
+  }
+
   // Prepend system prompt block for easy API identification
   logAPIPrefix(systemPrompt)
 
@@ -1498,24 +1527,6 @@ async function* queryModel(
       cacheEditingHeaderLatched = true
       runtimePromptStateProvider.patchPromptState({
         cacheEditingHeaderLatched: true,
-      })
-    }
-  }
-
-  // Only latch from agentic queries so a classifier call doesn't flip the
-  // main thread's context_management mid-turn.
-  let thinkingClearLatched = promptState.thinkingClearLatched === true
-  if (!thinkingClearLatched && isAgenticQuery) {
-    const lastCompletion =
-      runtimeRequestDebugStateProvider.getRequestDebugState()
-        .lastApiCompletionTimestamp
-    if (
-      lastCompletion !== null &&
-      Date.now() - lastCompletion > CACHE_TTL_1HOUR_MS
-    ) {
-      thinkingClearLatched = true
-      runtimePromptStateProvider.patchPromptState({
-        thinkingClearLatched: true,
       })
     }
   }
@@ -1698,7 +1709,7 @@ async function* queryModel(
     const contextManagement = getAPIContextManagement({
       hasThinking,
       isRedactThinkingActive: betasParams.includes(REDACT_THINKING_BETA_HEADER),
-      clearAllThinking: thinkingClearLatched,
+      clearAllThinking: false,
     })
 
     const enablePromptCaching =
@@ -1832,6 +1843,7 @@ async function* queryModel(
   let ttftMs = 0
   let partialMessage: BetaMessage | undefined = undefined
   const contentBlocks: (BetaContentBlock | ConnectorTextBlock)[] = []
+  const textDeltas = new Map<number, string[]>()
   let usage: NonNullableUsage = EMPTY_USAGE
   let costUSD = 0
   let stopReason: BetaStopReason | null = null
@@ -1931,6 +1943,7 @@ async function* queryModel(
     ttftMs = 0
     partialMessage = undefined
     contentBlocks.length = 0
+    textDeltas.clear()
     usage = EMPTY_USAGE
     stopReason = null
     isAdvisorInProgress = false
@@ -2087,6 +2100,7 @@ async function* queryModel(
                 }
                 break
               case 'text':
+                textDeltas.set(part.index, [])
                 contentBlocks[part.index] = {
                   ...part.content_block,
                   // awkwardly, the sdk sometimes returns text as part of a
@@ -2192,7 +2206,7 @@ async function* queryModel(
                     })
                     throw new Error('Content block is not a text block')
                   }
-                  ;(contentBlock as { text: string }).text += delta.text
+                  textDeltas.get(part.index)?.push(delta.text!)
                   break
                 case 'signature_delta':
                   if (
@@ -2258,6 +2272,12 @@ async function* queryModel(
                   part.type as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
               })
               throw new Error('Message not found')
+            }
+            // Merge accumulated text deltas into the content block (O(n) join instead of O(n^2) +=)
+            const deltas = textDeltas.get(part.index)
+            if (deltas) {
+              ;(contentBlock as { text: string }).text = deltas.join('')
+              textDeltas.delete(part.index)
             }
             const m: AssistantMessage = {
               message: {
