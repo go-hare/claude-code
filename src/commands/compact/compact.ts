@@ -1,7 +1,7 @@
 import { feature } from 'bun:bundle'
 import chalk from 'chalk'
+import { createRuntimeCompactionStateProvider } from 'src/runtime/core/state/bootstrapProvider.js'
 import type { SDKStatus } from '../../entrypoints/agentSdkTypes.js'
-import { markPostCompaction } from 'src/bootstrap/state.js'
 import { getSystemPrompt } from '../../constants/prompts.js'
 import { getSystemContext, getUserContext } from '../../context.js'
 import { getShortcutDisplay } from '../../keybindings/shortcutFormat.js'
@@ -37,6 +37,7 @@ const reactiveCompact = feature('REACTIVE_COMPACT')
   ? (require('../../services/compact/reactiveCompact.js') as typeof import('../../services/compact/reactiveCompact.js'))
   : null
 /* eslint-enable @typescript-eslint/no-require-imports */
+const compactionStateProvider = createRuntimeCompactionStateProvider()
 
 export const call: LocalCommandCall = async (args, context) => {
   const { abortController } = context
@@ -71,7 +72,7 @@ export const call: LocalCommandCall = async (args, context) => {
             context.agentId,
           )
         }
-        markPostCompaction()
+        compactionStateProvider.markPostCompaction()
         // Suppress warning immediately after successful compaction
         suppressCompactWarning()
 

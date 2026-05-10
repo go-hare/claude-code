@@ -101,6 +101,8 @@ import {
   extractQuotaStatusFromHeaders,
 } from '../claudeAiLimits.js'
 import { getAPIContextManagement } from '../compact/apiMicrocompact.js'
+import { bedrockAdapter } from '../providerUsage/adapters/bedrock.js'
+import { updateProviderBuckets } from '../providerUsage/store.js'
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const autoModeStateModule = feature('TRANSCRIPT_CLASSIFIER')
@@ -115,22 +117,10 @@ import {
   APIUserAbortError,
 } from '@anthropic-ai/sdk/error'
 import {
-  getAfkModeHeaderLatched,
-  getCacheEditingHeaderLatched,
-  getFastModeHeaderLatched,
-  getLastApiCompletionTimestamp,
-  getPromptCache1hAllowlist,
-  getPromptCache1hEligible,
-  getSessionId,
-  getThinkingClearLatched,
-  setAfkModeHeaderLatched,
-  setCacheEditingHeaderLatched,
-  setFastModeHeaderLatched,
-  setLastMainRequestId,
-  setPromptCache1hAllowlist,
-  setPromptCache1hEligible,
-  setThinkingClearLatched,
-} from 'src/bootstrap/state.js'
+  createRuntimePromptStateProvider,
+  createRuntimeRequestDebugStateProvider,
+  createRuntimeSessionIdentityStateProvider,
+} from 'src/runtime/core/state/bootstrapProvider.js'
 import {
   AFK_MODE_BETA_HEADER,
   CONTEXT_1M_BETA_HEADER,
@@ -265,6 +255,12 @@ type JsonValue = string | number | boolean | null | JsonObject | JsonArray
 type JsonObject = { [key: string]: JsonValue }
 type JsonArray = JsonValue[]
 
+const runtimePromptStateProvider = createRuntimePromptStateProvider()
+const runtimeRequestDebugStateProvider =
+  createRuntimeRequestDebugStateProvider()
+const runtimeSessionIdentityStateProvider =
+  createRuntimeSessionIdentityStateProvider()
+
 /**
  * Assemble the extra body parameters for the API request, based on the
  * CLAUDE_CODE_EXTRA_BODY environment variable if present and on any beta
@@ -393,24 +389,30 @@ function should1hCacheTTL(querySource?: QuerySource): boolean {
   // Latch eligibility in bootstrap state for session stability — prevents
   // mid-session overage flips from changing the cache_control TTL, which
   // would bust the server-side prompt cache (~20K tokens per flip).
-  let userEligible = getPromptCache1hEligible()
+  let userEligible = runtimePromptStateProvider.getPromptState()
+    .promptCache1hEligible
   if (userEligible === null) {
     userEligible =
       process.env.USER_TYPE === 'ant' ||
       (isClaudeAISubscriber() && !currentLimits.isUsingOverage)
-    setPromptCache1hEligible(userEligible)
+    runtimePromptStateProvider.patchPromptState({
+      promptCache1hEligible: userEligible,
+    })
   }
   if (!userEligible) return false
 
   // Cache allowlist in bootstrap state for session stability — prevents mixed
   // TTLs when GrowthBook's disk cache updates mid-request
-  let allowlist = getPromptCache1hAllowlist()
+  let allowlist = runtimePromptStateProvider.getPromptState()
+    .promptCache1hAllowlist
   if (allowlist === null) {
     const config = getFeatureValue_CACHED_MAY_BE_STALE<{
       allowlist?: string[]
     }>('tengu_prompt_cache_1h_config', {})
     allowlist = config.allowlist ?? []
-    setPromptCache1hAllowlist(allowlist)
+    runtimePromptStateProvider.patchPromptState({
+      promptCache1hAllowlist: allowlist,
+    })
   }
 
   return (
@@ -442,6 +444,7 @@ function configureEffortParams(
     betas.push(EFFORT_BETA_HEADER)
   } else if (typeof effortValue === 'string') {
     // Send string effort level as is
+    if (effortValue === 'xhigh') return
     outputConfig.effort = effortValue as "high" | "medium" | "low" | "max"
     betas.push(EFFORT_BETA_HEADER)
   } else if (process.env.USER_TYPE === 'ant') {
@@ -512,7 +515,8 @@ export function getAPIMetadata() {
       device_id: getOrCreateUserID(),
       // Only include OAuth account UUID when actively using OAuth authentication
       account_uuid: getOauthAccountInfo()?.accountUuid ?? '',
-      session_id: getSessionId(),
+      session_id:
+        runtimeSessionIdentityStateProvider.getSessionIdentity().sessionId,
     }),
   }
 }
@@ -1215,10 +1219,13 @@ async function* queryModel(
     cacheEditingBetaHeader = betas.CACHE_EDITING_BETA_HEADER
     const featureEnabled = isCachedMicrocompactEnabled()
     const modelSupported = isModelSupportedForCacheEditing(options.model)
-    cachedMCEnabled = featureEnabled && modelSupported
+    // cachedMC requires a non-empty beta header; the CACHE_EDITING_BETA_HEADER
+    // constant is '' in this fork until upstream publishes the real value.
+    const headerAvailable = !!cacheEditingBetaHeader
+    cachedMCEnabled = featureEnabled && modelSupported && headerAvailable
     const config = getCachedMCConfig()
     logForDebugging(
-      `Cached MC gate: enabled=${featureEnabled} modelSupported=${modelSupported} model=${options.model} supportedModels=${jsonStringify((config as any).supportedModels)}`,
+      `Cached MC gate: enabled=${featureEnabled} modelSupported=${modelSupported} headerAvailable=${headerAvailable} model=${options.model} supportedModels=${jsonStringify((config as Record<string, unknown>).supportedModels)}`,
     )
   }
 
@@ -1455,7 +1462,8 @@ async function* queryModel(
   // Per-call gates (isAgenticQuery, querySource===repl_main_thread) stay
   // per-call so non-agentic queries keep their own stable header set.
 
-  let afkHeaderLatched = getAfkModeHeaderLatched() === true
+  const promptState = runtimePromptStateProvider.getPromptState()
+  let afkHeaderLatched = promptState.afkModeHeaderLatched === true
   if (feature('TRANSCRIPT_CLASSIFIER')) {
     if (
       !afkHeaderLatched &&
@@ -1464,17 +1472,22 @@ async function* queryModel(
       (autoModeStateModule?.isAutoModeActive() ?? false)
     ) {
       afkHeaderLatched = true
-      setAfkModeHeaderLatched(true)
+      runtimePromptStateProvider.patchPromptState({
+        afkModeHeaderLatched: true,
+      })
     }
   }
 
-  let fastModeHeaderLatched = getFastModeHeaderLatched() === true
+  let fastModeHeaderLatched = promptState.fastModeHeaderLatched === true
   if (!fastModeHeaderLatched && isFastMode) {
     fastModeHeaderLatched = true
-    setFastModeHeaderLatched(true)
+    runtimePromptStateProvider.patchPromptState({
+      fastModeHeaderLatched: true,
+    })
   }
 
-  let cacheEditingHeaderLatched = getCacheEditingHeaderLatched() === true
+  let cacheEditingHeaderLatched =
+    promptState.cacheEditingHeaderLatched === true
   if (feature('CACHED_MICROCOMPACT')) {
     if (
       !cacheEditingHeaderLatched &&
@@ -1483,21 +1496,27 @@ async function* queryModel(
       options.querySource === 'repl_main_thread'
     ) {
       cacheEditingHeaderLatched = true
-      setCacheEditingHeaderLatched(true)
+      runtimePromptStateProvider.patchPromptState({
+        cacheEditingHeaderLatched: true,
+      })
     }
   }
 
   // Only latch from agentic queries so a classifier call doesn't flip the
   // main thread's context_management mid-turn.
-  let thinkingClearLatched = getThinkingClearLatched() === true
+  let thinkingClearLatched = promptState.thinkingClearLatched === true
   if (!thinkingClearLatched && isAgenticQuery) {
-    const lastCompletion = getLastApiCompletionTimestamp()
+    const lastCompletion =
+      runtimeRequestDebugStateProvider.getRequestDebugState()
+        .lastApiCompletionTimestamp
     if (
       lastCompletion !== null &&
       Date.now() - lastCompletion > CACHE_TTL_1HOUR_MS
     ) {
       thinkingClearLatched = true
-      setThinkingClearLatched(true)
+      runtimePromptStateProvider.patchPromptState({
+        thinkingClearLatched: true,
+      })
     }
   }
 
@@ -1724,6 +1743,7 @@ async function* queryModel(
       options.querySource === 'repl_main_thread'
     if (
       cacheEditingHeaderLatched &&
+      cacheEditingBetaHeader &&
       getAPIProvider() === 'firstParty' &&
       options.querySource === 'repl_main_thread' &&
       !betasParams.includes(cacheEditingBetaHeader)
@@ -1740,7 +1760,11 @@ async function* queryModel(
       ? (options.temperatureOverride ?? 1)
       : undefined
 
-    lastRequestBetas = betasParams
+    // Filter out any empty-string beta headers before sending.
+    // Constants like CACHE_EDITING_BETA_HEADER or AFK_MODE_BETA_HEADER can be ''
+    // when their feature gate is off; empty betas produce invalid headers.
+    const filteredBetas = betasParams.filter(Boolean)
+    lastRequestBetas = filteredBetas
 
     return {
       model: normalizeModelStringForAPI(options.model),
@@ -1756,7 +1780,7 @@ async function* queryModel(
       system,
       tools: allTools,
       tool_choice: options.toolChoice,
-      ...(useBetas && { betas: betasParams }),
+      ...(useBetas && { betas: filteredBetas }),
       metadata: getAPIMetadata(),
       max_tokens: maxOutputTokens,
       thinking,
@@ -2445,6 +2469,12 @@ async function* queryModel(
       const resp = streamResponse as unknown as Response | undefined
       if (resp) {
         extractQuotaStatusFromHeaders(resp.headers)
+        if (getAPIProvider() === 'bedrock') {
+          updateProviderBuckets(
+            'bedrock',
+            bedrockAdapter.parseHeaders(resp.headers),
+          )
+        }
         // Store headers for gateway detection
         responseHeaders = resp.headers
       }
@@ -2893,7 +2923,9 @@ async function* queryModel(
     (options.querySource.startsWith('repl_main_thread') ||
       options.querySource === 'sdk')
   ) {
-    setLastMainRequestId(streamRequestId)
+    runtimeRequestDebugStateProvider.patchRequestDebugState({
+      lastMainRequestId: streamRequestId,
+    })
   }
 
   // Precompute scalars so the fire-and-forget .then() closure doesn't pin the

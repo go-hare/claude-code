@@ -1,39 +1,62 @@
-import { describe, expect, test, beforeEach, afterEach, mock } from "bun:test";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "bun:test";
+import {
+  resetSettingsCache,
+  setSessionSettingsCache,
+} from "src/utils/settings/settingsCache.js";
 
-// Mock heavy dependencies to avoid import chain issues
-mock.module("src/utils/thinking.js", () => ({
-  isUltrathinkEnabled: () => false,
-}));
-mock.module("src/utils/settings/settings.js", () => ({
-  getInitialSettings: () => ({}),
-}));
-mock.module("src/utils/auth.js", () => ({
-  isProSubscriber: () => false,
-  isMaxSubscriber: () => false,
-  isTeamSubscriber: () => false,
-}));
-mock.module("src/services/analytics/growthbook.js", () => ({
-  getFeatureValue_CACHED_MAY_BE_STALE: () => null,
-}));
-mock.module("src/utils/model/modelSupportOverrides.js", () => ({
-  get3PModelCapabilityOverride: () => undefined,
-}));
+type EffortModule = typeof import("src/utils/effort.js");
 
-const {
-  isEffortLevel,
-  parseEffortValue,
-  isValidNumericEffort,
-  convertEffortValueToLevel,
-  getEffortLevelDescription,
-  resolvePickerEffortPersistence,
-  EFFORT_LEVELS,
-} = await import("src/utils/effort.js");
+let isEffortLevel: EffortModule["isEffortLevel"];
+let parseEffortValue: EffortModule["parseEffortValue"];
+let isValidNumericEffort: EffortModule["isValidNumericEffort"];
+let convertEffortValueToLevel: EffortModule["convertEffortValueToLevel"];
+let getEffortLevelDescription: EffortModule["getEffortLevelDescription"];
+let getEffortSuffix: EffortModule["getEffortSuffix"];
+let resolveAppliedEffort: EffortModule["resolveAppliedEffort"];
+let resolvePickerEffortPersistence: EffortModule["resolvePickerEffortPersistence"];
+let shouldShowEffortUI: EffortModule["shouldShowEffortUI"];
+let toPersistableEffort: EffortModule["toPersistableEffort"];
+let EFFORT_LEVELS: EffortModule["EFFORT_LEVELS"];
+let modelSupportsXhighEffort: EffortModule["modelSupportsXhighEffort"];
+
+beforeAll(async () => {
+  ({
+    isEffortLevel,
+    parseEffortValue,
+    isValidNumericEffort,
+    convertEffortValueToLevel,
+    getEffortLevelDescription,
+    getEffortSuffix,
+    resolveAppliedEffort,
+    resolvePickerEffortPersistence,
+    shouldShowEffortUI,
+    toPersistableEffort,
+    EFFORT_LEVELS,
+    modelSupportsXhighEffort,
+  } = await import("src/utils/effort.js"));
+});
+
+beforeEach(() => {
+  resetSettingsCache();
+  setSessionSettingsCache({ settings: {}, errors: [] });
+});
+
+afterEach(() => {
+  resetSettingsCache();
+});
 
 // ─── EFFORT_LEVELS constant ────────────────────────────────────────────
 
 describe("EFFORT_LEVELS", () => {
-  test("contains the four canonical levels", () => {
-    expect(EFFORT_LEVELS).toEqual(["low", "medium", "high", "max"]);
+  test("contains the canonical levels", () => {
+    expect(EFFORT_LEVELS).toEqual(["low", "medium", "high", "xhigh", "max"]);
   });
 });
 
@@ -54,6 +77,10 @@ describe("isEffortLevel", () => {
 
   test("returns true for 'max'", () => {
     expect(isEffortLevel("max")).toBe(true);
+  });
+
+  test("returns true for 'xhigh'", () => {
+    expect(isEffortLevel("xhigh")).toBe(true);
   });
 
   test("returns false for 'invalid'", () => {
@@ -89,6 +116,7 @@ describe("parseEffortValue", () => {
     expect(parseEffortValue("medium")).toBe("medium");
     expect(parseEffortValue("high")).toBe("high");
     expect(parseEffortValue("max")).toBe("max");
+    expect(parseEffortValue("xhigh")).toBe("xhigh");
   });
 
   test("parses numeric string to number", () => {
@@ -146,6 +174,7 @@ describe("convertEffortValueToLevel", () => {
     expect(convertEffortValueToLevel("medium")).toBe("medium");
     expect(convertEffortValueToLevel("high")).toBe("high");
     expect(convertEffortValueToLevel("max")).toBe("max");
+    expect(convertEffortValueToLevel("xhigh")).toBe("xhigh");
   });
 
   test("returns 'high' for unknown string", () => {
@@ -222,6 +251,177 @@ describe("getEffortLevelDescription", () => {
   test("returns description for 'max'", () => {
     const desc = getEffortLevelDescription("max");
     expect(desc).toContain("Maximum");
+  });
+
+  test("returns description for 'xhigh'", () => {
+    const desc = getEffortLevelDescription("xhigh");
+    expect(desc).toContain("Opus 4.7");
+  });
+});
+
+// ─── persistence and applied effort ────────────────────────────────────
+
+describe("toPersistableEffort", () => {
+  test("persists xhigh", () => {
+    expect(toPersistableEffort("xhigh")).toBe("xhigh");
+  });
+});
+
+describe("modelSupportsXhighEffort", () => {
+  test("supports Opus 4.7", () => {
+    expect(modelSupportsXhighEffort("claude-opus-4-7")).toBe(true);
+  });
+
+  test("does not support pre-Opus-4.7 public models", () => {
+    expect(modelSupportsXhighEffort("claude-opus-4-6")).toBe(false);
+    expect(modelSupportsXhighEffort("claude-sonnet-4-6")).toBe(false);
+  });
+});
+
+describe("resolveAppliedEffort", () => {
+  const saved = {
+    CLAUDE_CODE_EFFORT_LEVEL: process.env.CLAUDE_CODE_EFFORT_LEVEL,
+    CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
+    OPENAI_DEFAULT_OPUS_MODEL: process.env.OPENAI_DEFAULT_OPUS_MODEL,
+    OPENAI_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES:
+      process.env.OPENAI_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES,
+  };
+
+  afterEach(() => {
+    if (saved.CLAUDE_CODE_EFFORT_LEVEL === undefined) {
+      delete process.env.CLAUDE_CODE_EFFORT_LEVEL;
+    } else {
+      process.env.CLAUDE_CODE_EFFORT_LEVEL = saved.CLAUDE_CODE_EFFORT_LEVEL;
+    }
+    if (saved.CLAUDE_CODE_USE_OPENAI === undefined) {
+      delete process.env.CLAUDE_CODE_USE_OPENAI;
+    } else {
+      process.env.CLAUDE_CODE_USE_OPENAI = saved.CLAUDE_CODE_USE_OPENAI;
+    }
+    if (saved.OPENAI_DEFAULT_OPUS_MODEL === undefined) {
+      delete process.env.OPENAI_DEFAULT_OPUS_MODEL;
+    } else {
+      process.env.OPENAI_DEFAULT_OPUS_MODEL = saved.OPENAI_DEFAULT_OPUS_MODEL;
+    }
+    if (
+      saved.OPENAI_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES === undefined
+    ) {
+      delete process.env.OPENAI_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES;
+    } else {
+      process.env.OPENAI_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES =
+        saved.OPENAI_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES;
+    }
+  });
+
+  test("downgrades xhigh for OpenAI provider without explicit capability override", () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = "1";
+    expect(resolveAppliedEffort("gpt-5", "xhigh")).toBe("high");
+  });
+
+  test("preserves xhigh for OpenAI provider with explicit capability override", () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = "1";
+    process.env.OPENAI_DEFAULT_OPUS_MODEL = "gpt-5";
+    process.env.OPENAI_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES =
+      "effort,xhigh_effort";
+
+    expect(resolveAppliedEffort("gpt-5", "xhigh")).toBe("xhigh");
+  });
+
+  test("preserves xhigh for Opus 4.7 outside OpenAI provider", () => {
+    delete process.env.CLAUDE_CODE_USE_OPENAI;
+    expect(resolveAppliedEffort("claude-opus-4-7", "xhigh")).toBe("xhigh");
+  });
+
+  test("downgrades xhigh outside OpenAI provider", () => {
+    delete process.env.CLAUDE_CODE_USE_OPENAI;
+    expect(resolveAppliedEffort("claude-sonnet-4-6", "xhigh")).toBe("high");
+  });
+});
+
+describe("shouldShowEffortUI", () => {
+  const saved = {
+    CLAUDE_CODE_EFFORT_LEVEL: process.env.CLAUDE_CODE_EFFORT_LEVEL,
+    CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
+    OPENAI_DEFAULT_OPUS_MODEL: process.env.OPENAI_DEFAULT_OPUS_MODEL,
+    OPENAI_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES:
+      process.env.OPENAI_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES,
+  };
+
+  afterEach(() => {
+    if (saved.CLAUDE_CODE_EFFORT_LEVEL === undefined) {
+      delete process.env.CLAUDE_CODE_EFFORT_LEVEL;
+    } else {
+      process.env.CLAUDE_CODE_EFFORT_LEVEL = saved.CLAUDE_CODE_EFFORT_LEVEL;
+    }
+    if (saved.CLAUDE_CODE_USE_OPENAI === undefined) {
+      delete process.env.CLAUDE_CODE_USE_OPENAI;
+    } else {
+      process.env.CLAUDE_CODE_USE_OPENAI = saved.CLAUDE_CODE_USE_OPENAI;
+    }
+  });
+
+  test("shows effort UI for explicit OpenAI env override on custom model", () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = "1";
+    process.env.CLAUDE_CODE_EFFORT_LEVEL = "xhigh";
+    expect(shouldShowEffortUI("gpt-5.5", undefined)).toBe(true);
+  });
+
+  test("hides effort UI for unsupported 3P custom model without explicit override", () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = "1";
+    delete process.env.CLAUDE_CODE_EFFORT_LEVEL;
+    expect(shouldShowEffortUI("gpt-5.5", undefined)).toBe(false);
+  });
+});
+
+describe("getEffortSuffix", () => {
+  const saved = {
+    CLAUDE_CODE_EFFORT_LEVEL: process.env.CLAUDE_CODE_EFFORT_LEVEL,
+    CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
+    OPENAI_DEFAULT_OPUS_MODEL: process.env.OPENAI_DEFAULT_OPUS_MODEL,
+    OPENAI_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES:
+      process.env.OPENAI_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES,
+  };
+
+  afterEach(() => {
+    if (saved.CLAUDE_CODE_EFFORT_LEVEL === undefined) {
+      delete process.env.CLAUDE_CODE_EFFORT_LEVEL;
+    } else {
+      process.env.CLAUDE_CODE_EFFORT_LEVEL = saved.CLAUDE_CODE_EFFORT_LEVEL;
+    }
+    if (saved.CLAUDE_CODE_USE_OPENAI === undefined) {
+      delete process.env.CLAUDE_CODE_USE_OPENAI;
+    } else {
+      process.env.CLAUDE_CODE_USE_OPENAI = saved.CLAUDE_CODE_USE_OPENAI;
+    }
+    if (saved.OPENAI_DEFAULT_OPUS_MODEL === undefined) {
+      delete process.env.OPENAI_DEFAULT_OPUS_MODEL;
+    } else {
+      process.env.OPENAI_DEFAULT_OPUS_MODEL = saved.OPENAI_DEFAULT_OPUS_MODEL;
+    }
+    if (
+      saved.OPENAI_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES === undefined
+    ) {
+      delete process.env.OPENAI_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES;
+    } else {
+      process.env.OPENAI_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES =
+        saved.OPENAI_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES;
+    }
+  });
+
+  test("shows clamped env-driven suffix for OpenAI custom model", () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = "1";
+    process.env.CLAUDE_CODE_EFFORT_LEVEL = "xhigh";
+    expect(getEffortSuffix("gpt-5.5", undefined)).toBe(" with high effort");
+  });
+
+  test("shows xhigh suffix for OpenAI custom model with capability override", () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = "1";
+    process.env.CLAUDE_CODE_EFFORT_LEVEL = "xhigh";
+    process.env.OPENAI_DEFAULT_OPUS_MODEL = "gpt-5.5";
+    process.env.OPENAI_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES =
+      "effort,xhigh_effort";
+
+    expect(getEffortSuffix("gpt-5.5", undefined)).toBe(" with xhigh effort");
   });
 });
 

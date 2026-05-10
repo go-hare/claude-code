@@ -43,10 +43,15 @@ export type RemotePermissionResponse =
   | {
       behavior: 'allow'
       updatedInput: Record<string, unknown>
+      updatedPermissions?: unknown[]
+      toolUseID?: string
+      decisionClassification?: 'user_temporary' | 'user_permanent'
     }
   | {
       behavior: 'deny'
       message: string
+      toolUseID?: string
+      decisionClassification?: 'user_reject'
     }
 
 export type RemoteSessionConfig = {
@@ -284,8 +289,21 @@ export class RemoteSessionManager {
         response: {
           behavior: result.behavior,
           ...(result.behavior === 'allow'
-            ? { updatedInput: result.updatedInput }
-            : { message: result.message }),
+            ? {
+                updatedInput: result.updatedInput,
+                ...(result.updatedPermissions !== undefined && {
+                  updatedPermissions: result.updatedPermissions,
+                }),
+                toolUseID: result.toolUseID ?? pendingRequest.tool_use_id,
+                decisionClassification:
+                  result.decisionClassification ?? 'user_temporary',
+              }
+            : {
+                message: result.message,
+                toolUseID: result.toolUseID ?? pendingRequest.tool_use_id,
+                decisionClassification:
+                  result.decisionClassification ?? 'user_reject',
+              }),
         },
       },
     }

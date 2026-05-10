@@ -16,7 +16,11 @@ import {
   FILE_UNCHANGED_STUB,
 } from '@go-hare/builtin-tools/tools/FileReadTool/prompt.js'
 import { FILE_WRITE_TOOL_NAME } from '@go-hare/builtin-tools/tools/FileWriteTool/prompt.js'
-import type { Message } from '../types/message.js'
+import type {
+  AssistantMessage,
+  Message,
+  UserMessage,
+} from '../types/message.js'
 import type { OrphanedPermission } from '../types/textInputTypes.js'
 import { logForDebugging } from './debug.js'
 import { isEnvTruthy } from './envUtils.js'
@@ -95,7 +99,7 @@ export function isResultSuccessful(
   // legitimate and passes through without throwing. Observed on
   // task_notification drain turns: model returns stop_reason=end_turn,
   // outputTokens=4, textContentLength=0 — it saw the subagent result
-  // and decided nothing needed saying. Without this, SessionRuntime emits
+  // and decided nothing needed saying. Without this, QueryEngine emits
   // error_during_execution with errors[] = the entire process's
   // accumulated logError() buffer. Covers both string-content and
   // text-block-content user prompts, and any other non-passing shape.
@@ -108,124 +112,276 @@ const MAX_TOOL_PROGRESS_TRACKING_ENTRIES = 100
 const TOOL_PROGRESS_THROTTLE_MS = 30000
 const toolProgressLastSentTime = new Map<string, number>()
 
+export type ToolProgressTrackingState = {
+  lastSentTimeByParentToolUseId: Map<string, number>
+}
+
+export type ProjectProgressMessageOptions = {
+  now?: number
+  remoteEnabled?: boolean
+  sessionId?: string
+  trackingState?: ToolProgressTrackingState
+}
+
+export type ToolProgressTrackingUpdate = {
+  trackingKey: string
+  sentAt: number
+}
+
+export type ProgressMessageSDKProjection = {
+  messages: SDKMessage[]
+  trackingUpdate?: ToolProgressTrackingUpdate
+}
+
+const defaultToolProgressTrackingState: ToolProgressTrackingState = {
+  lastSentTimeByParentToolUseId: toolProgressLastSentTime,
+}
+
+export function createToolProgressTrackingState(
+  entries?: Iterable<readonly [string, number]>,
+): ToolProgressTrackingState {
+  return {
+    lastSentTimeByParentToolUseId: new Map(entries),
+  }
+}
+
+function getProjectionSessionId(sessionId?: string): string {
+  return sessionId ?? getSessionId()
+}
+
+export function projectAssistantMessageToProtocolMessages(
+  message: AssistantMessage,
+  options: {
+    parentToolUseId?: string | null
+    sessionId?: string
+  } = {},
+): SDKMessage[] {
+  return normalizeMessages([message])
+    .filter(isNotEmptyMessage)
+    .map(normalized => ({
+      type: 'assistant',
+      message: normalized.message,
+      parent_tool_use_id: options.parentToolUseId ?? null,
+      session_id: getProjectionSessionId(options.sessionId),
+      uuid: normalized.uuid,
+      error: normalized.error,
+    }))
+}
+
+export function projectUserMessageToProtocolMessages(
+  message: UserMessage,
+  options: {
+    parentToolUseId?: string | null
+    sessionId?: string
+  } = {},
+): SDKMessage[] {
+  return normalizeMessages([message]).map(normalized => ({
+    type: 'user',
+    message: normalized.message,
+    parent_tool_use_id: options.parentToolUseId ?? null,
+    session_id: getProjectionSessionId(options.sessionId),
+    uuid: normalized.uuid,
+    timestamp: normalized.timestamp,
+    isSynthetic: normalized.isMeta || normalized.isVisibleInTranscriptOnly,
+    tool_use_result: normalized.mcpMeta
+      ? {
+          content: normalized.toolUseResult,
+          ...(normalized.mcpMeta as Record<string, unknown>),
+        }
+      : normalized.toolUseResult,
+  }))
+}
+
+function projectNestedProgressMessageToProtocolMessages(
+  message: Message,
+  options: {
+    parentToolUseId: string | null
+    sessionId?: string
+  },
+): SDKMessage[] {
+  switch (message.type) {
+    case 'assistant':
+      return projectAssistantMessageToProtocolMessages(
+        message as AssistantMessage,
+        options,
+      )
+    case 'user':
+      return projectUserMessageToProtocolMessages(
+        message as UserMessage,
+        options,
+      )
+    default:
+      return []
+  }
+}
+
+function shouldEmitToolProgressUpdate(options: {
+  now: number
+  trackingKey: string
+  trackingState: ToolProgressTrackingState
+}): boolean {
+  const lastSent =
+    options.trackingState.lastSentTimeByParentToolUseId.get(
+      options.trackingKey,
+    ) ?? 0
+  return options.now - lastSent >= TOOL_PROGRESS_THROTTLE_MS
+}
+
+export function applyToolProgressTrackingUpdate(
+  trackingState: ToolProgressTrackingState,
+  update: ToolProgressTrackingUpdate,
+): void {
+  const { lastSentTimeByParentToolUseId } = trackingState
+  if (
+    lastSentTimeByParentToolUseId.size >=
+    MAX_TOOL_PROGRESS_TRACKING_ENTRIES
+  ) {
+    const firstKey = lastSentTimeByParentToolUseId.keys().next().value
+    if (firstKey !== undefined) {
+      lastSentTimeByParentToolUseId.delete(firstKey)
+    }
+  }
+
+  lastSentTimeByParentToolUseId.set(update.trackingKey, update.sentAt)
+}
+
+function createToolProgressProtocolMessage(options: {
+  elapsedTimeSeconds: number
+  parentToolUseId: string
+  progressType: 'bash_progress' | 'powershell_progress'
+  sessionId?: string
+  taskId: string
+  toolUseId: string
+  uuid: string
+}): SDKMessage {
+  return {
+    type: 'tool_progress',
+    tool_use_id: options.toolUseId,
+    tool_name: options.progressType === 'bash_progress' ? 'Bash' : 'PowerShell',
+    parent_tool_use_id: options.parentToolUseId,
+    elapsed_time_seconds: options.elapsedTimeSeconds,
+    task_id: options.taskId,
+    session_id: getProjectionSessionId(options.sessionId),
+    uuid: options.uuid,
+  }
+}
+
+export function projectProgressMessageToProtocolMessageProjection(
+  message: Message,
+  options: Required<ProjectProgressMessageOptions>,
+): ProgressMessageSDKProjection {
+  if (message.type !== 'progress') {
+    return { messages: [] }
+  }
+
+  const progressData = message.data as {
+    type: string
+    message: Message
+    elapsedTimeSeconds: number
+    taskId: string
+  }
+  if (
+    progressData.type === 'agent_progress' ||
+    progressData.type === 'skill_progress'
+  ) {
+    return {
+      messages: projectNestedProgressMessageToProtocolMessages(
+        progressData.message,
+        {
+          parentToolUseId: message.parentToolUseID as string | null,
+          sessionId: options.sessionId,
+        },
+      ),
+    }
+  }
+
+  if (
+    progressData.type !== 'bash_progress' &&
+    progressData.type !== 'powershell_progress'
+  ) {
+    return { messages: [] }
+  }
+
+  if (!options.remoteEnabled) {
+    return { messages: [] }
+  }
+
+  const trackingKey = message.parentToolUseID as string
+  if (
+    !shouldEmitToolProgressUpdate({
+      now: options.now,
+      trackingKey,
+      trackingState: options.trackingState,
+    })
+  ) {
+    return { messages: [] }
+  }
+
+  return {
+    messages: [
+      createToolProgressProtocolMessage({
+        elapsedTimeSeconds: progressData.elapsedTimeSeconds,
+        parentToolUseId: message.parentToolUseID as string,
+        progressType: progressData.type,
+        sessionId: options.sessionId,
+        taskId: progressData.taskId,
+        toolUseId: message.toolUseID as string,
+        uuid: message.uuid,
+      }),
+    ],
+    trackingUpdate: {
+      trackingKey,
+      sentAt: options.now,
+    },
+  }
+}
+
+function resolveProjectProgressMessageOptions(
+  options: ProjectProgressMessageOptions,
+): Required<ProjectProgressMessageOptions> {
+  return {
+    now: options.now ?? Date.now(),
+    remoteEnabled:
+      options.remoteEnabled ??
+      (isEnvTruthy(process.env.CLAUDE_CODE_REMOTE) ||
+        Boolean(process.env.CLAUDE_CODE_CONTAINER_ID)),
+    sessionId: getProjectionSessionId(options.sessionId),
+    trackingState:
+      options.trackingState ?? defaultToolProgressTrackingState,
+  }
+}
+
+export function projectProgressMessageToProtocolMessages(
+  message: Message,
+  options: ProjectProgressMessageOptions = {},
+): SDKMessage[] {
+  const resolvedOptions = resolveProjectProgressMessageOptions(options)
+  const projection = projectProgressMessageToProtocolMessageProjection(
+    message,
+    resolvedOptions,
+  )
+  if (projection.trackingUpdate) {
+    applyToolProgressTrackingUpdate(
+      resolvedOptions.trackingState,
+      projection.trackingUpdate,
+    )
+  }
+  return projection.messages
+}
+
 export function* normalizeMessage(message: Message): Generator<SDKMessage> {
   switch (message.type) {
     case 'assistant':
-      for (const _ of normalizeMessages([message])) {
-        // Skip empty messages (e.g., "(no content)") that shouldn't be output to SDK
-        if (!isNotEmptyMessage(_)) {
-          continue
-        }
-        yield {
-          type: 'assistant',
-          message: _.message,
-          parent_tool_use_id: null,
-          session_id: getSessionId(),
-          uuid: _.uuid,
-          error: _.error,
-        }
-      }
+      yield* projectAssistantMessageToProtocolMessages(
+        message as AssistantMessage,
+      )
       return
     case 'progress': {
-      const progressData = message.data as { type: string; message: Message; elapsedTimeSeconds: number; taskId: string }
-      if (
-        progressData.type === 'agent_progress' ||
-        progressData.type === 'skill_progress'
-      ) {
-        for (const _ of normalizeMessages([progressData.message])) {
-          switch (_.type) {
-            case 'assistant':
-              // Skip empty messages (e.g., "(no content)") that shouldn't be output to SDK
-              if (!isNotEmptyMessage(_)) {
-                break
-              }
-              yield {
-                type: 'assistant',
-                message: _.message,
-                parent_tool_use_id: message.parentToolUseID as string,
-                session_id: getSessionId(),
-                uuid: _.uuid,
-                error: _.error,
-              }
-              break
-            case 'user':
-              yield {
-                type: 'user',
-                message: _.message,
-                parent_tool_use_id: message.parentToolUseID as string,
-                session_id: getSessionId(),
-                uuid: _.uuid,
-                timestamp: _.timestamp,
-                isSynthetic: _.isMeta || _.isVisibleInTranscriptOnly,
-                tool_use_result: _.mcpMeta
-                  ? { content: _.toolUseResult, ...(_.mcpMeta as Record<string, unknown>) }
-                  : _.toolUseResult,
-              }
-              break
-          }
-        }
-      } else if (
-        progressData.type === 'bash_progress' ||
-        progressData.type === 'powershell_progress'
-      ) {
-        // Filter bash progress to send only one per minute
-        // Only emit for Claude Code Remote for now
-        if (
-          !isEnvTruthy(process.env.CLAUDE_CODE_REMOTE) &&
-          !process.env.CLAUDE_CODE_CONTAINER_ID
-        ) {
-          break
-        }
-
-        // Use parentToolUseID as the key since toolUseID changes for each progress message
-        const trackingKey = message.parentToolUseID as string
-        const now = Date.now()
-        const lastSent = toolProgressLastSentTime.get(trackingKey) || 0
-        const timeSinceLastSent = now - lastSent
-
-        // Send if at least 30 seconds have passed since last update
-        if (timeSinceLastSent >= TOOL_PROGRESS_THROTTLE_MS) {
-          // Remove oldest entry if we're at capacity (LRU eviction)
-          if (
-            toolProgressLastSentTime.size >= MAX_TOOL_PROGRESS_TRACKING_ENTRIES
-          ) {
-            const firstKey = toolProgressLastSentTime.keys().next().value
-            if (firstKey !== undefined) {
-              toolProgressLastSentTime.delete(firstKey)
-            }
-          }
-
-          toolProgressLastSentTime.set(trackingKey, now)
-          yield {
-            type: 'tool_progress',
-            tool_use_id: message.toolUseID as string,
-            tool_name:
-              progressData.type === 'bash_progress' ? 'Bash' : 'PowerShell',
-            parent_tool_use_id: message.parentToolUseID as string,
-            elapsed_time_seconds: progressData.elapsedTimeSeconds,
-            task_id: progressData.taskId,
-            session_id: getSessionId(),
-            uuid: message.uuid,
-          }
-        }
-      }
+      yield* projectProgressMessageToProtocolMessages(message)
       break
     }
     case 'user':
-      for (const _ of normalizeMessages([message])) {
-        yield {
-          type: 'user',
-          message: _.message,
-          parent_tool_use_id: null,
-          session_id: getSessionId(),
-          uuid: _.uuid,
-          timestamp: _.timestamp,
-          isSynthetic: _.isMeta || _.isVisibleInTranscriptOnly,
-          tool_use_result: _.mcpMeta
-            ? { content: _.toolUseResult, ...(_.mcpMeta as Record<string, unknown>) }
-            : _.toolUseResult,
-        }
-      }
+      yield* projectUserMessageToProtocolMessages(message as UserMessage)
       return
     default:
     // yield nothing
@@ -237,7 +393,7 @@ export async function* handleOrphanedPermission(
   tools: Tools,
   mutableMessages: Message[],
   processUserInputContext: ProcessUserInputContext,
-): AsyncGenerator<SDKMessage, void, unknown> {
+): AsyncGenerator<Message, void, unknown> {
   const persistSession = !isSessionPersistenceDisabled()
   const { permissionResult, assistantMessage } = orphanedPermission
   const toolUseID = (permissionResult as { toolUseID?: string }).toolUseID
@@ -336,12 +492,7 @@ export async function* handleOrphanedPermission(
     }
   }
 
-  const sdkAssistantMessage: SDKMessage = {
-    ...assistantMessage,
-    session_id: getSessionId(),
-    parent_tool_use_id: null,
-  } as SDKMessage
-  yield sdkAssistantMessage
+  yield assistantMessage
 
   // Execute the tool - errors are handled internally by runToolUse
   for await (const update of runTools(
@@ -356,13 +507,7 @@ export async function* handleOrphanedPermission(
         await recordTranscript(mutableMessages)
       }
 
-      const sdkMessage: SDKMessage = {
-        ...update.message,
-        session_id: getSessionId(),
-        parent_tool_use_id: null,
-      } as SDKMessage
-
-      yield sdkMessage
+      yield update.message
     }
   }
 }
@@ -527,6 +672,34 @@ export function extractReadFilesFromMessages(
   }
 
   return cache
+}
+
+export function extractLoadedNestedMemoryPathsFromMessages(
+  messages: Message[],
+): Set<string> {
+  const paths = new Set<string>()
+
+  for (const message of messages) {
+    if (message.type !== 'attachment') {
+      continue
+    }
+
+    const attachment = message.attachment as
+      | { type?: string; path?: unknown }
+      | undefined
+    if (attachment?.type !== 'nested_memory') {
+      continue
+    }
+
+    if (
+      typeof attachment.path === 'string' &&
+      attachment.path.trim().length > 0
+    ) {
+      paths.add(attachment.path)
+    }
+  }
+
+  return paths
 }
 
 /**

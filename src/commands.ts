@@ -75,7 +75,7 @@ const bridge = feature('BRIDGE_MODE')
   ? require('./commands/bridge/index.js').default
   : null
 const remoteControlServerCommand =
-  feature('DAEMON') && feature('BRIDGE_MODE')
+  feature('BRIDGE_MODE')
     ? require('./commands/remoteControlServer/index.js').default
     : null
 const voiceCommand = feature('VOICE_MODE')
@@ -150,7 +150,7 @@ const forkCmd = feature('FORK_SUBAGENT')
       require('./commands/fork/index.js') as typeof import('./commands/fork/index.js')
     ).default
   : null
-const buddy = feature('BUDDY')
+const buddy = isBuddyEnabled()
   ? (
       require('./commands/buddy/index.js') as typeof import('./commands/buddy/index.js')
     ).default
@@ -180,6 +180,8 @@ import mockLimits from './commands/mock-limits/index.js'
 import bridgeKick from './commands/bridge-kick.js'
 import version from './commands/version.js'
 import summary from './commands/summary/index.js'
+import skillLearning from './commands/skill-learning/index.js'
+import skillSearch from './commands/skill-search/index.js'
 import {
   resetLimits,
   resetLimitsNonInteractive,
@@ -191,7 +193,9 @@ import chrome from './commands/chrome/index.js'
 import stickers from './commands/stickers/index.js'
 import advisor from './commands/advisor.js'
 import autonomy from './commands/autonomy.js'
+import autonomyNonInteractive from './commands/autonomyNonInteractive.js'
 import provider from './commands/provider.js'
+import { isBuddyEnabled } from './buddy/enabled.js'
 import { logError } from './utils/log.js'
 import { toError } from './utils/errors.js'
 import { logForDebugging } from './utils/debug.js'
@@ -279,7 +283,6 @@ export const INTERNAL_ONLY_COMMANDS = [
   goodClaude,
   issue,
   initVerifiers,
-  ...(forceSnip ? [forceSnip] : []),
   mockLimits,
   bridgeKick,
   version,
@@ -288,7 +291,6 @@ export const INTERNAL_ONLY_COMMANDS = [
   resetLimitsNonInteractive,
   onboarding,
   share,
-  summary,
   teleport,
   antTrace,
   perfIssue,
@@ -305,6 +307,7 @@ const COMMANDS = memoize((): Command[] => [
   addDir,
   advisor,
   autonomy,
+  autonomyNonInteractive,
   provider,
   agents,
   branch,
@@ -402,6 +405,10 @@ const COMMANDS = memoize((): Command[] => [
   ...(torch ? [torch] : []),
   ...(daemonCmd ? [daemonCmd] : []),
   ...(jobCmd ? [jobCmd] : []),
+  ...(forceSnip ? [forceSnip] : []),
+  summary,
+  skillLearning,
+  skillSearch,
   ...(process.env.USER_TYPE === 'ant' && !process.env.IS_DEMO
     ? INTERNAL_ONLY_COMMANDS
     : []),
@@ -481,16 +488,16 @@ export function meetsAvailabilityRequirement(cmd: Command): boolean {
   for (const a of cmd.availability) {
     switch (a) {
       case 'claude-ai':
-        if (isClaudeAISubscriber()) return true
+        if (isClaudeAISubscriberSafe()) return true
         break
       case 'console':
         // Console API key user = direct 1P API customer (not 3P, not claude.ai).
         // Excludes 3P (Bedrock/Vertex/Foundry) who don't set ANTHROPIC_BASE_URL
         // and gateway users who proxy through a custom base URL.
         if (
-          !isClaudeAISubscriber() &&
-          !isUsing3PServices() &&
-          isFirstPartyAnthropicBaseUrl()
+          !isClaudeAISubscriberSafe() &&
+          !isUsing3PServicesSafe() &&
+          isFirstPartyAnthropicBaseUrlSafe()
         )
           return true
         break
@@ -502,6 +509,30 @@ export function meetsAvailabilityRequirement(cmd: Command): boolean {
     }
   }
   return false
+}
+
+function isClaudeAISubscriberSafe(): boolean {
+  try {
+    return isClaudeAISubscriber()
+  } catch {
+    return false
+  }
+}
+
+function isUsing3PServicesSafe(): boolean {
+  try {
+    return isUsing3PServices()
+  } catch {
+    return false
+  }
+}
+
+function isFirstPartyAnthropicBaseUrlSafe(): boolean {
+  try {
+    return isFirstPartyAnthropicBaseUrl()
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -543,7 +574,7 @@ export async function getCommands(cwd: string): Promise<Command[]> {
 
   // Build base commands without dynamic skills
   const baseCommands = allCommands.filter(
-    _ => meetsAvailabilityRequirement(_) && isCommandEnabled(_),
+    _ => meetsAvailabilityRequirement(_) && isCommandEnabledSafe(_),
   )
 
   if (dynamicSkills.length === 0) {
@@ -556,7 +587,7 @@ export async function getCommands(cwd: string): Promise<Command[]> {
     s =>
       !baseCommandNames.has(s.name) &&
       meetsAvailabilityRequirement(s) &&
-      isCommandEnabled(s),
+      isCommandEnabledSafe(s),
   )
 
   if (uniqueDynamicSkills.length === 0) {
@@ -591,6 +622,14 @@ export function clearCommandMemoizationCaches(): void {
   // caches is a no-op for the outer — lodash memoize returns the cached result
   // without ever reaching the cleared inners. Must clear it explicitly.
   clearSkillIndexCache?.()
+}
+
+function isCommandEnabledSafe(command: Command): boolean {
+  try {
+    return isCommandEnabled(command)
+  } catch {
+    return false
+  }
 }
 
 export function clearCommandsCache(): void {

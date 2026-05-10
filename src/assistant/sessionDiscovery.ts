@@ -1,6 +1,6 @@
 import { getOauthConfig } from '../constants/oauth.js'
+import { parseGitRemote } from './sessionDiscoveryRepository.js'
 import { logForDebugging } from '../utils/debug.js'
-import { parseGitRemote } from '../utils/detectRepository.js'
 import {
   axiosGetWithRetry,
   CCR_BYOC_BETA,

@@ -51,6 +51,19 @@ export function peekForStdinData(
   stream: NodeJS.EventEmitter,
   ms: number,
 ): Promise<boolean> {
+  const streamState = stream as NodeJS.EventEmitter & {
+    closed?: boolean
+    destroyed?: boolean
+    readableEnded?: boolean
+  }
+  if (
+    streamState.readableEnded === true ||
+    streamState.destroyed === true ||
+    streamState.closed === true
+  ) {
+    return Promise.resolve(false)
+  }
+
   return new Promise<boolean>(resolve => {
     const done = (timedOut: boolean) => {
       clearTimeout(peek)
@@ -64,5 +77,58 @@ export function peekForStdinData(
     const peek = setTimeout(done, ms, true)
     stream.once('end', onEnd)
     stream.once('data', onFirstData)
+  })
+}
+
+export function readTextFromStdinWithTimeout(
+  stream: NodeJS.EventEmitter,
+  ms: number,
+): Promise<{ text: string; timedOut: boolean }> {
+  const streamState = stream as NodeJS.EventEmitter & {
+    closed?: boolean
+    destroyed?: boolean
+    readableEnded?: boolean
+  }
+
+  return new Promise(resolve => {
+    let text = ''
+    let sawData = false
+    let resolved = false
+
+    const done = (timedOut: boolean) => {
+      if (resolved) {
+        return
+      }
+      resolved = true
+      clearTimeout(peek)
+      stream.off('end', onEnd)
+      stream.off('data', onData)
+      resolve({ text, timedOut })
+    }
+    const onEnd = () => done(false)
+    const onData = (chunk: unknown) => {
+      sawData = true
+      clearTimeout(peek)
+      text += Buffer.isBuffer(chunk)
+        ? chunk.toString('utf8')
+        : String(chunk)
+    }
+    // eslint-disable-next-line no-restricted-syntax -- races idle inherited stdin against real pipe data
+    const peek = setTimeout(() => {
+      if (!sawData) {
+        done(true)
+      }
+    }, ms)
+
+    stream.on('data', onData)
+    stream.once('end', onEnd)
+
+    if (
+      streamState.readableEnded === true ||
+      streamState.destroyed === true ||
+      streamState.closed === true
+    ) {
+      done(false)
+    }
   })
 }

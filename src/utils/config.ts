@@ -525,8 +525,8 @@ export type GlobalConfig = {
   // Permission explainer configuration
   permissionExplainerEnabled?: boolean // Enable Haiku-generated explanations for permission requests (default: true)
 
-  // Teammate spawn mode: 'auto' | 'tmux' | 'in-process'
-  teammateMode?: 'auto' | 'tmux' | 'in-process' // How to spawn teammates (default: 'auto')
+  // Teammate spawn mode: 'auto' | 'tmux' | 'windows-terminal' | 'in-process'
+  teammateMode?: 'auto' | 'tmux' | 'windows-terminal' | 'in-process' // How to spawn teammates (default: 'auto')
   // Model for new teammates when the tool call doesn't pass one.
   // undefined = hardcoded Opus (backward-compat); null = leader's model; string = model alias/ID.
   teammateDefaultModel?: string | null
@@ -1333,6 +1333,14 @@ function saveConfigWithLock<A extends object>(
 // Flag to track if config reading is allowed
 let configReadingAllowed = false
 
+function ensureClaudeConfigHomeScaffold(): void {
+  const fs = getFsImplementation()
+  const configHomeDir = getClaudeConfigHomeDir()
+  fs.mkdirSync(configHomeDir)
+  fs.mkdirSync(join(configHomeDir, 'commands'))
+  fs.mkdirSync(join(configHomeDir, 'agents'))
+}
+
 export function enableConfigs(): void {
   if (configReadingAllowed) {
     // Ensure this is idempotent
@@ -1345,6 +1353,11 @@ export function enableConfigs(): void {
   // Any reads to configuration before this flag is set show an console warning
   // to prevent us from adding config reading during module initialization
   configReadingAllowed = true
+  // Keep the user config home in the shape the startup scanners expect. Built
+  // headless subprocesses can start from an otherwise-empty CLAUDE_CONFIG_DIR
+  // during tests and agent launches, so pre-create the common directories
+  // before config hydration and command/agent discovery begin.
+  ensureClaudeConfigHomeScaffold()
   // We only check the global config because currently all the configs share a file
   getConfig(
     getGlobalClaudeFile(),

@@ -1,0 +1,43 @@
+{
+  "input": [
+    [
+      {
+        "type": "text",
+        "text": "Return strict JSON only.\n"
+      },
+      {
+        "type": "text",
+        "text": "Return {\"reaction\":\"tiny ok\"} exactly."
+      }
+    ]
+  ],
+  "output": [
+    {
+      "uuid": "UUID-0",
+      "requestId": "REQUEST_ID",
+      "timestamp": "2026-04-26T01:46:12.463Z",
+      "message": {
+        "id": "msg_1c7e7211902548339ae3a9eb",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"reaction\":\"tiny ok\"}",
+            "citations": []
+          }
+        ],
+        "model": "gpt-5.4",
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 388,
+          "output_tokens": 34,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0
+        }
+      },
+      "type": "assistant"
+    }
+  ]
+}

@@ -20,6 +20,7 @@ import {
 } from './bootstrap/state.js'
 import { getCommands } from './commands.js'
 import { initSessionMemory } from './services/SessionMemory/sessionMemory.js'
+import { initSkillLearning } from './services/skillLearning/runtimeObserver.js'
 import { asSessionId } from './types/ids.js'
 import { isAgentSwarmsEnabled } from './utils/agentSwarmsEnabled.js'
 import { checkAndRestoreTerminalBackup } from './utils/appleTerminalBackup.js'
@@ -86,7 +87,12 @@ export async function setup(
   // --bare / SIMPLE: skip UDS messaging server and teammate snapshot.
   // Scripted calls don't receive injected messages and don't use swarm teammates.
   // Explicit --messaging-socket-path is the escape hatch (per #23222 gate pattern).
-  if (!isBareMode() || messagingSocketPath !== undefined) {
+  // Windows needs named pipes rather than Unix domain sockets. Skip the
+  // default UDS bootstrap there until a Windows-specific transport exists.
+  if (
+    process.platform !== 'win32' &&
+    (!isBareMode() || messagingSocketPath !== undefined)
+  ) {
     // Start UDS messaging server (Mac/Linux only).
     // Enabled by default for ants — creates a socket in tmpdir if no
     // --messaging-socket-path is passed. Awaited so the server is bound
@@ -292,6 +298,7 @@ export async function setup(
   // raced ahead and memoized an empty bundledSkills list.
   if (!isBareMode()) {
     initSessionMemory() // Synchronous - registers hook, gate check happens lazily
+    initSkillLearning() // Synchronous - registers hook, gate check happens lazily
     if (feature('CONTEXT_COLLAPSE')) {
       /* eslint-disable @typescript-eslint/no-require-imports */
       ;(

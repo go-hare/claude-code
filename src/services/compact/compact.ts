@@ -8,9 +8,12 @@ const sessionTranscriptModule = feature('KAIROS')
   : null
 
 import { APIUserAbortError } from '@anthropic-ai/sdk'
-import { markPostCompaction } from 'src/bootstrap/state.js'
-import { getInvokedSkillsForAgent } from '../../bootstrap/state.js'
+import {
+  createRuntimeCompactionStateProvider,
+  createRuntimeInvokedSkillStateProvider,
+} from 'src/runtime/core/state/bootstrapProvider.js'
 import type { QuerySource } from '../../constants/querySource.js'
+import type { SDKStatus } from '../../entrypoints/agentSdkTypes.js'
 import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'
 import type { Tool, ToolUseContext } from '../../Tool.js'
 import type { LocalAgentTaskState } from '../../tasks/LocalAgentTask/LocalAgentTask.js'
@@ -115,7 +118,6 @@ import {
   roughTokenCountEstimation,
   roughTokenCountEstimationForMessages,
 } from '../tokenEstimation.js'
-import type { SDKStatus } from '../../entrypoints/agentSdkTypes.js'
 import { groupMessagesByApiRound } from './grouping.js'
 import {
   getCompactPrompt,
@@ -133,6 +135,8 @@ export const POST_COMPACT_MAX_TOKENS_PER_FILE = 5_000
 export const POST_COMPACT_MAX_TOKENS_PER_SKILL = 5_000
 export const POST_COMPACT_SKILLS_TOKEN_BUDGET = 25_000
 const MAX_COMPACT_STREAMING_RETRIES = 2
+const compactionStateProvider = createRuntimeCompactionStateProvider()
+const invokedSkillStateProvider = createRuntimeInvokedSkillStateProvider()
 
 /**
  * Strip image blocks from user messages before sending for compaction.
@@ -705,7 +709,7 @@ export async function compactConversation(
         context.agentId,
       )
     }
-    markPostCompaction()
+    compactionStateProvider.markPostCompaction()
 
     // Re-append session metadata (custom title, tag) so it stays within
     // the 16KB tail window that readLiteMetadata reads for --resume display.
@@ -1054,7 +1058,7 @@ export async function partialCompactConversation(
         context.agentId,
       )
     }
-    markPostCompaction()
+    compactionStateProvider.markPostCompaction()
 
     // Re-append session metadata (custom title, tag) so it stays within
     // the 16KB tail window that readLiteMetadata reads for --resume display.
@@ -1500,7 +1504,9 @@ export function createPlanAttachmentIfNeeded(
 export function createSkillAttachmentIfNeeded(
   agentId?: string,
 ): AttachmentMessage | null {
-  const invokedSkills = getInvokedSkillsForAgent(agentId)
+  const invokedSkills = invokedSkillStateProvider.getInvokedSkillsForAgent(
+    agentId,
+  )
 
   if (invokedSkills.size === 0) {
     return null

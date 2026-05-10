@@ -6,29 +6,25 @@ import {
   getSessionId,
 } from '../bootstrap/state.js'
 import type { AppState } from '../state/AppStateStore.js'
-import { formatAgentId } from '../utils/agentId.js'
 import { getCwd } from '../utils/cwd.js'
 import { logForDebugging } from '../utils/debug.js'
 import { getClaudeConfigHomeDir } from '../utils/envUtils.js'
 import {
-  getDefaultMainLoopModel,
-  parseUserSpecifiedModel,
-} from '../utils/model/model.js'
-import { getInitialSettings } from '../utils/settings/settings.js'
-import { setCliTeammateModeOverride } from '../utils/swarm/backends/teammateModeSnapshot.js'
-import { TEAM_LEAD_NAME } from '../utils/swarm/constants.js'
-import type { TeamFile } from '../utils/swarm/teamHelpers.js'
-import {
-  getTeamFilePath,
-  sanitizeName,
-  writeTeamFileAsync,
-} from '../utils/swarm/teamHelpers.js'
-import { assignTeammateColor } from '../utils/swarm/teammateLayoutManager.js'
-import {
+  TEAM_LEAD_NAME,
+  assignTeammateColor,
   ensureTasksDir,
+  formatAgentId,
+  getDefaultMainLoopModel,
+  getInitialSettings,
+  getTeamFilePath,
+  parseUserSpecifiedModel,
   resetTaskList,
+  sanitizeName,
+  setCliTeammateModeOverride,
   setLeaderTeamName,
-} from '../utils/tasks.js'
+  writeTeamFileAsync,
+} from './deps.js'
+import type { TeamFile } from '../utils/swarm/teamHelpers.js'
 
 let assistantForced = false
 let assistantTeamContextCache:

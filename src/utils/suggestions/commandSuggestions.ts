@@ -222,6 +222,34 @@ export function formatCommand(command: string): string {
   return `/${command} `
 }
 
+export function getCommandInputBeforeCursor(
+  input: string,
+  cursorOffset: number,
+): string {
+  return input.substring(0, cursorOffset)
+}
+
+export function spliceCommandSuggestionAtCursor(
+  input: string,
+  cursorOffset: number,
+  suggestion: SuggestionItem,
+): { value: string; cursorOffset: number } | null {
+  if (!isCommandMetadata(suggestion.metadata)) {
+    return null
+  }
+
+  const commandName = getCommandName(suggestion.metadata)
+  const replacement = formatCommand(commandName)
+  const suffix = input.slice(cursorOffset)
+  return {
+    value:
+      replacement.endsWith(' ') && suffix.startsWith(' ')
+        ? replacement + suffix.slice(1)
+        : replacement + suffix,
+    cursorOffset: replacement.length,
+  }
+}
+
 /**
  * Generates a deterministic unique ID for a command suggestion.
  * Commands with the same name from different sources get unique IDs.

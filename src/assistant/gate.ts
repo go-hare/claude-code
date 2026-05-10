@@ -1,9 +1,26 @@
 import { feature } from 'bun:bundle'
-import { checkGate_CACHED_OR_BLOCKING } from '../services/analytics/growthbook.js'
+import * as growthBook from '../services/analytics/growthbook.js'
 import { logForDebugging } from '../utils/debug.js'
 import { isEnvTruthy } from '../utils/envUtils.js'
 
 const KAIROS_GATE = 'tengu_kairos'
+
+/**
+ * Startup-safe gate for places that must decide immediately, such as command
+ * visibility. Uses the same underlying KAIROS gate as runtime activation, but
+ * reads from the cached GrowthBook snapshot instead of blocking on init.
+ */
+export function isKairosEnabledCachedOrEnv(): boolean {
+  if (!feature('KAIROS')) {
+    return false
+  }
+
+  if (isEnvTruthy(process.env.CLAUDE_CODE_ENABLE_KAIROS)) {
+    return true
+  }
+
+  return growthBook.getFeatureValue_CACHED_MAY_BE_STALE(KAIROS_GATE, false)
+}
 
 /**
  * Runtime gate for assistant mode.
@@ -23,7 +40,7 @@ export async function isKairosEnabled(): Promise<boolean> {
     return true
   }
 
-  const enabled = await checkGate_CACHED_OR_BLOCKING(KAIROS_GATE)
+  const enabled = await growthBook.checkGate_CACHED_OR_BLOCKING(KAIROS_GATE)
   logForDebugging(`[assistant] ${KAIROS_GATE} -> ${enabled}`)
   return enabled
 }

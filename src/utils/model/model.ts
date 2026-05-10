@@ -24,15 +24,35 @@ import { getModelStrings, resolveOverriddenModel } from './modelStrings.js'
 import { formatModelPricing, getOpus46CostTier } from '../modelCost.js'
 import { getSettings_DEPRECATED } from '../settings/settings.js'
 import type { PermissionMode } from '../permissions/PermissionMode.js'
-import { getAPIProvider } from './providers.js'
+import { getAPIProvider, isFirstPartyAnthropicBaseUrl } from './providers.js'
 import { LIGHTNING_BOLT } from '../../constants/figures.js'
 import { isModelAllowed } from './modelAllowlist.js'
 import { type ModelAlias, isModelAlias } from './aliases.js'
 import { capitalize } from '../stringUtils.js'
 
+function isAliasOrAliasWithSuffix(value: string): boolean {
+  const base = value.replace(/\[1m\]$/i, '').trim()
+  return isModelAlias(base)
+}
+
 export type ModelShortName = string
 export type ModelName = string
 export type ModelSetting = ModelName | ModelAlias | null
+
+export function getProviderModelEnvSetting(): ModelSetting | undefined {
+  const provider = getAPIProvider()
+
+  switch (provider) {
+    case 'openai':
+      return process.env.OPENAI_MODEL
+    case 'gemini':
+      return process.env.GEMINI_MODEL
+    case 'grok':
+      return process.env.GROK_MODEL
+    default:
+      return process.env.ANTHROPIC_MODEL
+  }
+}
 
 export function getSmallFastModel(): ModelName {
   const provider = getAPIProvider()
@@ -52,7 +72,8 @@ export function isNonCustomOpusModel(model: ModelName): boolean {
     model === getModelStrings().opus40 ||
     model === getModelStrings().opus41 ||
     model === getModelStrings().opus45 ||
-    model === getModelStrings().opus46
+    model === getModelStrings().opus46 ||
+    model === getModelStrings().opus47
   )
 }
 
@@ -65,7 +86,7 @@ export function isNonCustomOpusModel(model: ModelName): boolean {
  * Priority order within this function:
  * 1. Model override during session (from /model command) - highest priority
  * 2. Model override at startup (from --model flag)
- * 3. ANTHROPIC_MODEL environment variable
+ * 3. Provider-specific model environment variable
  * 4. Settings (from user's saved settings)
  */
 export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
@@ -76,7 +97,7 @@ export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
     specifiedModel = modelOverride
   } else {
     const settings = getSettings_DEPRECATED() || {}
-    specifiedModel = process.env.ANTHROPIC_MODEL || settings.model || undefined
+    specifiedModel = getProviderModelEnvSetting() || settings.model || undefined
   }
 
   // Ignore the user-specified model if it's not in the availableModels allowlist.
@@ -93,7 +114,7 @@ export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
  * Model Selection Priority Order:
  * 1. Model override during session (from /model command) - highest priority
  * 2. Model override at startup (from --model flag)
- * 3. ANTHROPIC_MODEL environment variable
+ * 3. Provider-specific model environment variable
  * 4. Settings (from user's saved settings)
  * 5. Built-in default
  *
@@ -129,16 +150,16 @@ export function getDefaultOpusModel(): ModelName {
   // Fall back to user's configured model — custom providers may not
   // recognize hardcoded Anthropic model IDs.
   const userSpecifiedOpus = getUserSpecifiedModelSetting()
-  if (userSpecifiedOpus) {
+  if (userSpecifiedOpus && !isAliasOrAliasWithSuffix(userSpecifiedOpus)) {
     return parseUserSpecifiedModel(userSpecifiedOpus)
   }
-  // 3P providers (Bedrock, Vertex, Foundry) — kept as a separate branch
-  // even when values match, since 3P availability lags firstParty and
-  // these will diverge again at the next model launch.
+  // 3P providers (Bedrock, Vertex, Foundry) all publish Opus 4.7 in sync
+  // with firstParty. The branch is kept as a structural hook in case a future
+  // launch lags on 3P.
   if (provider !== 'firstParty') {
-    return getModelStrings().opus46
+    return getModelStrings().opus47
   }
-  return getModelStrings().opus46
+  return getModelStrings().opus47
 }
 
 // @[MODEL LAUNCH]: Update the default Sonnet model (3P providers may lag so keep defaults unchanged).
@@ -163,7 +184,7 @@ export function getDefaultSonnetModel(): ModelName {
   // custom providers (proxies, national clouds) may not recognize the
   // hardcoded Anthropic model IDs.
   const userSpecified = getUserSpecifiedModelSetting()
-  if (userSpecified) {
+  if (userSpecified && !isAliasOrAliasWithSuffix(userSpecified)) {
     return parseUserSpecifiedModel(userSpecified)
   }
   // Default to Sonnet 4.5 for 3P since they may not have 4.6 yet
@@ -191,7 +212,7 @@ export function getDefaultHaikuModel(): ModelName {
   // Fall back to user's configured model — custom providers may not
   // recognize hardcoded Anthropic model IDs.
   const userSpecifiedHaiku = getUserSpecifiedModelSetting()
-  if (userSpecifiedHaiku) {
+  if (userSpecifiedHaiku && !isAliasOrAliasWithSuffix(userSpecifiedHaiku)) {
     return parseUserSpecifiedModel(userSpecifiedHaiku)
   }
 
@@ -280,6 +301,9 @@ export function firstPartyNameToCanonical(name: ModelName): ModelShortName {
   name = name.toLowerCase()
   // Special cases for Claude 4+ models to differentiate versions
   // Order matters: check more specific versions first (4-5 before 4)
+  if (name.includes('claude-opus-4-7')) {
+    return 'claude-opus-4-7'
+  }
   if (name.includes('claude-opus-4-6')) {
     return 'claude-opus-4-6'
   }
@@ -350,9 +374,9 @@ export function getClaudeAiUserDefaultModelDescription(
 ): string {
   if (isMaxSubscriber() || isTeamPremiumSubscriber()) {
     if (isOpus1mMergeEnabled()) {
-      return `Opus 4.6 with 1M context · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true) : ''}`
+      return `Opus 4.7 with 1M context · Most capable for complex work${fastMode ? getOpusPricingSuffix(true) : ''}`
     }
-    return `Opus 4.6 · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true) : ''}`
+    return `Opus 4.7 · Most capable for complex work${fastMode ? getOpusPricingSuffix(true) : ''}`
   }
   return 'Sonnet 4.6 · Best for everyday tasks'
 }
@@ -361,12 +385,12 @@ export function renderDefaultModelSetting(
   setting: ModelName | ModelAlias,
 ): string {
   if (setting === 'opusplan') {
-    return 'Opus 4.6 in plan mode, else Sonnet 4.6'
+    return 'Opus 4.7 in plan mode, else Sonnet 4.6'
   }
   return renderModelName(parseUserSpecifiedModel(setting))
 }
 
-export function getOpus46PricingSuffix(fastMode: boolean): string {
+export function getOpusPricingSuffix(fastMode: boolean): string {
   if (getAPIProvider() !== 'firstParty') return ''
   const pricing = formatModelPricing(getOpus46CostTier(fastMode))
   const fastModeIndicator = fastMode ? ` (${LIGHTNING_BOLT})` : ''
@@ -377,7 +401,8 @@ export function isOpus1mMergeEnabled(): boolean {
   if (
     is1mContextDisabled() ||
     isProSubscriber() ||
-    getAPIProvider() !== 'firstParty'
+    getAPIProvider() !== 'firstParty' ||
+    !isFirstPartyAnthropicBaseUrl()
   ) {
     return false
   }
@@ -410,6 +435,10 @@ export function renderModelSetting(setting: ModelName | ModelAlias): string {
  */
 export function getPublicModelDisplayName(model: ModelName): string | null {
   switch (model) {
+    case getModelStrings().opus47:
+      return 'Opus 4.7'
+    case getModelStrings().opus47 + '[1m]':
+      return 'Opus 4.7 (1M context)'
     case getModelStrings().opus46:
       return 'Opus 4.6'
     case getModelStrings().opus46 + '[1m]':
@@ -533,9 +562,10 @@ export function parseUserSpecifiedModel(
 
   // Opus 4/4.1 are no longer available on the first-party API (same as
   // Claude.ai) — silently remap to the current Opus default. The 'opus'
-  // alias already resolves to 4.6, so the only users on these explicit
-  // strings pinned them in settings/env/--model/SDK before 4.5 launched.
-  // 3P providers may not yet have 4.6 capacity, so pass through unchanged.
+  // alias resolves to the current default Opus (4.7), so the only users
+  // on these explicit strings pinned them in settings/env/--model/SDK
+  // before 4.5 launched. 3P providers may not yet have 4.6/4.7 capacity,
+  // so pass through unchanged.
   if (
     getAPIProvider() === 'firstParty' &&
     isLegacyOpusFirstParty(modelString) &&
@@ -638,6 +668,9 @@ export function getMarketingNameForModel(modelId: string): string | undefined {
   const has1m = modelId.toLowerCase().includes('[1m]')
   const canonical = getCanonicalName(modelId)
 
+  if (canonical.includes('claude-opus-4-7')) {
+    return has1m ? 'Opus 4.7 (with 1M context)' : 'Opus 4.7'
+  }
   if (canonical.includes('claude-opus-4-6')) {
     return has1m ? 'Opus 4.6 (with 1M context)' : 'Opus 4.6'
   }

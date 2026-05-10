@@ -337,7 +337,10 @@ import {
 } from "src/utils/gracefulShutdown.js";
 import { setAllHookEventsEnabled } from "src/utils/hooks/hookEvents.js";
 import { refreshModelCapabilities } from "src/utils/model/modelCapabilities.js";
-import { peekForStdinData, writeToStderr } from "src/utils/process.js";
+import {
+	readTextFromStdinWithTimeout,
+	writeToStderr,
+} from "src/utils/process.js";
 import { setCwd } from "src/utils/Shell.js";
 import {
 	type ProcessedResume,
@@ -859,6 +862,7 @@ type PendingSSH = {
 	cwd: string | undefined;
 	permissionMode: string | undefined;
 	dangerouslySkipPermissions: boolean;
+	remoteBin: string | undefined;
 	/** --local: spawn the child CLI directly, skip ssh/probe/deploy. e2e test mode. */
 	local: boolean;
 	/** Extra CLI args to forward to the remote CLI on initial spawn (--resume, -c). */
@@ -870,6 +874,7 @@ const _pendingSSH: PendingSSH | undefined = feature("SSH_REMOTE")
 			cwd: undefined,
 			permissionMode: undefined,
 			dangerouslySkipPermissions: false,
+			remoteBin: undefined,
 			local: false,
 			extraCliArgs: [],
 		}
@@ -1048,6 +1053,25 @@ export async function main() {
 				_pendingSSH.permissionMode = rawCliArgs[pmEqIdx]!.split("=")[1];
 				rawCliArgs.splice(pmEqIdx, 1);
 			}
+			const rbIdx = rawCliArgs.indexOf("--remote-bin");
+			if (
+				rbIdx !== -1 &&
+				rawCliArgs[rbIdx + 1] &&
+				!rawCliArgs[rbIdx + 1]!.startsWith("-")
+			) {
+				_pendingSSH.remoteBin = rawCliArgs[rbIdx + 1];
+				rawCliArgs.splice(rbIdx, 2);
+			}
+			const rbEqIdx = rawCliArgs.findIndex((a) =>
+				a.startsWith("--remote-bin="),
+			);
+			if (rbEqIdx !== -1) {
+				_pendingSSH.remoteBin = rawCliArgs[rbEqIdx]!
+					.split("=")
+					.slice(1)
+					.join("=");
+				rawCliArgs.splice(rbEqIdx, 1);
+			}
 			// Forward session-resume + model flags to the remote CLI's initial spawn.
 			// --continue/-c and --resume <uuid> operate on the REMOTE session history
 			// (which persists under the remote's ~/.claude/projects/<cwd>/).
@@ -1210,18 +1234,15 @@ async function getInputPrompt(
 			return process.stdin;
 		}
 		process.stdin.setEncoding("utf8");
-		let data = "";
-		const onData = (chunk: string) => {
-			data += chunk;
-		};
-		process.stdin.on("data", onData);
 		// If no data arrives in 3s, stop waiting and warn. Stdin is likely an
 		// inherited pipe from a parent that isn't writing (subprocess spawned
 		// without explicit stdin handling). 3s covers slow producers like curl,
 		// jq on large files, python with import overhead. The warning makes
 		// silent data loss visible for the rare producer that's slower still.
-		const timedOut = await peekForStdinData(process.stdin, 3000);
-		process.stdin.off("data", onData);
+		const { text: data, timedOut } = await readTextFromStdinWithTimeout(
+			process.stdin,
+			3000,
+		);
 		if (timedOut) {
 			process.stderr.write(
 				"Warning: no stdin data received in 3s, proceeding without it. " +
@@ -4373,8 +4394,12 @@ async function run(): Promise<CommanderCommand> {
 								pendingSSH.dangerouslySkipPermissions,
 						});
 					} else {
+						const host = pendingSSH.host;
+						if (!host) {
+							throw new SSHSessionError("SSH host is required");
+						}
 						process.stderr.write(
-							`Connecting to ${pendingSSH.host}…\n`,
+							`Connecting to ${host}…\n`,
 						);
 						// In-place progress: \r + EL0 (erase to end of line). Final \n on
 						// success so the next message lands on a fresh line. No-op when
@@ -4383,13 +4408,14 @@ async function run(): Promise<CommanderCommand> {
 						let hadProgress = false;
 						sshSession = await createSSHSession(
 							{
-								host: pendingSSH.host,
+								host,
 								cwd: pendingSSH.cwd,
 								localVersion: MACRO.VERSION,
 								permissionMode: pendingSSH.permissionMode,
 								dangerouslySkipPermissions:
 									pendingSSH.dangerouslySkipPermissions,
 								extraCliArgs: pendingSSH.extraCliArgs,
+								remoteBin: pendingSSH.remoteBin,
 							},
 							isTTY
 								? {
