@@ -11,6 +11,17 @@
 - 过滤掉旧 kernel 路线相关改动。
 - 只把仍适用于 Agent Core 主线的功能迁回 `core-clean`。
 
+## 当前收口状态
+
+截至 `a3f2aa33`，本分支已经完成 `main@3c7b8dc3` 之后的非 kernel 功能回补。
+
+这份文档现在主要承担两件事：
+
+- 记录本轮迁回的比较基线和筛选规则。
+- 作为后续同步 `main` 的判断依据。
+
+因此后续再看这份文档时，默认前提是“功能回补已完成”，不是“还有一批待搬功能”。
+
 ## 目标
 
 本文定义在当前 `core-clean` 分支上建设完整 Agent Core 的执行方案。
@@ -251,7 +262,7 @@ replay(options?: { sinceSequence?: number; limit?: number }): AgentEvent[]
 
 ### Phase 0：合同冻结
 
-状态：已完成第一步。
+状态：已完成。
 
 文档：
 
@@ -536,7 +547,7 @@ bun run build
 
 ### Phase 8：清理旧中心
 
-状态：已落地第一刀。
+状态：已完成。
 
 完成所有 host 迁移后：
 
@@ -570,6 +581,11 @@ bun run build
 - `KernelRuntimeEnvelope`。
 - runtime wire protocol。
 - long-lived compat projection 主链。
+
+## 收口结论
+
+当前分支已经把 `main` 在 `3c7b8dc3` 之后的非 kernel 增强功能迁回到位。
+剩余差异以结构、命名、适配层和历史兼容痕迹为主，不再按功能缺口处理。
 
 ## 验收矩阵
 

@@ -39,6 +39,12 @@ The package exposes Agent Core through:
 import { createAgent } from 'claude-code/core'
 ```
 
+Current closeout notes:
+
+- [docs/internals/agent-core-execution-plan.md](docs/internals/agent-core-execution-plan.md)
+- [docs/internals/agent-core-event-contract.md](docs/internals/agent-core-event-contract.md)
+- [docs/internals/kernelization-status.md](docs/internals/kernelization-status.md) (archive)
+
 Internal bridge / server / daemon / headless code imports runtime or server
 modules directly instead of routing through the old kernel facade.
 
@@ -70,41 +76,40 @@ git clone https://github.com/go-hare/claude-code.git
 cd claude-code
 bun install
 bun run build
-npm install -g .
+npm pack
+npm install -g ./claude-code-<version>.tgz
 claude
 ```
 
-Releases are packaged as standard npm tarballs. The CLI entry points to `dist/cli-node.js`, without an extra release-binary download layer.
+Notes:
 
-## Running from Source
+- On Windows, repeating `npm install -g .` against the current source directory can hit an internal npm/Arborist error. Installing the generated `.tgz` from `npm pack` is more reliable.
+- If you only want to run the current checkout during development, prefer `bun run dev` or `node dist/cli-node.js` instead of a global install.
 
 ### Requirements
 
 - [Bun](https://bun.sh/) >= 1.3.11
 - your own provider configuration
 
-### Install dependencies
+Environment variable reference: [docs/reference/environment-variables.md](docs/reference/environment-variables.md)
+
+## Development
 
 ```bash
-bun install
-```
-
-### Development mode
-
-```bash
-bun run dev
-```
-
-### Build
-
-```bash
-bun run build
+bun install      # Install dependencies
+bun run dev      # Dev mode
+bun run build    # Build (code splitting → dist/)
+bun test         # Run tests
+bun run typecheck
+bun run lint
+bun run format
+bun run test:all
 ```
 
 Common build outputs:
 
-- `dist/cli-node.js`
-- `dist/cli-bun.js`
+- `dist/cli-node.js` - Node.js compatible
+- `dist/cli-bun.js` - Bun optimized
 
 npm package check:
 
@@ -133,6 +138,25 @@ Recommended external integration directions:
 
 Do not build external integrations directly on top of `REPL.tsx`.
 
+## Project Structure
+
+- [src/entrypoints/cli.tsx](src/entrypoints/cli.tsx)
+  - CLI entry
+- [src/main.tsx](src/main.tsx)
+  - startup assembly and mode dispatch
+- [src/screens/REPL.tsx](src/screens/REPL.tsx)
+  - official terminal interaction host
+- [src/query.ts](src/query.ts)
+  - turn loop and query orchestration
+- [src/core](src/core)
+  - Agent Core session/event mainline
+- [src/runtime/capabilities/execution/SessionRuntime.ts](src/runtime/capabilities/execution/SessionRuntime.ts)
+  - engine asset for the existing query lifecycle
+- [src/runtime](src/runtime)
+  - internal runtime capability layer
+- [src/entrypoints/core.ts](src/entrypoints/core.ts)
+  - package Agent Core entrypoint
+
 ## Common Commands
 
 ```bash
@@ -157,25 +181,6 @@ $env:CLAUDE_PROJECT_CONFIG_DIR_NAME = ".hare"
 claude
 ```
 
-## Project Structure
-
-- [src/entrypoints/cli.tsx](src/entrypoints/cli.tsx)
-  - CLI entry
-- [src/main.tsx](src/main.tsx)
-  - startup assembly and mode dispatch
-- [src/screens/REPL.tsx](src/screens/REPL.tsx)
-  - official terminal interaction host
-- [src/query.ts](src/query.ts)
-  - turn loop and query orchestration
-- [src/core](src/core)
-  - Agent Core session/event mainline
-- [src/runtime/capabilities/execution/SessionRuntime.ts](src/runtime/capabilities/execution/SessionRuntime.ts)
-  - engine asset for the existing query lifecycle
-- [src/runtime](src/runtime)
-  - internal runtime capability layer
-- [src/entrypoints/core.ts](src/entrypoints/core.ts)
-  - package Agent Core entrypoint
-
 ## Development Principles
 
 - keep the CLI mainline stable
@@ -183,6 +188,23 @@ claude
 - integrate new hosts through `src/core` / `AgentSession` first
 - add tests first for shared behavior changes
 - do not start high-risk reordering work just to make the structure look cleaner
+
+## Testing
+
+```bash
+bun test
+bun run typecheck
+bun run lint
+bun run test:all
+```
+
+## Documentation
+
+- [docs/internals/agent-core-execution-plan.md](docs/internals/agent-core-execution-plan.md) - closeout baseline and execution record
+- [docs/internals/agent-core-event-contract.md](docs/internals/agent-core-event-contract.md) - Agent Core event contract
+- [docs/internals/kernelization-status.md](docs/internals/kernelization-status.md) - archived kernelization status
+- [docs/reference/environment-variables.md](docs/reference/environment-variables.md) - environment variable reference
+- [docs/testing-spec.md](docs/testing-spec.md) - testing specification
 
 ## License
 

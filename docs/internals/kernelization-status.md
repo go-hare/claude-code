@@ -1,6 +1,6 @@
 # Kernelization Status Archive
 
-本文是旧 kernelization 轨道的归档说明，不再作为当前执行依据。
+本文是旧 kernelization 轨道的归档说明，不再作为当前执行依据，也不再继续更新。
 
 最高优先级事实：
 
@@ -16,7 +16,9 @@
 - 旧 `src/kernel` façade 已移除。
 - bridge / server / daemon / headless 直接依赖 runtime 或 server 模块。
 
-继续执行请看：
+当前收口结论请看：
 
 - `docs/internals/agent-core-event-contract.md`
 - `docs/internals/agent-core-execution-plan.md`
+
+如果需要回看旧轨道，这一页只保留历史边界，不再承载新的执行判断。

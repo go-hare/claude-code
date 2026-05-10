@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { readdir, readFile } from 'fs/promises'
-import { dirname, join, resolve } from 'path'
+import { dirname, join, relative, resolve } from 'path'
 import { fileURLToPath } from 'url'
 
 type FindingType =
@@ -141,12 +141,31 @@ async function main(): Promise<void> {
 
 async function readBundleFiles(distDir: string): Promise<string[]> {
   try {
-    return (await readdir(distDir)).filter(file => file.endsWith('.js'))
+    return await collectBundleFiles(distDir, distDir)
   } catch {
     console.error(`Unable to read bundle directory: ${distDir}`)
     console.error('Run `bun run build` before `bun run check:bundle`.')
     process.exit(1)
   }
+}
+
+async function collectBundleFiles(
+  rootDir: string,
+  currentDir: string,
+): Promise<string[]> {
+  const entries = await readdir(currentDir, { withFileTypes: true })
+  const files = await Promise.all(
+    entries.map(async entry => {
+      const entryPath = join(currentDir, entry.name)
+      if (entry.isDirectory()) {
+        return collectBundleFiles(rootDir, entryPath)
+      }
+      return entry.name.endsWith('.js')
+        ? [relative(rootDir, entryPath)]
+        : []
+    }),
+  )
+  return files.flat()
 }
 
 function collectStaticImportFindings(

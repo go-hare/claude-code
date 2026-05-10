@@ -26,9 +26,11 @@ Agent Core 的分支。
 - 让外部宿主通过 Agent Core 事件和 host adapter 接入
 - 在不破坏主链的前提下持续收口运行时能力
 
-当前内核化现状与后续收口计划见：
+当前 Agent Core 收口说明见：
 
-- [docs/internals/kernelization-status.md](docs/internals/kernelization-status.md)
+- [docs/internals/agent-core-execution-plan.md](docs/internals/agent-core-execution-plan.md)
+- [docs/internals/agent-core-event-contract.md](docs/internals/agent-core-event-contract.md)
+- [docs/internals/kernelization-status.md](docs/internals/kernelization-status.md)（归档）
 
 ## 项目定位
 
@@ -84,41 +86,40 @@ git clone https://github.com/go-hare/claude-code.git
 cd claude-code
 bun install
 bun run build
-npm install -g .
+npm pack
+npm install -g ./claude-code-<version>.tgz
 claude
 ```
 
-当前发布按 npm 包分发，CLI 入口直接使用 `dist/cli-node.js`，不走额外的 release 二进制下载链。
+说明：
 
-## 源码启动
+- 在 Windows 上，对当前源码目录重复执行 `npm install -g .` 可能触发 npm/Arborist 内部错误；先 `npm pack` 再安装生成的 `.tgz` 更稳。
+- 如果只是想直接运行当前工作区代码，优先用 `bun run dev` 或 `node dist/cli-node.js`，不必全局安装。
 
 ### 环境要求
 
 - [Bun](https://bun.sh/) >= 1.3.11
 - 你自己的 provider 配置
 
-### 安装依赖
+环境变量参考：[docs/reference/environment-variables.md](docs/reference/environment-variables.md)
+
+## 开发
 
 ```bash
-bun install
-```
-
-### 开发模式
-
-```bash
-bun run dev
-```
-
-### 构建
-
-```bash
-bun run build
+bun install          # 安装依赖
+bun run dev          # 开发模式
+bun run build        # 构建（code splitting → dist/）
+bun test             # 运行测试
+bun run typecheck    # TypeScript strict 类型检查
+bun run lint         # Biome lint
+bun run format       # Biome format
+bun run test:all     # typecheck + lint + test
 ```
 
 常见构建产物：
 
-- `dist/cli-node.js`
-- `dist/cli-bun.js`
+- `dist/cli-node.js` - Node.js 兼容产物
+- `dist/cli-bun.js` - Bun 优化产物
 
 npm 打包检查：
 
@@ -126,7 +127,7 @@ npm 打包检查：
 npm pack --dry-run
 ```
 
-## Core / Runtime 使用
+## 使用 Agent Core
 
 最小示例见：
 
@@ -145,6 +146,25 @@ npm pack --dry-run
 - bridge / daemon host
 
 不建议把外部接入直接建立在 `REPL.tsx` 上。
+
+## 项目结构
+
+- [src/entrypoints/cli.tsx](src/entrypoints/cli.tsx)
+  - CLI 入口
+- [src/main.tsx](src/main.tsx)
+  - 启动装配与模式分发
+- [src/screens/REPL.tsx](src/screens/REPL.tsx)
+  - 官方终端交互宿主
+- [src/query.ts](src/query.ts)
+  - turn loop 与 query orchestration
+- [src/core](src/core)
+  - Agent Core session/event 主链
+- [src/runtime/capabilities/execution/SessionRuntime.ts](src/runtime/capabilities/execution/SessionRuntime.ts)
+  - 现有 query lifecycle 的 engine asset
+- [src/runtime](src/runtime)
+  - 内部 runtime capability 层
+- [src/entrypoints/core.ts](src/entrypoints/core.ts)
+  - 包级 Agent Core 入口
 
 ## 常用命令
 
@@ -170,25 +190,6 @@ $env:CLAUDE_PROJECT_CONFIG_DIR_NAME = ".hare"
 claude
 ```
 
-## 项目结构
-
-- [src/entrypoints/cli.tsx](src/entrypoints/cli.tsx)
-  - CLI 入口
-- [src/main.tsx](src/main.tsx)
-  - 启动装配与模式分发
-- [src/screens/REPL.tsx](src/screens/REPL.tsx)
-  - 官方终端交互宿主
-- [src/query.ts](src/query.ts)
-  - turn loop 与 query orchestration
-- [src/core](src/core)
-  - Agent Core session/event 主链
-- [src/runtime/capabilities/execution/SessionRuntime.ts](src/runtime/capabilities/execution/SessionRuntime.ts)
-  - 现有 query lifecycle 的 engine asset
-- [src/runtime](src/runtime)
-  - 内部 runtime capability 层
-- [src/entrypoints/core.ts](src/entrypoints/core.ts)
-  - 包级 Agent Core 入口
-
 ## 开发原则
 
 - CLI 主链优先稳定
@@ -196,6 +197,23 @@ claude
 - 新宿主优先通过 `src/core` / `AgentSession` 接入
 - 共享行为变更优先补测试
 - 不为“结构更优雅”发起高风险重排
+
+## 测试
+
+```bash
+bun test
+bun run typecheck
+bun run lint
+bun run test:all
+```
+
+## 相关文档
+
+- [docs/internals/agent-core-execution-plan.md](docs/internals/agent-core-execution-plan.md) - 收口基线与执行记录
+- [docs/internals/agent-core-event-contract.md](docs/internals/agent-core-event-contract.md) - Agent Core 事件合同
+- [docs/internals/kernelization-status.md](docs/internals/kernelization-status.md) - 旧 kernelization 归档
+- [docs/reference/environment-variables.md](docs/reference/environment-variables.md) - 环境变量参考
+- [docs/testing-spec.md](docs/testing-spec.md) - 测试规范
 
 ## 许可证
 

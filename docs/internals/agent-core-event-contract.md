@@ -6,6 +6,7 @@ Agent Core 的目标是建立一条新的唯一执行与事件主线，而不是
 `kernel` / `runtime wire` / `compat projection`。
 
 本文只定义事件合同，不定义具体实现步骤。后续代码改造必须以本文为准。
+当前事件集视为冻结版；如果 host 侧出现新的传输需求，优先扩 adapter，不轻易扩 core contract。
 
 核心规则：
 
@@ -283,4 +284,3 @@ This contract deliberately does not define:
 - Ink rendering state;
 - channel-specific card or reply schema;
 - provider raw stream event passthrough.
-
