@@ -1401,7 +1401,7 @@ export type TeamInfo = {
 //
 // Skip-tracking: already-recorded messages are tracked as the parent ONLY if
 // they form a PREFIX (appear before any new message). This handles both cases:
-//  - Growing-array callers (QueryEngine, queryHelpers, LocalMainSessionTask,
+//  - Growing-array callers (SessionRuntime, queryHelpers, LocalMainSessionTask,
 //    trajectory): recorded messages are always a prefix → tracked → correct
 //    parent chain for new messages.
 //  - Compaction (useLogMessages): new CB/summary appear FIRST, then recorded

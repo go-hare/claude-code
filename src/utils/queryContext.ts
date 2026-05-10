@@ -6,7 +6,7 @@
  * constants/prompts.ts, which are high in the dependency graph. Putting
  * these imports in systemPrompt.ts or sideQuestion.ts (both reachable
  * from commands.ts) would create cycles. Only entrypoint-layer files
- * import from here (QueryEngine.ts, cli/print.ts).
+ * import from here (SessionRuntime.ts, cli/print.ts).
  */
 
 import type { Command } from '../commands.js'
@@ -37,7 +37,7 @@ import {
  * being used.
  *
  * Callers assemble the final systemPrompt from defaultSystemPrompt (or
- * customSystemPrompt) + optional extras + appendSystemPrompt. QueryEngine
+ * customSystemPrompt) + optional extras + appendSystemPrompt. SessionRuntime
  * injects coordinator userContext and memory-mechanics prompt on top;
  * sideQuestion's fallback uses the base result directly.
  */
@@ -78,7 +78,7 @@ export async function fetchSystemPromptParts({
  *
  * Used by the SDK side_question handler (print.ts) on resume before a turn
  * completes — there's no stopHooks snapshot yet. Mirrors the system prompt
- * assembly in QueryEngine.ts:ask() so the rebuilt prefix matches what the
+ * assembly in SessionRuntime so the rebuilt prefix matches what the
  * main loop will send, preserving the cache hit in the common case.
  *
  * May still miss the cache if the main loop applies extras this path doesn't

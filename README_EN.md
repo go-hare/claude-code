@@ -9,57 +9,46 @@
 
 Hare Code is an AI coding runtime for terminal interaction, headless embedding, direct-connect, server, bridge, and daemon scenarios.
 
-The goal of the current codebase is not to keep restructuring around the CLI. The goal is to:
+The goal of the current codebase is not to keep restructuring around the CLI or the old kernel facade. The goal is to:
 
 - keep the CLI as the official interactive host
-- expose reusable capabilities through `src/kernel`
-- let external hosts integrate through kernel facades first
+- move reusable execution capability into `src/core` / `AgentSession`
+- let external hosts integrate through Agent Core events and host adapters
 - continue tightening runtime boundaries without breaking the main interaction path
 
 ## Project Position
 
-The current codebase can be understood as three layers:
+The current codebase can be understood as four layers:
 
-1. `src/kernel`
-   - the recommended source-level public integration surface today
-   - intended for external embedding, host, and service integration
+1. `src/core`
+   - the Agent Core mainline
+   - provides `AgentSession.stream()` and the `AgentEvent` contract
 2. `src/runtime`
    - internal capability layer
    - contains execution, server, bridge, daemon, tools, mcp, and related capabilities
-3. `CLI / REPL`
+3. `src/entrypoints`
+   - CLI and package-level core entrypoints
+   - `src/entrypoints/core.ts` exposes the Agent Core package surface
+4. `CLI / REPL`
    - official interactive host
    - responsible for terminal interaction, not for owning every runtime abstraction
 
-The kernel entry points exposed today at source level are:
-
-- [src/kernel/index.ts](src/kernel/index.ts)
-- [src/kernel/headless.ts](src/kernel/headless.ts)
-- [src/kernel/headlessMcp.ts](src/kernel/headlessMcp.ts)
-- [src/kernel/headlessStartup.ts](src/kernel/headlessStartup.ts)
-- [src/kernel/bridge.ts](src/kernel/bridge.ts)
-- [src/kernel/daemon.ts](src/kernel/daemon.ts)
-
-These entry points are sufficient as the unified host-side integration surface
-today, but they are still primarily source-level boundaries rather than formal
-package-level stable exports.
-
-The package now exposes a kernel subpath export:
+The package exposes Agent Core through:
 
 ```ts
-import {
-  createDirectConnectSession,
-  createDefaultKernelHeadlessEnvironment,
-  runKernelHeadless,
-} from '@go-hare/hare-code/kernel'
+import { createAgent } from '@go-hare/hare-code/core'
 ```
+
+Internal bridge / server / daemon / headless code imports runtime or server
+modules directly instead of routing through the old kernel facade.
 
 ## Current Capabilities
 
 - interactive CLI / REPL
-- headless kernel sessions
+- headless runtime sessions
 - direct-connect / server
 - ACP agent mode
-- bridge / daemon facades
+- bridge / daemon hosts
 - MCP, channels, and plugins
 - OpenAI-compatible provider integration
 - Buddy / KAIROS / Coordinator / task / subagent / team mainline flows
@@ -131,9 +120,9 @@ Minimal examples:
 - [examples/kernel-headless-embed.ts](examples/kernel-headless-embed.ts)
 - [examples/kernel-direct-connect.ts](examples/kernel-direct-connect.ts)
 
-Note: the in-repo examples keep using local `src` imports so they can run
-directly from the source tree. External installed consumers should prefer
-`@go-hare/hare-code/kernel`.
+Note: the in-repo examples use local `src` imports so they can run directly
+from the source tree. Installed consumers should use
+`@go-hare/hare-code/core` for the Agent Core API.
 
 Recommended external integration directions:
 
@@ -178,18 +167,20 @@ hare
   - official terminal interaction host
 - [src/query.ts](src/query.ts)
   - turn loop and query orchestration
-- [src/QueryEngine.ts](src/QueryEngine.ts)
-  - execution engine compatibility shell
+- [src/core](src/core)
+  - Agent Core session/event mainline
+- [src/runtime/capabilities/execution/SessionRuntime.ts](src/runtime/capabilities/execution/SessionRuntime.ts)
+  - engine asset for the existing query lifecycle
 - [src/runtime](src/runtime)
   - internal runtime capability layer
-- [src/kernel](src/kernel)
-  - the current unified kernel-facing integration surface
+- [src/entrypoints/core.ts](src/entrypoints/core.ts)
+  - package Agent Core entrypoint
 
 ## Development Principles
 
 - keep the CLI mainline stable
 - limit REPL refactors to peripheral tightening, not execution-core restructuring
-- integrate new hosts through `src/kernel` first
+- integrate new hosts through `src/core` / `AgentSession` first
 - add tests first for shared behavior changes
 - do not start high-risk reordering work just to make the structure look cleaner
 

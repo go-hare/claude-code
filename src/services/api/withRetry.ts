@@ -485,7 +485,7 @@ export async function* withRetry<T>(
         }
         // Chunk long sleeps so the host sees periodic stdout activity and
         // does not mark the session idle. Each yield surfaces as
-        // {type:'system', subtype:'api_retry'} on stdout via QueryEngine.
+        // {type:'system', subtype:'api_retry'} on stdout via SessionRuntime.
         let remaining = delayMs
         while (remaining > 0) {
           if (options.signal?.aborted) throw new APIUserAbortError()

@@ -4,7 +4,7 @@ import { getCommands } from '../src/commands.js'
 import {
   createDefaultKernelHeadlessEnvironment,
   runKernelHeadless,
-} from '../src/kernel/index.js'
+} from '../src/runtime/capabilities/execution/HeadlessHost.js'
 import { initBuiltinPlugins } from '../src/plugins/bundled/index.js'
 import { initBundledSkills } from '../src/skills/bundled/index.js'
 import {

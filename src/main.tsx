@@ -391,11 +391,11 @@ import {
 	connectDefaultKernelHeadlessMcp,
 	createDefaultKernelHeadlessEnvironment,
 	prepareKernelHeadlessStartup,
-} from "./kernel/index.js";
+} from "./runtime/capabilities/execution/HeadlessHost.js";
 import {
 	createDirectConnectSession,
 	DirectConnectError,
-} from "./kernel/serverHost.js";
+} from "./server/createDirectConnectSession.js";
 import { createRemoteSessionConfig } from "./remote/RemoteSessionManager.js";
 /* eslint-enable @typescript-eslint/no-require-imports */
 // teleportWithProgress dynamically imported at call site
@@ -507,7 +507,7 @@ function isBeingDebugged() {
  * Per-session skill/plugin telemetry. Called from both the interactive path
  * and the headless -p path (before runHeadless) — both go through
  * main.tsx but branch before the interactive startup path, so it needs two
- * call sites here rather than one here + one in QueryEngine.
+ * call sites here rather than one central runtime call site.
  */
 function logSessionTelemetry(): void {
 	const model = parseUserSpecifiedModel(

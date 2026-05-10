@@ -9,11 +9,11 @@
 
 Hare Code 是一个面向终端交互、headless 嵌入、direct-connect、server、bridge 和 daemon 场景的 AI coding runtime。
 
-当前项目的目标不是继续围绕 CLI 做大规模重构，而是：
+当前项目的目标不是继续围绕 CLI 或旧 kernel façade 做大规模重构，而是：
 
 - 保持 CLI 作为官方交互宿主
-- 将可复用能力稳定暴露到 `src/kernel`
-- 让外部宿主优先通过 kernel façade 接入
+- 将可复用执行能力下沉到 `src/core` / `AgentSession`
+- 让外部宿主通过 Agent Core 事件和 host adapter 接入
 - 在不破坏主链的前提下持续收口运行时能力
 
 当前内核化现状与后续收口计划见：
@@ -22,47 +22,37 @@ Hare Code 是一个面向终端交互、headless 嵌入、direct-connect、serve
 
 ## 项目定位
 
-当前代码基线可以分成三层：
+当前代码基线可以分成四层：
 
-1. `src/kernel`
-   - 当前推荐的源码级公共接入面
-   - 面向外部 embedding / host / service 接入
+1. `src/core`
+   - 当前 Agent Core 主链
+   - 提供 `AgentSession.stream()` 和 `AgentEvent` 合同
 2. `src/runtime`
    - 内部能力层
    - 包含 execution、server、bridge、daemon、tools、mcp 等能力
-3. `CLI / REPL`
+3. `src/entrypoints`
+   - CLI 与包级 core 入口
+   - `src/entrypoints/core.ts` 暴露 Agent Core 包入口
+4. `CLI / REPL`
    - 官方交互宿主
    - 负责终端交互，而不是承担全部 runtime 抽象
 
-当前以源码级入口形式暴露的 kernel 接入点包括：
-
-- [src/kernel/index.ts](src/kernel/index.ts)
-- [src/kernel/headless.ts](src/kernel/headless.ts)
-- [src/kernel/headlessMcp.ts](src/kernel/headlessMcp.ts)
-- [src/kernel/headlessStartup.ts](src/kernel/headlessStartup.ts)
-- [src/kernel/bridge.ts](src/kernel/bridge.ts)
-- [src/kernel/daemon.ts](src/kernel/daemon.ts)
-
-这些入口已经足够作为宿主侧统一接入面使用，但当前仍主要是源码级边界，还不
-是包级稳定导出。
-
-当前已提供包级 kernel 子路径导出：
+当前包级 core 入口：
 
 ```ts
-import {
-  createDirectConnectSession,
-  createDefaultKernelHeadlessEnvironment,
-  runKernelHeadless,
-} from '@go-hare/hare-code/kernel'
+import { createAgent } from '@go-hare/hare-code/core'
 ```
+
+仓库内部 bridge / server / daemon / headless 代码直接依赖 `src/runtime/*`
+与 `src/server/*`，不再经过旧 kernel façade。
 
 ## 当前能力
 
 - 交互式 CLI / REPL
-- headless kernel session
+- headless runtime session
 - direct-connect / server
 - ACP agent 模式
-- bridge / daemon façade
+- bridge / daemon host
 - MCP、channels、plugins
 - OpenAI-compatible provider 接入
 - Buddy / KAIROS / Coordinator / task / subagent / team 主链
@@ -126,7 +116,7 @@ npm 打包检查：
 npm pack --dry-run
 ```
 
-## Kernel 使用
+## Core / Runtime 使用
 
 最小示例见：
 
@@ -134,8 +124,8 @@ npm pack --dry-run
 - [examples/kernel-headless-embed.ts](examples/kernel-headless-embed.ts)
 - [examples/kernel-direct-connect.ts](examples/kernel-direct-connect.ts)
 
-说明：仓库内示例为了便于直接在源码树运行，仍然使用本地 `src` 导入；已安装包的
-外部 consumer 应优先使用 `@go-hare/hare-code/kernel`。
+说明：仓库内示例为了便于直接在源码树运行，使用本地 `src` 模块导入。
+已安装包的 Agent Core 入口是 `@go-hare/hare-code/core`。
 
 适合外部接入的方向：
 
@@ -180,18 +170,20 @@ hare
   - 官方终端交互宿主
 - [src/query.ts](src/query.ts)
   - turn loop 与 query orchestration
-- [src/QueryEngine.ts](src/QueryEngine.ts)
-  - 执行引擎兼容壳
+- [src/core](src/core)
+  - Agent Core session/event 主链
+- [src/runtime/capabilities/execution/SessionRuntime.ts](src/runtime/capabilities/execution/SessionRuntime.ts)
+  - 现有 query lifecycle 的 engine asset
 - [src/runtime](src/runtime)
   - 内部 runtime capability 层
-- [src/kernel](src/kernel)
-  - 当前推荐的 kernel 统一接入面
+- [src/entrypoints/core.ts](src/entrypoints/core.ts)
+  - 包级 Agent Core 入口
 
 ## 开发原则
 
 - CLI 主链优先稳定
 - REPL 只做外围收口，不把执行中枢当成重构主战场
-- 新宿主优先通过 `src/kernel` 接入
+- 新宿主优先通过 `src/core` / `AgentSession` 接入
 - 共享行为变更优先补测试
 - 不为“结构更优雅”发起高风险重排
 

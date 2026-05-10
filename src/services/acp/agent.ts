@@ -1,9 +1,9 @@
 /**
  * ACP Agent implementation — bridges ACP protocol methods to Claude Code's
- * internal QueryEngine / query() pipeline.
+ * internal Agent Core / query() pipeline.
  *
- * Architecture: Uses internal QueryEngine (not @anthropic-ai/claude-agent-sdk)
- * to directly run queries, with a bridge layer converting SDKMessage → ACP SessionUpdate.
+ * Architecture: Uses internal Agent Core (not @anthropic-ai/claude-agent-sdk)
+ * to directly run queries, with a bridge layer converting AgentEvent → ACP SessionUpdate.
  */
 import type {
   Agent,
@@ -43,13 +43,20 @@ import { randomUUID, type UUID } from 'node:crypto'
 import type { Message } from '../../types/message.js'
 import { deserializeMessages } from '../../utils/conversationRecovery.js'
 import { getLastSessionLog, sessionIdExists } from '../../utils/sessionStorage.js'
-import { QueryEngine } from '../../QueryEngine.js'
-import type { QueryEngineConfig } from '../../QueryEngine.js'
+import { SessionRuntime } from '../../runtime/capabilities/execution/SessionRuntime.js'
+import type { SessionRuntimeConfig } from '../../runtime/capabilities/execution/SessionRuntime.js'
+import { createAgent } from '../../core/createAgent.js'
+import { projectSdkMessageToAgentEventPayloads } from '../../core/adapters/agentEventSdkWire.js'
+import type { AgentTurnExecutor } from '../../core/types.js'
+import {
+  streamAgentEventsToAcpSessionUpdates,
+} from './agentEventBridge.js'
 import type { Tools } from '../../Tool.js'
 import { getTools } from '../../tools.js'
 import { getEmptyToolPermissionContext } from '../../Tool.js'
 import type { PermissionMode } from '../../types/permissions.js'
 import type { Command } from '../../types/command.js'
+import type { SDKMessage } from '../../entrypoints/sdk/coreTypes.generated.js'
 import { getCommands } from '../../commands.js'
 import { setOriginalCwd } from '../../bootstrap/state.js'
 import { enableConfigs } from '../../utils/config.js'
@@ -57,7 +64,7 @@ import { FileStateCache } from '../../utils/fileStateCache.js'
 import { getDefaultAppState } from '../../state/AppStateStore.js'
 import type { AppState } from '../../state/AppStateStore.js'
 import { createAcpCanUseTool } from './permissions.js'
-import { forwardSessionUpdates, replayHistoryMessages, type ToolUseCache } from './bridge.js'
+import { replayHistoryMessages, type ToolUseCache } from './bridge.js'
 import {
   resolvePermissionMode,
   computeSessionFingerprint,
@@ -72,7 +79,7 @@ import { getModelOptions } from '../../utils/model/modelOptions.js'
 // ── Session state ─────────────────────────────────────────────────
 
 type AcpSession = {
-  queryEngine: QueryEngine
+  runtime: SessionRuntime
   cancelled: boolean
   cwd: string
   sessionFingerprint: string
@@ -268,23 +275,42 @@ export class AcpAgent implements Agent {
     session.promptRunning = true
 
     try {
-      // Reset the query engine's abort controller for a fresh query.
+      // Reset the runtime abort controller for a fresh query.
       // After a previous interrupt(), the internal controller is stuck in
       // aborted state — without this, submitMessage() fails immediately.
-      session.queryEngine.resetAbortController()
+      session.runtime.resetAbortController()
 
-      const sdkMessages = session.queryEngine.submitMessage(promptInput)
+      const executor: AgentTurnExecutor = async function* (_input, context) {
+        for await (const sdkMessage of session.runtime.submitMessage(promptInput)) {
+          yield* projectSdkMessageToAgentEventPayloads(
+            sdkMessage as SDKMessage,
+            context,
+          )
+        }
+      }
+      const agent = createAgent({ cwd: session.cwd, executor })
+      const agentSession = agent.createSession({ id: params.sessionId })
 
-      const { stopReason, usage } = await forwardSessionUpdates(
-        params.sessionId,
-        sdkMessages,
-        this.conn,
-        session.queryEngine.getAbortSignal(),
-        session.toolUseCache,
-        this.clientCapabilities,
-        session.cwd,
-        () => session.cancelled,
-      )
+      let stopReason
+      let usage
+      try {
+        const result = await streamAgentEventsToAcpSessionUpdates(
+          params.sessionId,
+          agentSession.stream({
+            content: [{ type: 'text', text: promptInput }],
+          }),
+          this.conn,
+          session.runtime.getAbortSignal(),
+          session.toolUseCache,
+          this.clientCapabilities,
+          session.cwd,
+          () => session.cancelled,
+        )
+        stopReason = result.stopReason
+        usage = result.usage
+      } finally {
+        agent.dispose()
+      }
 
       // If the session was cancelled during processing, return cancelled
       if (session.cancelled) {
@@ -356,8 +382,8 @@ export class AcpAgent implements Agent {
     }
     session.pendingMessages.clear()
 
-    // Interrupt the query engine to abort the current API call
-    session.queryEngine.interrupt()
+    // Interrupt the runtime to abort the current API call
+    session.runtime.interrupt()
   }
 
   // ── setSessionMode ──────────────────────────────────────────────
@@ -384,9 +410,9 @@ export class AcpAgent implements Agent {
     if (!session) {
       throw new Error('Session not found')
     }
-    // Store the raw value — QueryEngine.submitMessage() calls
+    // Store the raw value — SessionRuntime.submitMessage() calls
     // parseUserSpecifiedModel() to resolve aliases (e.g. "sonnet" → "glm-5.1-turbo")
-    session.queryEngine.setModel(params.modelId)
+    session.runtime.setModel(params.modelId)
     await this.updateConfigOption(params.sessionId, 'model', params.modelId)
   }
 
@@ -422,7 +448,7 @@ export class AcpAgent implements Agent {
         },
       })
     } else if (params.configId === 'model') {
-      session.queryEngine.setModel(value)
+      session.runtime.setModel(value)
     }
 
     this.syncSessionConfigState(session, params.configId, value)
@@ -498,8 +524,8 @@ export class AcpAgent implements Agent {
     // Load commands for slash command and skill support
     const commands = await getCommands(cwd)
 
-    // Build QueryEngine config
-    const engineConfig: QueryEngineConfig = {
+    // Build SessionRuntime config
+    const engineConfig: SessionRuntimeConfig = {
       cwd,
       tools,
       commands,
@@ -517,7 +543,7 @@ export class AcpAgent implements Agent {
       initialMessages: opts.initialMessages,
     }
 
-    const queryEngine = new QueryEngine(engineConfig)
+    const runtime = new SessionRuntime(engineConfig)
 
     // Build modes — bypassPermissions only available when not running as root (or in sandbox)
     const availableModes = [
@@ -548,14 +574,14 @@ export class AcpAgent implements Agent {
       currentModelId: currentModel,
     }
 
-    // Set the model on the engine
-    queryEngine.setModel(currentModel)
+    // Set the model on the runtime
+    runtime.setModel(currentModel)
 
     // Build config options
     const configOptions = buildConfigOptions(modes, models)
 
     const session: AcpSession = {
-      queryEngine,
+      runtime,
       cancelled: false,
       cwd,
       modes,
@@ -760,7 +786,7 @@ export class AcpAgent implements Agent {
 
 // ── Helpers ────────────────────────────────────────────────────────
 
-/** Extract prompt text from ACP ContentBlock array for QueryEngine input */
+/** Extract prompt text from ACP ContentBlock array for Agent Core input */
 function promptToQueryInput(
   prompt: Array<ContentBlock> | undefined,
 ): string {

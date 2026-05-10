@@ -106,7 +106,9 @@ bun run docs:dev
 ### Core Loop
 
 - **`src/query.ts`** — The main API query function. Sends messages to Claude API, handles streaming responses, processes tool calls, and manages the conversation turn loop.
-- **`src/QueryEngine.ts`** — Higher-level orchestrator wrapping `query()`. Manages conversation state, compaction, file history snapshots, attribution, and turn-level bookkeeping. Used by the REPL screen.
+- **`src/core/`** — Agent Core event/session surface. Hosts execute through `AgentSession.stream()` and adapt `AgentEvent` to their output format.
+- **`src/runtime/capabilities/execution/SessionRuntime.ts`** — Engine asset for the existing query lifecycle, transcript, file state, permissions, and SDKMessage-shaped compatibility output.
+- **`src/runtime/capabilities/execution/SessionRuntime.ts`** — Engine asset for the existing query lifecycle; new hosts should enter through `src/core`.
 - **`src/screens/REPL.tsx`** — The interactive REPL screen (React/Ink component). Handles user input, message display, tool permission prompts, and keyboard shortcuts.
 
 ### API Layer

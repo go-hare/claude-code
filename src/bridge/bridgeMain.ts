@@ -46,7 +46,7 @@ import {
   BridgeHeadlessPermanentError,
   type HeadlessBridgeOpts,
   runHeadlessBridgeRuntime,
-} from '../kernel/bridge.js'
+} from '../runtime/capabilities/bridge/index.js'
 import {
   BRIDGE_LOGIN_ERROR,
   type BridgeApiClient,

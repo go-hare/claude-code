@@ -227,7 +227,7 @@ export type ToolUseContext = {
   discoveredSkillNames?: Set<string>
   userModified?: boolean
   setInProgressToolUseIDs: (f: (prev: Set<string>) => Set<string>) => void
-  /** Only wired in interactive (REPL) contexts; SDK/QueryEngine don't set this. */
+  /** Only wired in interactive (REPL) contexts; SDK/headless paths don't set this. */
   setHasInterruptibleToolInProgress?: (v: boolean) => void
   setResponseLength: (f: (prev: number) => number) => void
   /** Ant-only: push a new API metrics entry for OTPS tracking.

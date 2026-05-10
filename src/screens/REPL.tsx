@@ -253,12 +253,22 @@ import { useMailboxBridge } from '../hooks/useMailboxBridge.js';
 import { queryCheckpoint, logQueryProfileReport } from '../utils/queryProfiler.js';
 import type {
   Message as MessageType,
+  Message,
   UserMessage,
   ProgressMessage,
   HookResultMessage,
   PartialCompactDirection,
 } from '../types/message.js';
 import { query } from '../query.js';
+import { createAgent } from '../core/createAgent.js';
+import {
+  attachSourceSdkMessage,
+  projectSdkMessageToAgentEventPayloads,
+} from '../core/adapters/agentEventSdkWire.js';
+import type { AgentTurnExecutor } from '../core/types.js';
+import { agentEventToReplQueryEvents } from '../hosts/repl/agentEventHandler.js';
+import { contentBlocksToAgentInput } from '../hosts/headless/agentEventOutput.js';
+import type { SDKMessage } from '../entrypoints/sdk/coreTypes.generated.js';
 import { mergeClients, useMergedClients } from '../hooks/useMergedClients.js';
 import { getQuerySourceForREPL } from '../utils/promptCategory.js';
 import { useMergedTools } from '../hooks/useMergedTools.js';
@@ -3290,16 +3300,63 @@ export function REPL({
       resetTurnToolDuration();
       resetTurnClassifierDuration();
 
-      for await (const event of query({
-        messages: messagesIncludingNewMessages,
-        systemPrompt,
-        userContext,
-        systemContext,
-        canUseTool,
-        toolUseContext,
-        querySource: getQuerySourceForREPL(),
-      })) {
-        onQueryEvent(event);
+      const executor: AgentTurnExecutor = async function* (_input, context) {
+        for await (const event of query({
+          messages: messagesIncludingNewMessages,
+          systemPrompt,
+          userContext,
+          systemContext,
+          canUseTool,
+          toolUseContext,
+          querySource: getQuerySourceForREPL(),
+        })) {
+          const sourceMessage = event as unknown as SDKMessage;
+          const payloads = projectSdkMessageToAgentEventPayloads(sourceMessage, context);
+          if (payloads.length === 0) {
+            yield attachSourceSdkMessage(
+              {
+                type: 'status.changed',
+                sessionId: context.sessionId,
+                turnId: context.turnId,
+                status: 'running',
+              },
+              sourceMessage,
+            );
+            continue;
+          }
+          for (const payload of payloads) {
+            yield attachSourceSdkMessage(payload, sourceMessage);
+          }
+        }
+      };
+      const agent = createAgent({
+        cwd: getOriginalCwd(),
+        executor,
+      });
+      const agentSession = agent.createSession({ id: getSessionId() });
+      const promptContent = newMessages[0]?.message?.content;
+      const input =
+        Array.isArray(promptContent)
+          ? contentBlocksToAgentInput(promptContent as ContentBlockParam[])
+          : {
+              content: [
+                {
+                  type: 'text' as const,
+                  text:
+                    getContentText(
+                      typeof promptContent === 'string' ? promptContent : '',
+                    ) ?? '',
+                },
+              ],
+            };
+      try {
+        for await (const event of agentSession.stream(input)) {
+          for (const replEvent of agentEventToReplQueryEvents(event)) {
+            onQueryEvent(replEvent);
+          }
+        }
+      } finally {
+        agent.dispose();
       }
 
       if (feature('BUDDY') && typeof (globalThis as Record<string, unknown>).fireCompanionObserver === 'function') {

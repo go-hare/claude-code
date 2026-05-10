@@ -1,18 +1,19 @@
-# Kernel Examples
+# Runtime Host Examples
 
 ## `kernel-headless-embed.ts`
 
-Minimal external embedding example for the public kernel headless API.
+Minimal headless host example for the runtime-backed compatibility surface.
 
 It demonstrates:
 
 - minimal bootstrap setup
 - command / tool / agent loading
 - default headless environment construction
-- running a single headless kernel session through `src/kernel`
+- running a single headless session through `src/runtime/capabilities/execution/HeadlessHost.ts`
 
-For published-package consumers, prefer importing the same surface through
-`@go-hare/hare-code/kernel`.
+These examples use source imports because they exercise runtime host wiring.
+Published-package consumers should use `@go-hare/hare-code/core` for the
+Agent Core API.
 
 ### Run
 
@@ -33,16 +34,17 @@ kernel-embed-ok
 
 ## `kernel-direct-connect.ts`
 
-Minimal external client example for the public kernel direct-connect API.
+Minimal direct-connect client example for the runtime-backed compatibility surface.
 
 It demonstrates:
 
-- creating a direct-connect session through `src/kernel`
+- creating a direct-connect session through `src/server/createDirectConnectSession.ts`
 - using the returned session config
 - running a single headless request over the direct-connect channel
 
-For published-package consumers, prefer importing the same surface through
-`@go-hare/hare-code/kernel`.
+This example uses source imports because it exercises direct-connect host
+wiring. Published-package consumers should use `@go-hare/hare-code/core` for
+the Agent Core API.
 
 ### Run
 

@@ -29,10 +29,10 @@
     "hare-bun": "dist/cli-bun.js"
   },
   "exports": {
-    "./kernel": {
-      "types": "./src/kernel/index.ts",
-      "import": "./dist/kernel.js",
-      "default": "./dist/kernel.js"
+    "./core": {
+      "types": "./src/entrypoints/core.ts",
+      "import": "./dist/core.js",
+      "default": "./dist/core.js"
     },
     "./package.json": "./package.json"
   },

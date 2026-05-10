@@ -1,7 +1,5 @@
-import {
-  createDirectConnectSession,
-  runConnectHeadless,
-} from '../src/kernel/index.js'
+import { createDirectConnectSession } from '../src/server/createDirectConnectSession.js'
+import { runConnectHeadless } from '../src/server/connectHeadless.js'
 
 const prompt =
   process.argv.slice(2).join(' ').trim() ||

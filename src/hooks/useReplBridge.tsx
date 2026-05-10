@@ -372,7 +372,7 @@ export function useReplBridge(
                 })
                 // Send system/init so remote clients (web/iOS/Android) get
                 // session metadata. REPL uses query() directly — never hits
-                // QueryEngine's SDKMessage layer — so this is the only path
+                // the headless SDKMessage layer — so this is the only path
                 // to put system/init on the REPL-bridge wire. Skills load is
                 // async (memoized, cheap after REPL startup); fire-and-forget
                 // so the connected-state transition isn't blocked.
@@ -395,7 +395,7 @@ export function useReplBridge(
                           // raw filesystem paths (username, project structure).
                           // CCR v2 persists SDK messages to Spanner — users who
                           // tap "Connect from phone" may not expect these on
-                          // Anthropic's servers. QueryEngine (SDK) still emits
+                          // Anthropic's servers. SDK consumers still expect
                           // full lists — SDK consumers expect full telemetry.
                           tools: [],
                           mcpClients: [],

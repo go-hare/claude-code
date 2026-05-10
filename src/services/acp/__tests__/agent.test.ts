@@ -3,13 +3,25 @@ import { describe, expect, test, mock, beforeEach } from 'bun:test'
 // ── Heavy module mocks (must be before any import of the module under test) ──
 
 const mockSetModel = mock(() => {})
+const mockSubmitMessage = mock(async function* () {
+  yield {
+    type: 'result',
+    subtype: 'success',
+    is_error: false,
+    result: '',
+    stop_reason: 'end_turn',
+  }
+})
+const mockInterrupt = mock(() => {})
+const mockResetAbortController = mock(() => {})
+const mockGetAbortSignal = mock(() => new AbortController().signal)
 
-mock.module('../../../QueryEngine.js', () => ({
-  QueryEngine: class MockQueryEngine {
-    submitMessage = mock(async function* () {})
-    interrupt = mock(() => {})
-    resetAbortController = mock(() => {})
-    getAbortSignal = mock(() => new AbortController().signal)
+mock.module('../../../runtime/capabilities/execution/SessionRuntime.js', () => ({
+  SessionRuntime: class MockSessionRuntime {
+    submitMessage = mockSubmitMessage
+    interrupt = mockInterrupt
+    resetAbortController = mockResetAbortController
+    getAbortSignal = mockGetAbortSignal
     setModel = mockSetModel
   },
 }))
@@ -66,8 +78,12 @@ mock.module('../permissions.js', () => ({
   createAcpCanUseTool: mock(() => mock(async () => ({ behavior: 'allow', updatedInput: {} }))),
 }))
 
+mock.module('../agentEventBridge.js', () => ({
+  streamAgentEventsToAcpSessionUpdates: mock(async () => ({ stopReason: 'end_turn' as const })),
+  attachAcpSourceMessage: mock((payload: unknown) => payload),
+}))
+
 mock.module('../bridge.js', () => ({
-  forwardSessionUpdates: mock(async () => ({ stopReason: 'end_turn' as const })),
   replayHistoryMessages: mock(async () => {}),
   toolInfoFromToolUse: mock(() => ({ title: 'Test', kind: 'other', content: [], locations: [] })),
 }))
@@ -142,7 +158,8 @@ mock.module('../../../commands.js', () => ({
 // ── Import after mocks ────────────────────────────────────────────
 
 const { AcpAgent } = await import('../agent.js')
-const { forwardSessionUpdates } = await import('../bridge.js')
+const { streamAgentEventsToAcpSessionUpdates: forwardSessionUpdates } =
+  await import('../agentEventBridge.js')
 
 // ── Helpers ───────────────────────────────────────────────────────
 
@@ -236,7 +253,7 @@ describe('AcpAgent', () => {
       expect(res.models?.currentModelId).toBe('claude-sonnet-4-6')
     })
 
-    test('calls queryEngine.setModel with resolved model', async () => {
+    test('calls runtime.setModel with resolved model', async () => {
       const agent = new AcpAgent(makeConn())
       await agent.newSession({ cwd: '/tmp' } as any)
       expect(mockSetModel).toHaveBeenCalledWith('claude-sonnet-4-6')
@@ -408,7 +425,7 @@ describe('AcpAgent', () => {
   })
 
   describe('setSessionModel', () => {
-    test('updates model on queryEngine', async () => {
+    test('updates model on runtime', async () => {
       const agent = new AcpAgent(makeConn())
       const { sessionId } = await agent.newSession({ cwd: '/tmp' } as any)
       mockSetModel.mockClear()
@@ -416,8 +433,8 @@ describe('AcpAgent', () => {
       expect(mockSetModel).toHaveBeenCalledWith('glm-5.1')
     })
 
-    test('passes alias modelId to queryEngine as-is for later resolution', async () => {
-      // "sonnet[1m]" is stored raw — QueryEngine.submitMessage() calls
+    test('passes alias modelId to runtime as-is for later resolution', async () => {
+      // "sonnet[1m]" is stored raw — SessionRuntime.submitMessage() calls
       // parseUserSpecifiedModel() which resolves aliases via env vars
       const agent = new AcpAgent(makeConn())
       const { sessionId } = await agent.newSession({ cwd: '/tmp' } as any)

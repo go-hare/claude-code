@@ -14,7 +14,7 @@ import { registerMcpXaaIdpCommand } from '../../commands/mcp/xaaIdpCommand.js'
 import {
   createDirectConnectSession,
   DirectConnectError,
-} from '../../kernel/serverHost.js'
+} from '../../server/createDirectConnectSession.js'
 import {
   VALID_INSTALLABLE_SCOPES,
   VALID_UPDATE_SCOPES,
@@ -179,7 +179,7 @@ export function registerCliHostCommands(
           maxSessions: string
         }) => {
           const { randomBytes } = await import('crypto')
-          const { startServer } = await import('../../kernel/serverHost.js')
+          const { startServer } = await import('../../server/server.js')
           const { SessionManager } = await import('../../server/sessionManager.js')
           const { DangerousBackend } = await import(
             '../../server/backends/dangerousBackend.js'
@@ -315,7 +315,7 @@ export function registerCliHostCommands(
           }
 
           const { runConnectHeadless } = await import(
-            '../../kernel/serverHost.js'
+            '../../server/connectHeadless.js'
           )
 
           const prompt =

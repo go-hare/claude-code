@@ -1,10 +1,15 @@
 import { describe, expect, test, mock } from 'bun:test'
 import {
+  attachAcpSourceMessage,
+  streamAgentEventsToAcpSessionUpdates,
+} from '../agentEventBridge.js'
+import {
   toolInfoFromToolUse,
   toolUpdateFromToolResult,
   toolUpdateFromEditToolResponse,
   forwardSessionUpdates,
 } from '../bridge.js'
+import type { AgentEvent } from '../../../core/types.js'
 import { markdownEscape, toDisplayPath } from '../utils.js'
 import type { AgentSideConnection, ToolKind } from '@agentclientprotocol/sdk'
 import type { SDKMessage } from '../../../entrypoints/sdk/coreTypes.js'
@@ -673,5 +678,93 @@ describe('forwardSessionUpdates', () => {
     await expect(
       forwardSessionUpdates('s1', errorStream(), conn, new AbortController().signal, {}),
     ).rejects.toThrow('stream exploded')
+  })
+})
+
+// ── streamAgentEventsToAcpSessionUpdates ─────────────────────────
+
+describe('streamAgentEventsToAcpSessionUpdates', () => {
+  async function* makeEvents(
+    events: AgentEvent[],
+  ): AsyncGenerator<AgentEvent, void, unknown> {
+    for (const event of events) yield event
+  }
+
+  function agentEvent(overrides: Partial<AgentEvent>): AgentEvent {
+    return {
+      id: 'event-1',
+      sequence: 1,
+      timestamp: '2026-01-01T00:00:00.000Z',
+      sessionId: 's1',
+      turnId: 'turn-1',
+      ...overrides,
+    } as AgentEvent
+  }
+
+  test('forwards AgentEvent assistant completion as ACP agent message chunk', async () => {
+    const conn = makeConn()
+    await streamAgentEventsToAcpSessionUpdates(
+      's1',
+      makeEvents([
+        agentEvent({
+          type: 'message.completed',
+          message: {
+            id: 'message-1',
+            role: 'assistant',
+            content: [{ type: 'text', text: 'Hello from core' }],
+          },
+        }),
+      ]),
+      conn,
+      new AbortController().signal,
+      {},
+    )
+
+    expect((conn.sessionUpdate as ReturnType<typeof mock>).mock.calls[0][0]).toMatchObject({
+      sessionId: 's1',
+      update: {
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: 'Hello from core' },
+      },
+    })
+  })
+
+  test('preserves attached SDKMessage when projecting to ACP', async () => {
+    const conn = makeConn()
+    const payload = attachAcpSourceMessage(
+      {
+        type: 'message.completed',
+        sessionId: 's1',
+        turnId: 'turn-1',
+        message: {
+          id: 'message-1',
+          role: 'assistant',
+          content: [{ type: 'text', text: 'projected text' }],
+        },
+      },
+      {
+        type: 'assistant',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'source text' }],
+        },
+        parent_tool_use_id: null,
+      } as unknown as SDKMessage,
+    )
+
+    await streamAgentEventsToAcpSessionUpdates(
+      's1',
+      makeEvents([agentEvent(payload)]),
+      conn,
+      new AbortController().signal,
+      {},
+    )
+
+    expect((conn.sessionUpdate as ReturnType<typeof mock>).mock.calls[0][0]).toMatchObject({
+      update: {
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: 'source text' },
+      },
+    })
   })
 })

@@ -18,14 +18,17 @@ mock.module('../../bridge/bridgeMain.js', () => ({
   runBridgeHeadless: mockRunBridgeHeadless,
 }))
 
-mock.module('../../kernel/bridge.js', () => ({
-  BridgeHeadlessPermanentError: MockBridgeHeadlessPermanentError,
-}))
+mock.module(
+  '../../runtime/capabilities/bridge/HeadlessBridgeRuntime.js',
+  () => ({
+    BridgeHeadlessPermanentError: MockBridgeHeadlessPermanentError,
+  }),
+)
 
 const { runDaemonWorker } = await import('../workerRegistry.js')
 
 describe('runDaemonWorker', () => {
-  test('delegates through daemon host with kernel bridge error typing', async () => {
+  test('delegates through daemon host with bridge error typing', async () => {
     await runDaemonWorker('bridge')
 
     expect(mockRunDaemonWorkerHost).toHaveBeenCalledTimes(1)

@@ -1,4 +1,6 @@
 import type { SDKMessage } from '../entrypoints/agentSdkTypes.js'
+import type { AgentEventPayload } from '../core/types.js'
+import { projectSdkMessageToAgentEventPayloads } from '../core/adapters/agentEventSdkWire.js'
 import type {
   SDKControlCancelRequest,
   SDKControlPermissionRequest,
@@ -64,6 +66,8 @@ export type RemoteSessionConfig = {
 export type RemoteSessionCallbacks = {
   /** Called when an SDKMessage is received from the session */
   onMessage: (message: SDKMessage) => void
+  /** Called when an SDKMessage can be projected into Agent Core events */
+  onAgentEvent?: (event: AgentEventPayload) => void
   /** Called when a permission request is received from CCR */
   onPermissionRequest: (
     request: SDKControlPermissionRequest,
@@ -82,6 +86,16 @@ export type RemoteSessionCallbacks = {
   onReconnecting?: () => void
   /** Called on error */
   onError?: (error: Error) => void
+}
+
+export function projectRemoteSdkMessageToAgentEvents(
+  sessionId: string,
+  message: SDKMessage,
+): AgentEventPayload[] {
+  return projectSdkMessageToAgentEventPayloads(message, {
+    sessionId,
+    turnId: sessionId,
+  })
 }
 
 /**
@@ -180,6 +194,7 @@ export class RemoteSessionManager {
     // Forward SDK messages to callback (type guard ensures proper narrowing)
     if (isSDKMessage(message)) {
       this.callbacks.onMessage(message)
+      this.publishAgentEvents(message)
     }
   }
 
@@ -321,6 +336,17 @@ export class RemoteSessionManager {
   reconnect(): void {
     logForDebugging('[RemoteSessionManager] Reconnecting WebSocket')
     this.websocket?.reconnect()
+  }
+
+  private publishAgentEvents(message: SDKMessage): void {
+    if (!this.callbacks.onAgentEvent) return
+
+    for (const event of projectRemoteSdkMessageToAgentEvents(
+      this.config.sessionId,
+      message,
+    )) {
+      this.callbacks.onAgentEvent(event)
+    }
   }
 }
 

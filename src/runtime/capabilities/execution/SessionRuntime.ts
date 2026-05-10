@@ -58,10 +58,7 @@ import {
   fileHistoryEnabled,
   fileHistoryMakeSnapshot,
 } from '../../../utils/fileHistory.js'
-import {
-  cloneFileStateCache,
-  type FileStateCache,
-} from '../../../utils/fileStateCache.js'
+import type { FileStateCache } from '../../../utils/fileStateCache.js'
 import { headlessProfilerCheckpoint } from '../../../utils/headlessProfiler.js'
 import { registerStructuredOutputEnforcement } from '../../../utils/hooks/hookHelpers.js'
 import { getInMemoryErrors } from '../../../utils/log.js'
@@ -135,9 +132,15 @@ const snipModule = feature('HISTORY_SNIP')
 const snipProjection = feature('HISTORY_SNIP')
   ? (require('../../../services/compact/snipProjection.js') as typeof import('../../../services/compact/snipProjection.js'))
   : null
+const defaultSnipReplay = feature('HISTORY_SNIP')
+  ? (yielded: Message, store: Message[]) => {
+      if (!snipProjection!.isSnipBoundaryMessage(yielded)) return undefined
+      return snipModule!.snipCompactIfNeeded(store, { force: true })
+    }
+  : undefined
 /* eslint-enable @typescript-eslint/no-require-imports */
 
-export type QueryEngineConfig = {
+export type SessionRuntimeConfig = {
   cwd: string
   tools: Tools
   commands: Command[]
@@ -168,13 +171,13 @@ export type QueryEngineConfig = {
   /**
    * Snip-boundary handler: receives each yielded system message plus the
    * current mutableMessages store. Returns undefined if the message is not a
-   * snip boundary; otherwise returns the replayed snip result. Injected by
-   * ask() when HISTORY_SNIP is enabled so feature-gated strings stay inside
-   * the gated module (keeps QueryEngine free of excluded strings and testable
-   * despite feature() returning false under bun test). SDK-only: the REPL
-   * keeps full history for UI scrollback and projects on demand via
-   * projectSnippedView; QueryEngine truncates here to bound memory in long
-   * headless sessions (no UI to preserve).
+   * snip boundary; otherwise returns the replayed snip result. Callers that
+   * need custom replay behavior can inject it when HISTORY_SNIP is enabled so
+   * feature-gated strings stay inside the gated module (keeps SessionRuntime
+   * free of excluded strings and testable despite feature() returning false
+   * under bun test). SDK-only: the REPL keeps full history for UI scrollback
+   * and projects on demand via projectSnippedView; SessionRuntime truncates
+   * here to bound memory in long headless sessions (no UI to preserve).
    */
   snipReplay?: (
     yieldedSystemMsg: Message,
@@ -184,15 +187,12 @@ export type QueryEngineConfig = {
 
 /**
  * SessionRuntime owns the query lifecycle and session state for a conversation.
- * It extracts the core logic from ask() into a standalone class that can be
- * used by both the headless/SDK path and (in a future phase) the REPL.
- *
  * One SessionRuntime per conversation. Each submitMessage() call starts a new
  * turn within the same conversation. State (messages, file cache, usage, etc.)
  * persists across turns.
  */
 export class SessionRuntime {
-  private config: QueryEngineConfig
+  private config: SessionRuntimeConfig
   private mutableMessages: Message[]
   private abortController: AbortController
   private permissionDenials: SDKPermissionDenial[]
@@ -210,7 +210,7 @@ export class SessionRuntime {
   private discoveredSkillNames = new Set<string>()
   private loadedNestedMemoryPaths = new Set<string>()
 
-  constructor(config: QueryEngineConfig) {
+  constructor(config: SessionRuntimeConfig) {
     this.config = config
     this.mutableMessages = config.initialMessages ?? []
     this.abortController = config.abortController ?? createAbortController()
@@ -444,7 +444,7 @@ export class SessionRuntime {
     const messages = [...this.mutableMessages]
 
     // Persist the user's message(s) to transcript BEFORE entering the query
-    // loop. The for-await below only calls recordTranscript when ask() yields
+    // loop. The for-await below only calls recordTranscript when the runtime
     // an assistant/user/compact_boundary message — which doesn't happen until
     // the API responds. If the process is killed before that (e.g. user clicks
     // Stop in cowork seconds after send), the transcript is left with only
@@ -728,7 +728,7 @@ export class SessionRuntime {
           // assistant message per content block, then mutates the last
           // one's message.usage/stop_reason on message_delta — relying on
           // the write queue's 100ms lazy jsonStringify. Awaiting here
-          // blocks ask()'s generator, so message_delta can't run until
+          // blocks the legacy generator, so message_delta can't run until
           // every block is consumed; the drain timer (started at block 1)
           // elapses first. Interactive CC doesn't hit this because
           // useLogMessages.ts fire-and-forgets. enqueueWrite is
@@ -783,7 +783,7 @@ export class SessionRuntime {
         case 'progress': {
           const msg = message as Message
           this.mutableMessages.push(msg)
-          // Record inline so the dedup loop in the next ask() call sees it
+          // Record inline so the dedup loop in the next runtime call sees it
           // as already-recorded. Without this, deferred progress interleaves
           // with already-recorded tool_results in mutableMessages, and the
           // dedup walk freezes startingParentUuid at the wrong message —
@@ -927,7 +927,8 @@ export class SessionRuntime {
           // never shrinks (memory leak in long SDK sessions). The subtype
           // check lives inside the injected callback so feature-gated strings
           // stay out of this file (excluded-strings check).
-          const snipResult = this.config.snipReplay?.(
+          const snipReplay = this.config.snipReplay ?? defaultSnipReplay
+          const snipResult = snipReplay?.(
             msg,
             this.mutableMessages,
           )
@@ -1217,123 +1218,5 @@ export class SessionRuntime {
 
   setModel(model: string): void {
     this.config.userSpecifiedModel = model
-  }
-}
-
-/**
- * Sends a single prompt to the Claude API and returns the response.
- * Assumes that claude is being used non-interactively -- will not
- * ask the user for permissions or further input.
- *
- * Convenience wrapper around SessionRuntime for one-shot usage.
- */
-export async function* ask({
-  commands,
-  prompt,
-  promptUuid,
-  isMeta,
-  cwd,
-  tools,
-  mcpClients,
-  verbose = false,
-  thinkingConfig,
-  maxTurns,
-  maxBudgetUsd,
-  taskBudget,
-  canUseTool,
-  mutableMessages = [],
-  getReadFileCache,
-  setReadFileCache,
-  customSystemPrompt,
-  appendSystemPrompt,
-  userSpecifiedModel,
-  fallbackModel,
-  jsonSchema,
-  getAppState,
-  setAppState,
-  abortController,
-  replayUserMessages = false,
-  includePartialMessages = false,
-  handleElicitation,
-  agents = [],
-  setSDKStatus,
-  orphanedPermission,
-}: {
-  commands: Command[]
-  prompt: string | Array<ContentBlockParam>
-  promptUuid?: string
-  isMeta?: boolean
-  cwd: string
-  tools: Tools
-  verbose?: boolean
-  mcpClients: MCPServerConnection[]
-  thinkingConfig?: ThinkingConfig
-  maxTurns?: number
-  maxBudgetUsd?: number
-  taskBudget?: { total: number }
-  canUseTool: CanUseToolFn
-  mutableMessages?: Message[]
-  customSystemPrompt?: string
-  appendSystemPrompt?: string
-  userSpecifiedModel?: string
-  fallbackModel?: string
-  jsonSchema?: Record<string, unknown>
-  getAppState: () => AppState
-  setAppState: (f: (prev: AppState) => AppState) => void
-  getReadFileCache: () => FileStateCache
-  setReadFileCache: (cache: FileStateCache) => void
-  abortController?: AbortController
-  replayUserMessages?: boolean
-  includePartialMessages?: boolean
-  handleElicitation?: ToolUseContext['handleElicitation']
-  agents?: AgentDefinition[]
-  setSDKStatus?: (status: SDKStatus) => void
-  orphanedPermission?: OrphanedPermission
-}): AsyncGenerator<SDKMessage, void, unknown> {
-  const engine = new SessionRuntime({
-    cwd,
-    tools,
-    commands,
-    mcpClients,
-    agents: agents ?? [],
-    canUseTool,
-    getAppState,
-    setAppState,
-    initialMessages: mutableMessages,
-    readFileCache: cloneFileStateCache(getReadFileCache()),
-    customSystemPrompt,
-    appendSystemPrompt,
-    userSpecifiedModel,
-    fallbackModel,
-    thinkingConfig,
-    maxTurns,
-    maxBudgetUsd,
-    taskBudget,
-    jsonSchema,
-    verbose,
-    handleElicitation,
-    replayUserMessages,
-    includePartialMessages,
-    setSDKStatus,
-    abortController,
-    orphanedPermission,
-    ...(feature('HISTORY_SNIP')
-      ? {
-          snipReplay: (yielded: Message, store: Message[]) => {
-            if (!snipProjection!.isSnipBoundaryMessage(yielded))
-              return undefined
-            return snipModule!.snipCompactIfNeeded(store, { force: true })
-          },
-        }
-      : {}),
-  })
-
-  try {
-    yield* engine.submitMessage(prompt, {
-      uuid: promptUuid,
-      isMeta,
-    })
-  } finally {
-    setReadFileCache(engine.getReadFileState())
   }
 }

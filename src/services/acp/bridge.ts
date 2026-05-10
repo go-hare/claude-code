@@ -1,6 +1,6 @@
 /**
  * Bridge module: converts Claude Code's SDKMessage stream events from
- * QueryEngine.submitMessage() into ACP SessionUpdate notifications.
+ * SessionRuntime.submitMessage() into ACP SessionUpdate notifications.
  *
  * Handles all SDKMessage types:
  *  - system (compact_boundary, api_retry, local_command_output)
@@ -517,7 +517,7 @@ export function toolUpdateFromEditToolResponse(toolResponse: unknown): {
 // ── Prompt conversion ─────────────────────────────────────────────
 
 /**
- * Convert ACP PromptRequest content blocks into content for QueryEngine.
+ * Convert ACP PromptRequest content blocks into runtime prompt content.
  */
 export function promptToQueryContent(
   prompt: Array<ContentBlock> | undefined,
@@ -541,7 +541,7 @@ export function promptToQueryContent(
 // ── Main forwarding function ──────────────────────────────────────
 
 /**
- * Iterates SDKMessages from QueryEngine.submitMessage(), converts each
+ * Iterates SDKMessages from SessionRuntime.submitMessage(), converts each
  * to ACP SessionUpdate notifications, and sends them via conn.sessionUpdate().
  * Returns the final StopReason and accumulated usage for the prompt turn.
  */
@@ -818,7 +818,7 @@ export async function forwardSessionUpdates(
 
         // ── Attachment messages ────────────────────────────────────
         case 'attachment': {
-          // Skip — handled by QueryEngine internally
+          // Skip; handled by the runtime internally.
           break
         }
 

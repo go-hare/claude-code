@@ -93,9 +93,20 @@ import {
 import { parsePluginIdentifier } from 'src/utils/plugins/pluginIdentifier.js'
 import { validateUuid } from 'src/utils/uuid.js'
 import { fromArray } from 'src/utils/generators.js'
-import { ask } from 'src/QueryEngine.js'
+import {
+  SessionRuntime,
+  type SessionRuntimeConfig,
+} from 'src/runtime/capabilities/execution/SessionRuntime.js'
+import { createAgent } from 'src/core/createAgent.js'
+import {
+  agentEventToStdoutMessages,
+  projectSdkMessageToAgentEventPayloads,
+} from 'src/core/adapters/agentEventSdkWire.js'
+import type { AgentTurnExecutor } from 'src/core/types.js'
+import { promptValueToAgentInput } from 'src/hosts/headless/agentEventOutput.js'
 import type { PermissionPromptTool } from 'src/utils/queryHelpers.js'
 import {
+  cloneFileStateCache,
   createFileStateCacheWithSizeLimit,
   mergeFileStateCaches,
   READ_FILE_STATE_CACHE_SIZE,
@@ -448,7 +459,7 @@ export function joinPromptValues(values: PromptValue[]): PromptValue {
 }
 
 /**
- * Whether `next` can be batched into the same ask() call as `head`. Only
+ * Whether `next` can be batched into the same turn as `head`. Only
  * prompt-mode commands batch, and only when the workload tag matches (so the
  * combined turn is attributed correctly) and the isMeta flag matches (so a
  * proactive tick can't merge into a user prompt and lose its hidden-in-
@@ -1153,14 +1164,14 @@ function runHeadlessStreaming(
   }
   statusListeners.add(rateLimitListener)
 
-  // Messages for internal tracking, directly mutated by ask(). These messages
+  // Messages for internal tracking, directly mutated by the runtime turn loop. These messages
   // include Assistant, User, Attachment, and Progress messages.
   // TODO: Clean up this code to avoid passing around a mutable array.
   const mutableMessages: Message[] = initialMessages
 
   // Seed the readFileState cache from the transcript (content the model saw,
   // with message timestamps) so getChangedFiles can detect external edits.
-  // This cache instance must persist across ask() calls, since the edit tool
+  // This cache instance must persist across turns, since the edit tool
   // relies on this as a global state.
   let readFileState = extractReadFilesFromMessages(
     initialMessages,
@@ -1169,8 +1180,8 @@ function runHeadlessStreaming(
   )
 
   // Client-supplied readFileState seeds (via seed_read_state control request).
-  // The stdin IIFE runs concurrently with ask() — a seed arriving mid-turn
-  // would be lost to ask()'s clone-then-replace (QueryEngine.ts finally block)
+  // The stdin IIFE runs concurrently with the current turn — a seed arriving mid-turn
+  // would be lost to the runtime's clone-then-replace (SessionRuntime finally block)
   // if written directly into readFileState. Instead, seeds land here, merge
   // into getReadFileCache's view (readFileState-wins-ties: seeds fill gaps),
   // and are re-applied then CLEARED in setReadFileCache. One-shot: each seed
@@ -1486,7 +1497,7 @@ function runHeadlessStreaming(
     configs: {},
   }
 
-  // Shared tool assembly for ask() and the get_context_usage control request.
+  // Shared tool assembly for the headless turn and the get_context_usage control request.
   // Closes over the mutable sdkTools/dynamicMcpState bindings so both call
   // sites see late-connecting servers.
   const buildAllTools = (appState: AppState): Tools => {
@@ -1752,7 +1763,7 @@ function runHeadlessStreaming(
   // Background plugin installation for all headless users
   // Installs marketplaces from extraKnownMarketplaces and missing enabled plugins
   // CLAUDE_CODE_SYNC_PLUGIN_INSTALL=true: resolved in run() before the first
-  // query so plugins are guaranteed available on the first ask().
+  // query so plugins are guaranteed available on the first turn.
   let pluginInstallPromise: Promise<void> | null = null
   // --bare / SIMPLE: skip plugin install. Scripted calls don't add plugins
   // mid-session; the next interactive run reconciles.
@@ -1910,7 +1921,7 @@ function runHeadlessStreaming(
 
     // Resolve deferred plugin installation (CLAUDE_CODE_SYNC_PLUGIN_INSTALL).
     // The promise was started eagerly so installation overlaps with other init.
-    // Awaiting here guarantees plugins are available before the first ask().
+    // Awaiting here guarantees plugins are available before the first turn.
     // If CLAUDE_CODE_SYNC_PLUGIN_INSTALL_TIMEOUT_MS is set, races against that
     // deadline and proceeds without plugins on timeout (logging an error).
     if (pluginInstallPromise) {
@@ -1959,7 +1970,7 @@ function runHeadlessStreaming(
 
       // Extract command processing into a named function for the do-while pattern.
       // Drains the queue, batching consecutive prompt-mode commands into one
-      // ask() call so messages that queued up during a long turn coalesce
+      // runtime turn so messages that queued up during a long turn coalesce
       // into a single follow-up turn instead of N separate turns.
       const drainCommandQueue = async () => {
         while ((command = dequeue(isMainThread))) {
@@ -1991,7 +2002,7 @@ function runHeadlessStreaming(
           }
           const batchUuids = batch.map(c => c.uuid).filter(u => u !== undefined)
 
-          // QueryEngine will emit a replay for command.uuid (the last uuid in
+          // SessionRuntime will emit a replay for command.uuid (the last uuid in
           // the batch) via its messagesToAck path. Emit replays here for the
           // rest so consumers that track per-uuid delivery (clank's
           // asyncMessages footer, CCR) see an ack for every message they sent,
@@ -2040,7 +2051,7 @@ function runHeadlessStreaming(
 
           // Task notifications arrive when background agents complete.
           // Emit an SDK system event for SDK consumers, then fall through
-          // to ask() so the model sees the agent result and can act on it.
+          // to the current turn so the model sees the agent result and can act on it.
           // This matches TUI behavior where useQueueProcessor always feeds
           // notifications to the model regardless of coordinator mode.
           if (command.mode === 'task-notification') {
@@ -2121,7 +2132,7 @@ function runHeadlessStreaming(
                 uuid: randomUUID(),
               })
             }
-            // No continue -- fall through to ask() so the model processes the result
+            // No continue -- fall through to the current turn so the model processes the result
           }
 
           const input = command.value
@@ -2171,11 +2182,11 @@ function runHeadlessStreaming(
 
           headlessProfilerCheckpoint('before_ask')
           startQueryProfile()
-          // Per-iteration ALS context so bg agents spawned inside ask()
-          // inherit workload across their detached awaits. In-process cron
-          // stamps cmd.workload; the SDK --workload flag is options.workload.
-          // const-capture: TS loses `while ((command = dequeue()))` narrowing
-          // inside the closure.
+          // Per-iteration ALS context so bg agents spawned inside the runtime
+          // submitMessage() call inherit workload across their detached awaits.
+          // In-process cron stamps cmd.workload; the SDK --workload flag is
+          // options.workload. const-capture: TS loses `while ((command =
+          // dequeue()))` narrowing inside the closure.
           const cmd = command
           for (const runId of autonomyRunIds) {
             await markAutonomyRunRunning(runId)
@@ -2185,48 +2196,31 @@ function runHeadlessStreaming(
             await runWithWorkload(
               cmd.workload ?? options.workload,
               async () => {
-                for await (const message of ask({
-                  commands: uniqBy(
-                    [...currentCommands, ...appState.mcp.commands],
-                    'name',
-                  ),
-                  prompt: input,
-                  promptUuid: cmd.uuid,
-                  isMeta: cmd.isMeta,
+                const sessionRuntimeConfig: SessionRuntimeConfig = {
                   cwd: cwd(),
                   tools: allTools,
-                  verbose: options.verbose,
+                  commands: uniqBy([...currentCommands, ...appState.mcp.commands], 'name'),
                   mcpClients: allMcpClients,
+                  agents: currentAgents,
+                  canUseTool,
+                  getAppState,
+                  setAppState,
+                  initialMessages: mutableMessages,
+                  readFileCache: cloneFileStateCache(
+                    pendingSeeds.size === 0
+                      ? readFileState
+                      : mergeFileStateCaches(readFileState, pendingSeeds),
+                  ),
+                  customSystemPrompt: options.systemPrompt,
+                  appendSystemPrompt: options.appendSystemPrompt,
+                  userSpecifiedModel: activeUserSpecifiedModel,
+                  fallbackModel: options.fallbackModel,
                   thinkingConfig: options.thinkingConfig,
                   maxTurns: options.maxTurns,
                   maxBudgetUsd: options.maxBudgetUsd,
                   taskBudget: options.taskBudget,
-                  canUseTool,
-                  userSpecifiedModel: activeUserSpecifiedModel,
-                  fallbackModel: options.fallbackModel,
                   jsonSchema: getInitJsonSchema() ?? options.jsonSchema,
-                  mutableMessages,
-                  getReadFileCache: () =>
-                    pendingSeeds.size === 0
-                      ? readFileState
-                      : mergeFileStateCaches(readFileState, pendingSeeds),
-                  setReadFileCache: cache => {
-                    readFileState = cache
-                    for (const [path, seed] of pendingSeeds.entries()) {
-                      const existing = readFileState.get(path)
-                      if (!existing || seed.timestamp > existing.timestamp) {
-                        readFileState.set(path, seed)
-                      }
-                    }
-                    pendingSeeds.clear()
-                  },
-                  customSystemPrompt: options.systemPrompt,
-                  appendSystemPrompt: options.appendSystemPrompt,
-                  getAppState,
-                  setAppState,
-                  abortController,
-                  replayUserMessages: options.replayUserMessages,
-                  includePartialMessages: options.includePartialMessages,
+                  verbose: options.verbose,
                   handleElicitation: (serverName, params, elicitSignal) =>
                     structuredIO.handleElicitation(
                       serverName,
@@ -2239,8 +2233,8 @@ function runHeadlessStreaming(
                         ? params.elicitationId
                         : undefined,
                     ),
-                  agents: currentAgents,
-                  orphanedPermission: cmd.orphanedPermission,
+                  replayUserMessages: options.replayUserMessages,
+                  includePartialMessages: options.includePartialMessages,
                   setSDKStatus: status => {
                     output.enqueue({
                       type: 'system',
@@ -2250,51 +2244,91 @@ function runHeadlessStreaming(
                       uuid: randomUUID(),
                     })
                   },
-                })) {
-                  // Forward messages to bridge incrementally (mid-turn) so
-                  // claude.ai sees progress and the connection stays alive
-                  // while blocked on permission requests.
-                  forwardMessagesToBridge()
-
-                  if (message.type === 'result') {
-                    lastResultIsError = !!(message as Record<string, unknown>)
-                      .is_error
-                    // Flush pending SDK events so they appear before result on the stream.
-                    for (const event of drainSdkEvents()) {
-                      output.enqueue(event)
-                    }
-
-                    // Hold-back: don't emit result while background agents are running
-                    const currentState = getAppState()
-                    if (
-                      getRunningTasks(currentState).some(
-                        t =>
-                          (t.type === 'local_agent' ||
-                            t.type === 'local_workflow') &&
-                          isBackgroundTask(t),
-                      )
-                    ) {
-                      heldBackResult = message as StdoutMessage
-                    } else {
-                      heldBackResult = null
-                      output.enqueue(message as StdoutMessage)
-                    }
-                  } else {
-                    // Flush SDK events (task_started, task_progress) so background
-                    // agent progress is streamed in real-time, not batched until result.
-                    for (const event of drainSdkEvents()) {
-                      output.enqueue(event)
-                    }
-                    output.enqueue(message as StdoutMessage)
+                  abortController,
+                  orphanedPermission: cmd.orphanedPermission,
+                }
+                const sessionRuntime = new SessionRuntime(sessionRuntimeConfig)
+                const executor: AgentTurnExecutor = async function* (
+                  _input,
+                  context,
+                ) {
+                  for await (const sdkMessage of sessionRuntime.submitMessage(
+                    input,
+                    {
+                      uuid: cmd.uuid,
+                      isMeta: cmd.isMeta,
+                    },
+                  )) {
+                    yield* projectSdkMessageToAgentEventPayloads(
+                      sdkMessage,
+                      context,
+                    )
                   }
                 }
+                const agent = createAgent({
+                  cwd: cwd(),
+                  executor,
+                })
+                const session = agent.createSession({ id: getSessionId() })
+                for await (const event of session.stream(
+                  promptValueToAgentInput(input),
+                )) {
+                  const messages = agentEventToStdoutMessages(event)
+                  for (const message of messages) {
+                    // Forward messages to bridge incrementally (mid-turn) so
+                    // claude.ai sees progress and the connection stays alive
+                    // while blocked on permission requests.
+                    forwardMessagesToBridge()
+
+                    if (message.type === 'result') {
+                      lastResultIsError = !!(message as Record<string, unknown>)
+                        .is_error
+                      // Flush pending SDK events so they appear before result on the stream.
+                      for (const event of drainSdkEvents()) {
+                        output.enqueue(event)
+                      }
+
+                      // Hold-back: don't emit result while background agents are running
+                      const currentState = getAppState()
+                      if (
+                        getRunningTasks(currentState).some(
+                          t =>
+                            (t.type === 'local_agent' ||
+                              t.type === 'local_workflow') &&
+                            isBackgroundTask(t),
+                        )
+                      ) {
+                        heldBackResult = message as StdoutMessage
+                      } else {
+                        heldBackResult = null
+                        output.enqueue(message as StdoutMessage)
+                      }
+                    } else {
+                      // Flush SDK events (task_started, task_progress) so background
+                      // agent progress is streamed in real-time, not batched until result.
+                      for (const event of drainSdkEvents()) {
+                        output.enqueue(event)
+                      }
+                      output.enqueue(message as StdoutMessage)
+                    }
+                  }
+                }
+                readFileState = sessionRuntime.getReadFileState()
+                for (const [path, seed] of pendingSeeds.entries()) {
+                  const existing = readFileState.get(path)
+                  if (!existing || seed.timestamp > existing.timestamp) {
+                    readFileState.set(path, seed)
+                  }
+                }
+                pendingSeeds.clear()
+                agent.dispose()
               },
             ) // end runWithWorkload
             if (lastResultIsError) {
               for (const runId of autonomyRunIds) {
                 await finalizeAutonomyRunFailed({
                   runId,
-                  error: 'ask() returned an error result',
+                  error: 'headless turn returned an error result',
                 })
               }
             } else {
@@ -3969,7 +4003,7 @@ function runHeadlessStreaming(
           //
           // Fallback (resume before first turn completes — no snapshot yet):
           // rebuild from scratch. buildSideQuestionFallbackParams mirrors
-          // QueryEngine.ts:ask()'s system prompt assembly (including
+          // SessionRuntime's system prompt assembly (including
           // --system-prompt / --append-system-prompt) so the rebuilt prefix
           // matches in the common case. May still miss the cache for
           // coordinator mode or memory-mechanics extras — acceptable, the

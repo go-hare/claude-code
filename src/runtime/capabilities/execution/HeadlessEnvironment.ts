@@ -1,32 +1,32 @@
 import { feature } from 'bun:bundle'
-import type { Command } from '../commands.js'
-import {
-  runHeadlessRuntime,
-  type HeadlessRuntimeInput,
-  type HeadlessRuntimeOptions,
-} from '../runtime/capabilities/execution/HeadlessRuntime.js'
+import type { AgentDefinition } from '@go-hare/builtin-tools/tools/AgentTool/loadAgentsDir.js'
+import type { Command } from '../../../commands.js'
 import type {
   MCPServerConnection,
   McpSdkServerConfig,
-} from '../services/mcp/types.js'
+} from '../../../services/mcp/types.js'
 import {
   getDefaultAppState,
   type AppState,
-} from '../state/AppStateStore.js'
-import { onChangeAppState } from '../state/onChangeAppState.js'
-import { createStore } from '../state/store.js'
+} from '../../../state/AppStateStore.js'
+import { onChangeAppState } from '../../../state/onChangeAppState.js'
+import { createStore } from '../../../state/store.js'
 import {
   type Tool,
   type ToolPermissionContext,
   type Tools,
-} from '../Tool.js'
-import type { AgentDefinition } from '@go-hare/builtin-tools/tools/AgentTool/loadAgentsDir.js'
-import { getInitialEffortSetting, parseEffortValue } from '../utils/effort.js'
+} from '../../../Tool.js'
+import { getInitialEffortSetting, parseEffortValue } from '../../../utils/effort.js'
 import {
   getInitialFastModeSetting,
   isFastModeEnabled,
-} from '../utils/fastMode.js'
-import { verifyAutoModeGateAccess } from '../utils/permissions/permissionSetup.js'
+} from '../../../utils/fastMode.js'
+import { verifyAutoModeGateAccess } from '../../../utils/permissions/permissionSetup.js'
+import {
+  runHeadlessRuntime,
+  type HeadlessRuntimeInput,
+  type HeadlessRuntimeOptions,
+} from './HeadlessRuntime.js'
 
 export type KernelHeadlessInput = HeadlessRuntimeInput
 
@@ -67,12 +67,6 @@ export type KernelHeadlessSession = {
   setState(updater: (prev: AppState) => AppState): void
 }
 
-/**
- * Create a runtime-owned state store for headless sessions.
- *
- * Callers can seed this with an already-composed AppState, then pass the store
- * into createKernelHeadlessSession/runKernelHeadless.
- */
 export function createKernelHeadlessStore(
   initialState: AppState,
 ): KernelHeadlessStore {
@@ -83,9 +77,7 @@ function getHeadlessCommands(
   commands: readonly Command[],
   disableSlashCommands: boolean,
 ): Command[] {
-  if (disableSlashCommands) {
-    return []
-  }
+  if (disableSlashCommands) return []
 
   return commands.filter(
     command =>
@@ -140,9 +132,7 @@ export function createDefaultKernelHeadlessEnvironment(
     ).then(({ updateContext }) => {
       store.setState(prev => {
         const nextContext = updateContext(prev.toolPermissionContext)
-        if (nextContext === prev.toolPermissionContext) {
-          return prev
-        }
+        if (nextContext === prev.toolPermissionContext) return prev
         return { ...prev, toolPermissionContext: nextContext }
       })
     })
@@ -157,13 +147,6 @@ export function createDefaultKernelHeadlessEnvironment(
   }
 }
 
-/**
- * Stable headless kernel runner.
- *
- * This is a façade over the runtime-owned headless execution entry. It keeps
- * the assembly contract stable for external callers while the underlying
- * implementation can continue to evolve behind the runtime boundary.
- */
 export async function runKernelHeadless(
   inputPrompt: KernelHeadlessInput,
   environment: KernelHeadlessEnvironment,

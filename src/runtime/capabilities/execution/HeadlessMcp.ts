@@ -1,22 +1,22 @@
 import pickBy from 'lodash-es/pickBy.js'
 import uniqBy from 'lodash-es/uniqBy.js'
-import type { Command } from '../commands.js'
-import type { ScopedMcpServerConfig } from '../services/mcp/types.js'
+import type { Command } from '../../../commands.js'
 import {
   clearServerCache,
   getMcpToolsCommandsAndResources,
-} from '../services/mcp/client.js'
+} from '../../../services/mcp/client.js'
 import {
   dedupClaudeAiMcpServers,
   getMcpServerSignature,
-} from '../services/mcp/config.js'
+} from '../../../services/mcp/config.js'
+import type { ScopedMcpServerConfig } from '../../../services/mcp/types.js'
 import {
   excludeCommandsByServer,
   excludeResourcesByServer,
-} from '../services/mcp/utils.js'
-import { dedupeToolsByName } from '../Tool.js'
-import { logForDebugging } from '../utils/debug.js'
-import type { KernelHeadlessStore } from './headless.js'
+} from '../../../services/mcp/utils.js'
+import { dedupeToolsByName } from '../../../Tool.js'
+import { logForDebugging } from '../../../utils/debug.js'
+import type { KernelHeadlessStore } from './HeadlessEnvironment.js'
 
 export type KernelHeadlessMcpConnectOptions = {
   store: KernelHeadlessStore
@@ -72,9 +72,7 @@ function suppressDuplicatePluginServers(
   regularMcpConfigs: Record<string, ScopedMcpServerConfig>,
   claudeaiConfigs: Record<string, ScopedMcpServerConfig>,
 ): void {
-  if (Object.keys(claudeaiConfigs).length === 0) {
-    return
-  }
+  if (Object.keys(claudeaiConfigs).length === 0) return
 
   const claudeaiSigs = new Set<string>()
   for (const config of Object.values(claudeaiConfigs)) {
@@ -89,18 +87,14 @@ function suppressDuplicatePluginServers(
     if (sig && claudeaiSigs.has(sig)) suppressed.add(name)
   }
 
-  if (suppressed.size === 0) {
-    return
-  }
+  if (suppressed.size === 0) return
 
   logForDebugging(
     `[MCP] Lazy dedup: suppressing ${suppressed.size} plugin server(s) that duplicate claude.ai connectors: ${[...suppressed].join(', ')}`,
   )
 
   for (const client of store.getState().mcp.clients) {
-    if (!suppressed.has(client.name) || client.type !== 'connected') {
-      continue
-    }
+    if (!suppressed.has(client.name) || client.type !== 'connected') continue
     client.client.onclose = undefined
     void clearServerCache(client.name, client.config).catch(() => {})
   }

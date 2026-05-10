@@ -95,7 +95,7 @@ export function isResultSuccessful(
   // legitimate and passes through without throwing. Observed on
   // task_notification drain turns: model returns stop_reason=end_turn,
   // outputTokens=4, textContentLength=0 — it saw the subagent result
-  // and decided nothing needed saying. Without this, QueryEngine emits
+  // and decided nothing needed saying. Without this, SessionRuntime emits
   // error_during_execution with errors[] = the entire process's
   // accumulated logError() buffer. Covers both string-content and
   // text-block-content user prompts, and any other non-passing shape.
