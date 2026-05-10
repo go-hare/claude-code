@@ -7,27 +7,25 @@
  * 3. Generate dual entry points (cli-bun.js, cli-node.js)
  */
 import { readdir, readFile, writeFile, cp } from "node:fs/promises";
-import { chmodSync } from "node:fs";
+import { chmodSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
 
 const outdir = "dist";
 
 async function postBuild() {
-  // Step 1: Patch globalThis.Bun destructuring from third-party deps
-  const files = await readdir(outdir, { recursive: true });
+  // Step 1: Patch globalThis.Bun destructuring in the single bundled file
+  const cliPath = join(outdir, "cli.js");
   const BUN_DESTRUCTURE = /var \{([^}]+)\} = globalThis\.Bun;?/g;
   const BUN_DESTRUCTURE_SAFE =
     'var {$1} = typeof globalThis.Bun !== "undefined" ? globalThis.Bun : {};';
 
   let bunPatched = 0;
-  for (const file of files) {
-    const filePath = join(outdir, file);
-    if (typeof file !== "string" || !file.endsWith(".js")) continue;
-    const content = await readFile(filePath, "utf-8");
+  {
+    const content = await readFile(cliPath, "utf-8");
     if (BUN_DESTRUCTURE.test(content)) {
       await writeFile(
-        filePath,
+        cliPath,
         content.replace(BUN_DESTRUCTURE, BUN_DESTRUCTURE_SAFE),
       );
       bunPatched++;
@@ -36,9 +34,32 @@ async function postBuild() {
   }
 
   // Step 2: Copy native addon files
-  const vendorDir = join(outdir, "vendor", "audio-capture");
-  await cp("vendor/audio-capture", vendorDir, { recursive: true } as never);
-  console.log(`Copied vendor/audio-capture/ → ${vendorDir}/`);
+  for (const nativeVendor of [
+    "audio-capture",
+    "computer-use-input",
+    "computer-use-swift",
+    "image-processor",
+    "url-handler",
+  ]) {
+    const vendorDir = join(outdir, "vendor", nativeVendor);
+    await cp(join("vendor", nativeVendor), vendorDir, {
+      recursive: true,
+    } as never);
+    console.log(`Copied vendor/${nativeVendor}/ → ${vendorDir}/`);
+  }
+
+  const ripgrepVendorSrc = join("src", "utils", "vendor", "ripgrep");
+  if (existsSync(ripgrepVendorSrc)) {
+    const ripgrepVendorDir = join(outdir, "vendor", "ripgrep");
+    await cp(ripgrepVendorSrc, ripgrepVendorDir, {
+      recursive: true,
+    } as never);
+    console.log(`Copied ${ripgrepVendorSrc}/ → ${ripgrepVendorDir}/`);
+  } else {
+    console.warn(
+      `Skipped copying ${ripgrepVendorSrc}/ because it does not exist`,
+    );
+  }
 
   // Step 3: Generate dual entry points
   const cliBun = join(outdir, "cli-bun.js");

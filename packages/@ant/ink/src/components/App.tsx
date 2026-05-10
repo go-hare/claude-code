@@ -286,6 +286,12 @@ export default class App extends PureComponent<Props, State> {
     // ignore calling setRawMode on an handle stdin it cannot be called
     if (this.isRawModeSupported()) {
       this.handleSetRawMode(false)
+    } else {
+      try {
+        this.props.stdin.unref()
+      } catch {
+        // stdin may already be destroyed
+      }
     }
   }
 

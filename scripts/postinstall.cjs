@@ -82,7 +82,11 @@ function detectMusl() {
 // --- Paths ---
 
 function getVendorDir() {
-  if (existsSync(path.join(projectRoot, "src"))) {
+  const isSourceCheckout =
+    existsSync(path.join(projectRoot, ".git")) ||
+    existsSync(path.join(projectRoot, "build.ts"))
+
+  if (isSourceCheckout && existsSync(path.join(projectRoot, "src"))) {
     return path.resolve(projectRoot, "src", "utils", "vendor", "ripgrep")
   }
   return path.resolve(projectRoot, "dist", "vendor", "ripgrep")

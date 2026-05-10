@@ -15,8 +15,13 @@ import { logForDebugging } from '../../utils/debug.js';
 import { createUserMessage } from '../../utils/messages.js';
 import { killInProcessTeammate } from '../../utils/swarm/spawnInProcess.js';
 import { updateTaskState } from '../../utils/task/framework.js';
+import { writeToMailbox } from '../../utils/teammateMailbox.js';
 import type { InProcessTeammateTaskState, PendingTeammateUserMessage } from './types.js';
-import { appendCappedMessage, isInProcessTeammateTask } from './types.js';
+import {
+  appendCappedMessage,
+  getTeammateExecutionBackend,
+  isInProcessTeammateTask,
+} from './types.js';
 
 /**
  * InProcessTeammateTask - Handles in-process teammate execution.
@@ -111,6 +116,59 @@ export function injectUserMessageToTeammate(
     };
   });
   return injected;
+}
+
+export async function deliverUserMessageToTeammate(
+  task: InProcessTeammateTaskState,
+  message: string,
+  options:
+    | {
+        autonomyRunId?: string;
+        origin?: MessageOrigin;
+      }
+    | undefined,
+  setAppState: SetAppState,
+): Promise<boolean> {
+  if (getTeammateExecutionBackend(task) === 'in-process') {
+    return injectUserMessageToTeammate(task.id, message, options, setAppState);
+  }
+
+  if (isTerminalTaskStatus(task.status)) {
+    logForDebugging(`Dropping mailbox message for teammate task ${task.id}: task status is "${task.status}"`);
+    return false;
+  }
+
+  await writeToMailbox(
+    task.identity.agentName,
+    {
+      from: 'user',
+      text: message,
+      timestamp: new Date().toISOString(),
+    },
+    task.identity.teamName,
+  );
+
+  const userMessageArgs: Parameters<typeof createUserMessage>[0] = {
+    content: message,
+  };
+  if (options?.origin !== undefined) {
+    userMessageArgs.origin = options.origin;
+  }
+  updateTaskState<InProcessTeammateTaskState>(task.id, setAppState, currentTask => {
+    if (isTerminalTaskStatus(currentTask.status)) {
+      return currentTask;
+    }
+
+    return {
+      ...currentTask,
+      isIdle: false,
+      messages: appendCappedMessage(
+        currentTask.messages,
+        createUserMessage(userMessageArgs),
+      ),
+    };
+  });
+  return true;
 }
 
 /**

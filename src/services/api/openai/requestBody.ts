@@ -6,6 +6,8 @@
 import type {
   ChatCompletionCreateParamsStreaming,
 } from 'openai/resources/chat/completions/completions.mjs'
+import type { BetaJSONOutputFormat } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
+import type { EffortValue } from '../../../utils/effort.js'
 import { isEnvTruthy, isEnvDefinedFalsy } from '../../../utils/envUtils.js'
 
 /**
@@ -38,16 +40,25 @@ export function isOpenAIThinkingEnabled(model: string): boolean {
  * 2. OPENAI_MAX_TOKENS env var (OpenAI-specific, useful for local models
  *    with small context windows, e.g. RTX 3060 12GB running 65536-token models)
  * 3. CLAUDE_CODE_MAX_OUTPUT_TOKENS env var (generic override)
- * 4. upperLimit default (64000)
+ * 4. upperLimit default
  */
 export function resolveOpenAIMaxTokens(
   upperLimit: number,
   maxOutputTokensOverride?: number,
 ): number {
   return maxOutputTokensOverride
-    ?? (process.env.OPENAI_MAX_TOKENS ? parseInt(process.env.OPENAI_MAX_TOKENS, 10) || undefined : undefined)
-    ?? (process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS ? parseInt(process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS, 10) || undefined : undefined)
+    ?? parsePositiveIntegerEnv(process.env.OPENAI_MAX_TOKENS)
+    ?? parsePositiveIntegerEnv(process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS)
     ?? upperLimit
+}
+
+function parsePositiveIntegerEnv(value: string | undefined): number | undefined {
+  if (!value) {
+    return undefined
+  }
+
+  const parsed = parseInt(value, 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
 }
 
 /**
@@ -69,12 +80,38 @@ export function buildOpenAIRequestBody(params: {
   enableThinking: boolean
   maxTokens: number
   temperatureOverride?: number
+  effortValue?: EffortValue
+  outputFormat?: BetaJSONOutputFormat
 }): ChatCompletionCreateParamsStreaming & {
   thinking?: { type: string }
   enable_thinking?: boolean
   chat_template_kwargs?: { thinking: boolean }
+  reasoning_effort?: 'low' | 'medium' | 'high' | 'xhigh'
+  response_format?: {
+    type: 'json_schema'
+    json_schema: {
+      name: string
+      schema: Record<string, unknown>
+      strict: true
+    }
+  }
 } {
-  const { model, messages, tools, toolChoice, enableThinking, maxTokens, temperatureOverride } = params
+  const {
+    model,
+    messages,
+    tools,
+    toolChoice,
+    enableThinking,
+    maxTokens,
+    temperatureOverride,
+    effortValue,
+    outputFormat,
+  } = params
+  const reasoningEffort =
+    typeof effortValue === 'string' && effortValue !== 'max'
+      ? effortValue
+      : undefined
+  const responseFormat = buildOpenAIResponseFormat(outputFormat)
   return {
     model,
     messages,
@@ -85,6 +122,8 @@ export function buildOpenAIRequestBody(params: {
     }),
     stream: true,
     stream_options: { include_usage: true },
+    ...(responseFormat && { response_format: responseFormat }),
+    ...(reasoningEffort && { reasoning_effort: reasoningEffort }),
     // DeepSeek thinking mode: enable chain-of-thought output.
     // When active, temperature/top_p/presence_penalty/frequency_penalty are ignored by DeepSeek.
     ...(enableThinking && {
@@ -99,5 +138,41 @@ export function buildOpenAIRequestBody(params: {
     ...(!enableThinking && temperatureOverride !== undefined && {
       temperature: temperatureOverride,
     }),
+  }
+}
+
+function buildOpenAIResponseFormat(
+  outputFormat?: BetaJSONOutputFormat,
+):
+  | {
+      type: 'json_schema'
+      json_schema: {
+        name: string
+        schema: Record<string, unknown>
+        strict: true
+      }
+    }
+  | undefined {
+  if (!outputFormat || outputFormat.type !== 'json_schema') {
+    return undefined
+  }
+
+  const rawTitle =
+    typeof outputFormat.schema?.title === 'string'
+      ? outputFormat.schema.title
+      : 'structured_output'
+  const sanitizedName =
+    rawTitle
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, '_')
+      .replace(/^_+|_+$/g, '') || 'structured_output'
+
+  return {
+    type: 'json_schema',
+    json_schema: {
+      name: sanitizedName,
+      schema: outputFormat.schema,
+      strict: true,
+    },
   }
 }

@@ -6,7 +6,7 @@ import { DEFAULT_BUILD_FEATURES } from './scripts/defines.ts'
 const outdir = 'dist'
 
 // Step 1: Clean output directory
-const { rmSync } = await import('fs')
+const { existsSync, rmSync } = await import('fs')
 rmSync(outdir, { recursive: true, force: true })
 
 // Collect FEATURE_* env vars → Bun.build features
@@ -14,38 +14,70 @@ const envFeatures = Object.keys(process.env)
   .filter(k => k.startsWith('FEATURE_'))
   .map(k => k.replace('FEATURE_', ''))
 const features = [...new Set([...DEFAULT_BUILD_FEATURES, ...envFeatures])]
+const define = getMacroDefines()
+const buildRoot = process.cwd()
 
-// Step 2: Bundle with splitting
-const result = await Bun.build({
-  entrypoints: ['src/entrypoints/cli.tsx', 'src/entrypoints/core.ts'],
-  outdir,
-  target: 'bun',
-  splitting: true,
-  define: getMacroDefines(),
-  features,
-})
+async function buildEntrypoints(
+  entrypoints: string[],
+  options: { outdir: string; splitting: boolean },
+): Promise<number> {
+  const result = await Bun.build({
+    entrypoints,
+    outdir: options.outdir,
+    root: buildRoot,
+    target: 'bun',
+    splitting: options.splitting,
+    define,
+    features,
+  })
 
-if (!result.success) {
-  console.error('Build failed:')
-  for (const log of result.logs) {
-    console.error(log)
+  if (!result.success) {
+    console.error(`Build failed for ${entrypoints.join(', ')}:`)
+    for (const log of result.logs) {
+      console.error(log)
+    }
+    process.exit(1)
   }
-  process.exit(1)
+
+  return result.outputs.length
 }
 
+async function collectJsFiles(dir: string): Promise<string[]> {
+  const entries = await readdir(dir, { withFileTypes: true })
+  const files = await Promise.all(
+    entries.map(async entry => {
+      const entryPath = join(dir, entry.name)
+      if (entry.isDirectory()) {
+        return collectJsFiles(entryPath)
+      }
+      return entry.name.endsWith('.js') ? [entryPath] : []
+    }),
+  )
+  return files.flat()
+}
+
+// Step 2: Bundle the CLI and Agent Core package entry. Preserve the
+// src/entrypoints directory shape because current runtime code still resolves
+// several paths relative to that layout.
+const outputCount = await buildEntrypoints(
+  ['src/entrypoints/cli.tsx', 'src/entrypoints/core.ts'],
+  {
+    outdir,
+    splitting: true,
+  },
+)
+
 // Step 3: Post-process — replace Bun-only `import.meta.require` with Node.js compatible version
-const files = await readdir(outdir)
+const files = await collectJsFiles(outdir)
 const IMPORT_META_REQUIRE = 'var __require = import.meta.require;'
 const COMPAT_REQUIRE = `var __require = typeof import.meta.require === "function" ? import.meta.require : (await import("module")).createRequire(import.meta.url);`
 
 let patched = 0
 for (const file of files) {
-  if (!file.endsWith('.js')) continue
-  const filePath = join(outdir, file)
-  const content = await readFile(filePath, 'utf-8')
+  const content = await readFile(file, 'utf-8')
   if (content.includes(IMPORT_META_REQUIRE)) {
     await writeFile(
-      filePath,
+      file,
       content.replace(IMPORT_META_REQUIRE, COMPAT_REQUIRE),
     )
     patched++
@@ -58,12 +90,10 @@ let bunPatched = 0
 const BUN_DESTRUCTURE = /var \{([^}]+)\} = globalThis\.Bun;?/g
 const BUN_DESTRUCTURE_SAFE = 'var {$1} = typeof globalThis.Bun !== "undefined" ? globalThis.Bun : {};'
 for (const file of files) {
-  if (!file.endsWith('.js')) continue
-  const filePath = join(outdir, file)
-  const content = await readFile(filePath, 'utf-8')
+  const content = await readFile(file, 'utf-8')
   if (BUN_DESTRUCTURE.test(content)) {
     await writeFile(
-      filePath,
+      file,
       content.replace(BUN_DESTRUCTURE, BUN_DESTRUCTURE_SAFE),
     )
     bunPatched++
@@ -72,25 +102,45 @@ for (const file of files) {
 BUN_DESTRUCTURE.lastIndex = 0
 
 console.log(
-  `Bundled ${result.outputs.length} files to ${outdir}/ (patched ${patched} for import.meta.require, ${bunPatched} for Bun destructure)`,
+  `Bundled ${outputCount} files to ${outdir}/ (patched ${patched} for import.meta.require, ${bunPatched} for Bun destructure)`,
 )
 
-// Step 4: Copy native .node addon files (audio-capture)
-const vendorDir = join(outdir, 'vendor', 'audio-capture')
-await cp('vendor/audio-capture', vendorDir, { recursive: true })
-console.log(`Copied vendor/audio-capture/ → ${vendorDir}/`)
+// Step 4: Copy native .node addon files
+for (const nativeVendor of [
+  'audio-capture',
+  'computer-use-input',
+  'computer-use-swift',
+  'image-processor',
+  'url-handler',
+]) {
+  const vendorDir = join(outdir, 'vendor', nativeVendor)
+  await cp(join('vendor', nativeVendor), vendorDir, { recursive: true })
+  console.log(`Copied vendor/${nativeVendor}/ → ${vendorDir}/`)
+}
 
-// Step 5: Generate cli-bun and cli-node executable entry points
+// Step 4.1: Copy the bundled ripgrep binary for published Node installs
+const ripgrepVendorSrc = join('src', 'utils', 'vendor', 'ripgrep')
+if (existsSync(ripgrepVendorSrc)) {
+  const ripgrepVendorDir = join(outdir, 'vendor', 'ripgrep')
+  await cp(ripgrepVendorSrc, ripgrepVendorDir, { recursive: true })
+  console.log(`Copied ${ripgrepVendorSrc}/ → ${ripgrepVendorDir}/`)
+} else {
+  console.warn(`Skipped copying ${ripgrepVendorSrc}/ because it does not exist`)
+}
+
+// Step 5: Generate executable entry points
 const cliBun = join(outdir, 'cli-bun.js')
 const cliNode = join(outdir, 'cli-node.js')
 
-await writeFile(cliBun, '#!/usr/bin/env bun\nimport "./cli.js"\n')
+await writeFile(cliBun, '#!/usr/bin/env bun\nimport "./src/entrypoints/cli.js"\n')
 
-await writeFile(cliNode, '#!/usr/bin/env node\nimport "./cli.js"\n')
+await writeFile(cliNode, '#!/usr/bin/env node\nimport "./src/entrypoints/cli.js"\n')
 
 // Make both executable
 const { chmodSync } = await import('fs')
 chmodSync(cliBun, 0o755)
 chmodSync(cliNode, 0o755)
 
-console.log(`Generated ${cliBun} (shebang: bun) and ${cliNode} (shebang: node)`)
+console.log(
+  `Generated ${cliBun} (shebang: bun) and ${cliNode} (shebang: node)`,
+)

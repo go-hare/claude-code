@@ -49,7 +49,7 @@ const MAX_DIRS_TO_LIST = 5
 // through glob-base truncation instead of full-path symlink resolution.
 const GLOB_PATTERN_REGEX = /[*?[\]]/
 
-type FileOperationType = 'read' | 'write' | 'create'
+export type FileOperationType = 'read' | 'write' | 'create'
 
 type PathCheckResult = {
   allowed: boolean
@@ -58,6 +58,15 @@ type PathCheckResult = {
 
 type ResolvedPathCheckResult = PathCheckResult & {
   resolvedPath: string
+}
+
+export type ExtractedPathOperation = {
+  rawCommandName: string
+  commandName: string
+  paths: string[]
+  operationType: FileOperationType
+  hasUnvalidatablePathArg: boolean
+  optionalWrite: boolean
 }
 
 /**
@@ -828,6 +837,22 @@ function expandTilde(filePath: string): string {
   return filePath
 }
 
+export function isRelativePowerShellPath(filePath: string): boolean {
+  const cleanPath = expandTilde(filePath.replace(/^['"]|['"]$/g, ''))
+  return !isAbsolute(cleanPath)
+}
+
+export function resolvePowerShellPath(
+  filePath: string,
+  cwd = getCwd(),
+): string {
+  const cleanPath = expandTilde(filePath.replace(/^['"]|['"]$/g, ''))
+  const absolutePath = isAbsolute(cleanPath)
+    ? cleanPath
+    : resolve(cwd, cleanPath)
+  return safeResolvePath(getFsImplementation(), absolutePath).resolvedPath
+}
+
 /**
  * Checks the raw user-provided path (pre-realpath) for dangerous removal
  * targets. safeResolvePath/realpathSync canonicalizes in ways that defeat
@@ -1505,6 +1530,38 @@ function extractPathsFromCommand(cmd: ParsedCommandElement): {
     hasUnvalidatablePathArg,
     optionalWrite: config.optionalWrite ?? false,
   }
+}
+
+export function getPathOperations(
+  parsed: ParsedPowerShellCommand,
+): ExtractedPathOperation[] {
+  const operations: ExtractedPathOperation[] = []
+
+  const addOperation = (command: ParsedCommandElement) => {
+    if (command.elementType !== 'CommandAst') {
+      return
+    }
+    const result = extractPathsFromCommand(command)
+    operations.push({
+      rawCommandName: command.name,
+      commandName: resolveToCanonical(command.name),
+      paths: result.paths,
+      operationType: result.operationType,
+      hasUnvalidatablePathArg: result.hasUnvalidatablePathArg,
+      optionalWrite: result.optionalWrite,
+    })
+  }
+
+  for (const statement of parsed.statements) {
+    for (const command of statement.commands) {
+      addOperation(command)
+    }
+    for (const command of statement.nestedCommands ?? []) {
+      addOperation(command)
+    }
+  }
+
+  return operations
 }
 
 /**

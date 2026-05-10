@@ -15,6 +15,13 @@ export type RuntimeExecutionStatus =
   | 'failed'
   | 'cancelled'
 
+export type RuntimeExecutionMode =
+  | 'main'
+  | 'agent'
+  | 'async_agent'
+  | 'teammate'
+  | 'coordinator'
+
 export type RuntimeExecutionEvent =
   | { type: 'status'; status: RuntimeExecutionStatus }
   | { type: 'message'; role: 'system' | 'user' | 'assistant'; messageId?: string }

@@ -26,6 +26,7 @@ import webAuth from "./routes/web/auth";
 import webSessions from "./routes/web/sessions";
 import webControl from "./routes/web/control";
 import webEnvironments from "./routes/web/environments";
+import { webCorsOptions } from "./auth/cors";
 
 console.log("[RCS] In-memory store ready (no SQLite)");
 
@@ -44,7 +45,7 @@ app.use("*", async (c, next) => {
   }
   await next();
 });
-app.use("/web/*", cors());
+app.use("/web/*", cors(webCorsOptions));
 
 // Health check
 app.get("/health", (c) => c.json({ status: "ok", version: config.version }));

@@ -1,10 +1,10 @@
 # Hare Code
 
-[![GitHub Stars](https://img.shields.io/github/stars/go-hare/hare-code?style=flat-square&logo=github&color=yellow)](https://github.com/go-hare/hare-code/stargazers)
-[![GitHub Contributors](https://img.shields.io/github/contributors/go-hare/hare-code?style=flat-square&color=green)](https://github.com/go-hare/hare-code/graphs/contributors)
-[![GitHub Issues](https://img.shields.io/github/issues/go-hare/hare-code?style=flat-square&color=orange)](https://github.com/go-hare/hare-code/issues)
-[![GitHub License](https://img.shields.io/github/license/go-hare/hare-code?style=flat-square)](https://github.com/go-hare/hare-code/blob/main/LICENSE)
-[![Last Commit](https://img.shields.io/github/last-commit/go-hare/hare-code?style=flat-square&color=blue)](https://github.com/go-hare/hare-code/commits/main)
+[![GitHub Stars](https://img.shields.io/github/stars/go-hare/claude-code?style=flat-square&logo=github&color=yellow)](https://github.com/go-hare/claude-code/stargazers)
+[![GitHub Contributors](https://img.shields.io/github/contributors/go-hare/claude-code?style=flat-square&color=green)](https://github.com/go-hare/claude-code/graphs/contributors)
+[![GitHub Issues](https://img.shields.io/github/issues/go-hare/claude-code?style=flat-square&color=orange)](https://github.com/go-hare/claude-code/issues)
+[![GitHub License](https://img.shields.io/github/license/go-hare/claude-code?style=flat-square)](https://github.com/go-hare/claude-code/blob/main/LICENSE)
+[![Last Commit](https://img.shields.io/github/last-commit/go-hare/claude-code?style=flat-square&color=blue)](https://github.com/go-hare/claude-code/commits/main)
 [![Bun](https://img.shields.io/badge/runtime-Bun-black?style=flat-square&logo=bun)](https://bun.sh/)
 
 Hare Code is an AI coding runtime for terminal interaction, headless embedding, direct-connect, server, bridge, and daemon scenarios.
@@ -36,7 +36,7 @@ The current codebase can be understood as four layers:
 The package exposes Agent Core through:
 
 ```ts
-import { createAgent } from '@go-hare/hare-code/core'
+import { createAgent } from 'claude-code/core'
 ```
 
 Internal bridge / server / daemon / headless code imports runtime or server
@@ -59,19 +59,19 @@ modules directly instead of routing through the old kernel facade.
 ### npm
 
 ```bash
-npm install -g @go-hare/hare-code
-hare
+npm install -g claude-code
+claude
 ```
 
 ### Install from source
 
 ```bash
-git clone https://github.com/go-hare/hare-code.git
-cd hare-code
+git clone https://github.com/go-hare/claude-code.git
+cd claude-code
 bun install
 bun run build
 npm install -g .
-hare
+claude
 ```
 
 Releases are packaged as standard npm tarballs. The CLI entry points to `dist/cli-node.js`, without an extra release-binary download layer.
@@ -112,7 +112,7 @@ npm package check:
 npm pack --dry-run
 ```
 
-## Using the Kernel
+## Using Agent Core
 
 Minimal examples:
 
@@ -122,7 +122,7 @@ Minimal examples:
 
 Note: the in-repo examples use local `src` imports so they can run directly
 from the source tree. Installed consumers should use
-`@go-hare/hare-code/core` for the Agent Core API.
+`claude-code/core` for the Agent Core API.
 
 Recommended external integration directions:
 
@@ -136,10 +136,10 @@ Do not build external integrations directly on top of `REPL.tsx`.
 ## Common Commands
 
 ```bash
-hare
-hare update
-hare --acp
-hare weixin login
+claude
+claude update
+claude --acp
+claude weixin login
 ```
 
 ## Configuration Directories
@@ -154,7 +154,7 @@ For example:
 ```powershell
 $env:CLAUDE_CONFIG_DIR = "$HOME\\.hare"
 $env:CLAUDE_PROJECT_CONFIG_DIR_NAME = ".hare"
-hare
+claude
 ```
 
 ## Project Structure

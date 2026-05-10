@@ -25,7 +25,7 @@ describe('resolveGrokModel', () => {
   })
 
   test('maps opus models to grok-4.20-reasoning', () => {
-    expect(resolveGrokModel('claude-opus-4-6')).toBe('grok-4.20-reasoning')
+    expect(resolveGrokModel('claude-opus-4-7')).toBe('grok-4.20-reasoning')
   })
 
   test('maps sonnet models to grok-3-mini-fast', () => {

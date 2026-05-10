@@ -84,6 +84,7 @@ export type TeamFile = {
     sessionId?: string
     subscriptions: string[]
     backendType?: BackendType
+    insideTmux?: boolean
     isActive?: boolean // false when idle, undefined/true when active
     mode?: PermissionMode // Current permission mode for this teammate
   }>
@@ -612,13 +613,9 @@ async function killOrphanedTeammatePanes(teamName: string): Promise<void> {
   )
   if (paneMembers.length === 0) return
 
-  const [{ ensureBackendsRegistered, getBackendByType }, { isInsideTmux }] =
-    await Promise.all([
-      import('./backends/registry.js'),
-      import('./backends/detection.js'),
-    ])
-  await ensureBackendsRegistered()
-  const useExternalSession = !(await isInsideTmux())
+  const { createTeammateExecutorForMember } = await import(
+    './backends/executorFacade.js'
+  )
 
   await Promise.allSettled(
     paneMembers.map(async m => {
@@ -626,10 +623,8 @@ async function killOrphanedTeammatePanes(teamName: string): Promise<void> {
       if (!m.tmuxPaneId || !m.backendType || !isPaneBackend(m.backendType)) {
         return
       }
-      const ok = await getBackendByType(m.backendType).killPane(
-        m.tmuxPaneId,
-        useExternalSession,
-      )
+      const executor = createTeammateExecutorForMember(m)
+      const ok = executor ? await executor.cleanupOrphan(m) : false
       logForDebugging(
         `cleanupSessionTeams: killPane ${m.name} (${m.backendType} ${m.tmuxPaneId}) → ${ok}`,
       )

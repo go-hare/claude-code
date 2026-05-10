@@ -1,71 +1,206 @@
-/**
- * @ant/computer-use-swift — macOS display, apps, and screenshot (Swift native)
- *
- * This package wraps the macOS-only Swift .node native module.
- * For Windows/Linux, use src/utils/computerUse/platforms/ instead.
- */
+import { existsSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 export type {
-  DisplayGeometry,
-  PrepareDisplayResult,
   AppInfo,
+  DisplayGeometry,
   InstalledApp,
+  PrepareDisplayResult,
+  ResolvePrepareCaptureResult,
   RunningApp,
   ScreenshotResult,
-  ResolvePrepareCaptureResult,
   WindowDisplayInfo,
-} from './backends/darwin.js'
+} from './types.js'
 
-import type { ResolvePrepareCaptureResult } from './backends/darwin.js'
+const nodeRequire = createRequire(import.meta.url)
 
-function loadBackend() {
-  try {
-    if (process.platform === 'darwin') {
-      return require('./backends/darwin.js')
-    } else if (process.platform === 'win32') {
-      return require('./backends/win32.js')
-    } else if (process.platform === 'linux') {
-      return require('./backends/linux.js')
-    }
-  } catch {
-    return null
-  }
-  return null
+type DisplayGeometry = {
+  displayId: number
+  width: number
+  height: number
+  scaleFactor: number
+  originX: number
+  originY: number
+  label?: string
+  isPrimary?: boolean
 }
 
-const backend = loadBackend()
+type AppInfo = {
+  bundleId: string
+  displayName: string
+}
 
-export class ComputerUseAPI {
-  apps = backend?.apps ?? {
-    async prepareDisplay() { return { activated: '', hidden: [] } },
-    async previewHideSet() { return [] },
-    async findWindowDisplays(ids: string[]) { return ids.map((b: string) => ({ bundleId: b, displayIds: [] as number[] })) },
-    async appUnderPoint() { return null },
-    async listInstalled() { return [] },
-    iconDataUrl() { return null },
-    listRunning() { return [] },
-    async open() { throw new Error('@ant/computer-use-swift: macOS only') },
-    async unhide() {},
-  }
+type InstalledApp = AppInfo & {
+  path: string
+  iconDataUrl?: string
+}
 
-  display = backend?.display ?? {
-    getSize() { throw new Error('@ant/computer-use-swift: macOS only') },
-    listAll() { throw new Error('@ant/computer-use-swift: macOS only') },
-  }
+type RunningApp = AppInfo & {
+  pid?: number
+}
 
-  screenshot = backend?.screenshot ?? {
-    async captureExcluding() { throw new Error('@ant/computer-use-swift: macOS only') },
-    async captureRegion() { throw new Error('@ant/computer-use-swift: macOS only') },
-  }
+type ScreenshotResult = {
+  base64: string
+  width: number
+  height: number
+  displayWidth: number
+  displayHeight: number
+  originX: number
+  originY: number
+  displayId?: number
+  accessibilityText?: string
+}
 
-  async resolvePrepareCapture(
+type ResolvePrepareCaptureResult = ScreenshotResult & {
+  hidden: string[]
+  activated?: string
+  displayId: number
+  captureError?: string
+}
+
+type DisplayAPI = {
+  getSize(displayId?: number): DisplayGeometry
+  listAll(): DisplayGeometry[]
+}
+
+type AppsAPI = {
+  prepareDisplay(
+    allowlistBundleIds: string[],
+    surrogateHost: string,
+    displayId?: number,
+  ): Promise<{ activated: string; hidden: string[] }>
+  previewHideSet(bundleIds: string[], displayId?: number): Promise<AppInfo[]>
+  findWindowDisplays(
+    bundleIds: string[],
+  ): Promise<Array<{ bundleId: string; displayIds: number[] }>>
+  appUnderPoint(x: number, y: number): Promise<AppInfo | null>
+  listInstalled(): Promise<InstalledApp[]>
+  iconDataUrl(path: string): string | null
+  listRunning(): RunningApp[]
+  open(bundleId: string): Promise<void>
+  unhide(bundleIds: string[]): Promise<void>
+}
+
+type ScreenshotAPI = {
+  captureExcluding(
     allowedBundleIds: string[],
-    _surrogateHost: string,
+    quality?: number,
+    targetW?: number,
+    targetH?: number,
+    displayId?: number,
+  ): Promise<ScreenshotResult>
+  captureRegion(
+    allowedBundleIds: string[],
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    outW?: number,
+    outH?: number,
+    quality?: number,
+    displayId?: number,
+  ): Promise<ScreenshotResult>
+  captureWindowTarget(titleOrHwnd: string | number): ScreenshotResult | null
+}
+
+type NativeComputerUse = {
+  apps: AppsAPI
+  display: DisplayAPI
+  screenshot: ScreenshotAPI
+  resolvePrepareCapture(
+    allowedBundleIds: string[],
+    surrogateHost: string,
     quality: number,
     targetW: number,
     targetH: number,
     displayId?: number,
-  ): Promise<ResolvePrepareCaptureResult> {
-    return this.screenshot.captureExcluding(allowedBundleIds, quality, targetW, targetH, displayId)
+  ): Promise<ResolvePrepareCaptureResult>
+  _drainMainRunLoop?: () => void
+  hotkey?: unknown
+  tcc?: unknown
+}
+
+type NativeModule = {
+  computerUse?: NativeComputerUse
+}
+
+let cachedComputerUse: NativeComputerUse | null = null
+let loadAttempted = false
+
+function loadNativeComputerUse(): NativeComputerUse | null {
+  if (loadAttempted) {
+    return cachedComputerUse
+  }
+  loadAttempted = true
+
+  if (process.platform !== 'darwin') {
+    return null
+  }
+
+  const platformDir = `${process.arch}-darwin`
+  const explicitPath = process.env.COMPUTER_USE_SWIFT_NODE_PATH
+  const sourceDir = dirname(fileURLToPath(import.meta.url))
+  const candidates = explicitPath
+    ? [explicitPath]
+    : [
+        `./vendor/computer-use-swift/${platformDir}/computer_use.node`,
+        `../vendor/computer-use-swift/${platformDir}/computer_use.node`,
+        join(
+          sourceDir,
+          '..',
+          '..',
+          '..',
+          '..',
+          'vendor',
+          'computer-use-swift',
+          platformDir,
+          'computer_use.node',
+        ),
+        join(
+          process.cwd(),
+          'vendor',
+          'computer-use-swift',
+          platformDir,
+          'computer_use.node',
+        ),
+      ]
+
+  for (const candidate of candidates) {
+    try {
+      if (!explicitPath && candidate.startsWith('/') && !existsSync(candidate)) {
+        continue
+      }
+      const native = nodeRequire(candidate) as NativeModule
+      cachedComputerUse = native.computerUse ?? (native as unknown as NativeComputerUse)
+      return cachedComputerUse
+    } catch {
+      // Try the next source/bundled/package layout.
+    }
+  }
+
+  return null
+}
+
+function requireNativeComputerUse(): NativeComputerUse {
+  const native = loadNativeComputerUse()
+  if (!native) {
+    throw new Error('@ant/computer-use-swift native module is not available')
+  }
+  return native
+}
+
+export class ComputerUseAPI {
+  declare apps: AppsAPI
+  declare display: DisplayAPI
+  declare screenshot: ScreenshotAPI
+  declare resolvePrepareCapture: NativeComputerUse['resolvePrepareCapture']
+  declare _drainMainRunLoop?: () => void
+  declare hotkey?: unknown
+  declare tcc?: unknown
+
+  constructor() {
+    Object.assign(this, requireNativeComputerUse())
   }
 }

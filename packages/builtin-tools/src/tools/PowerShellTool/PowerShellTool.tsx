@@ -73,6 +73,7 @@ import {
 } from '../BashTool/utils.js'
 import { trackGitOperations } from '../shared/gitOperationTracking.js'
 import { interpretCommandResult } from './commandSemantics.js'
+import { validateCoordinatorPowerShellWriteAccess } from './coordinatorWriteValidation.js'
 import { powershellToolHasPermission } from './powershellPermissions.js'
 import { getDefaultTimeoutMs, getMaxTimeoutMs, getPrompt } from './prompt.js'
 import {
@@ -605,6 +606,21 @@ export const PowerShellTool = buildTool({
     // comment for the policy rationale.
     if (isWindowsSandboxPolicyViolation()) {
       throw new Error(WINDOWS_SANDBOX_POLICY_REFUSAL)
+    }
+
+    const coordinatorWriteValidation =
+      await validateCoordinatorPowerShellWriteAccess(
+        input.command,
+        toolUseContext.agentId,
+      )
+    if (!coordinatorWriteValidation.result) {
+      return {
+        data: {
+          stdout: '',
+          stderr: `${coordinatorWriteValidation.message}\nExit code 1`,
+          interrupted: false,
+        },
+      }
     }
 
     const { abortController, setAppState, setToolJSX } = toolUseContext

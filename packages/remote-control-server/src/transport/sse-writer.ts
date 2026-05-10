@@ -123,7 +123,8 @@ function toWorkerClientPayload(event: SessionEvent): Record<string, unknown> {
     event.type === "permission_response" ||
     event.type === "control_response" ||
     event.type === "control_request" ||
-    event.type === "interrupt"
+    event.type === "interrupt" ||
+    event.type === "agent_core_event"
   ) {
     return toClientPayload(event);
   }

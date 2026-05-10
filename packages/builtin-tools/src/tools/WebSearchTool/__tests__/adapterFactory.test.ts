@@ -1,21 +1,34 @@
-import { afterEach, describe, expect, mock, test } from 'bun:test'
-
-let isFirstPartyBaseUrl = true
-
-// Only mock the external dependency that controls adapter selection
-mock.module('src/utils/model/providers.js', () => ({
-  isFirstPartyAnthropicBaseUrl: () => isFirstPartyBaseUrl,
-  getAPIProvider: () => 'firstParty',
-  getAPIProviderForStatsig: () => 'firstParty',
-}))
+import { afterEach, describe, expect, test } from 'bun:test'
 
 const { createAdapter } = await import('../adapters/index')
 
+const originalAnthropicBaseUrl = process.env.ANTHROPIC_BASE_URL
+const originalUseOpenAI = process.env.CLAUDE_CODE_USE_OPENAI
+const originalUseGemini = process.env.CLAUDE_CODE_USE_GEMINI
+const originalUseGrok = process.env.CLAUDE_CODE_USE_GROK
 const originalWebSearchAdapter = process.env.WEB_SEARCH_ADAPTER
 
 afterEach(() => {
-  isFirstPartyBaseUrl = true
-
+  if (originalAnthropicBaseUrl === undefined) {
+    delete process.env.ANTHROPIC_BASE_URL
+  } else {
+    process.env.ANTHROPIC_BASE_URL = originalAnthropicBaseUrl
+  }
+  if (originalUseOpenAI === undefined) {
+    delete process.env.CLAUDE_CODE_USE_OPENAI
+  } else {
+    process.env.CLAUDE_CODE_USE_OPENAI = originalUseOpenAI
+  }
+  if (originalUseGemini === undefined) {
+    delete process.env.CLAUDE_CODE_USE_GEMINI
+  } else {
+    process.env.CLAUDE_CODE_USE_GEMINI = originalUseGemini
+  }
+  if (originalUseGrok === undefined) {
+    delete process.env.CLAUDE_CODE_USE_GROK
+  } else {
+    process.env.CLAUDE_CODE_USE_GROK = originalUseGrok
+  }
   if (originalWebSearchAdapter === undefined) {
     delete process.env.WEB_SEARCH_ADAPTER
   } else {
@@ -47,15 +60,18 @@ describe('createAdapter', () => {
 
   test('selects the API adapter for first-party Anthropic URLs', () => {
     delete process.env.WEB_SEARCH_ADAPTER
-    isFirstPartyBaseUrl = true
+    process.env.ANTHROPIC_BASE_URL = 'https://api.anthropic.com'
 
     expect(createAdapter().constructor.name).toBe('ApiSearchAdapter')
   })
 
-  test('selects the Bing adapter for third-party Anthropic base URLs', () => {
+  test('selects the Exa adapter for third-party Anthropic base URLs', () => {
     delete process.env.WEB_SEARCH_ADAPTER
-    isFirstPartyBaseUrl = false
+    delete process.env.CLAUDE_CODE_USE_OPENAI
+    delete process.env.CLAUDE_CODE_USE_GEMINI
+    delete process.env.CLAUDE_CODE_USE_GROK
+    process.env.ANTHROPIC_BASE_URL = 'http://127.0.0.1:8317/v1'
 
-    expect(createAdapter().constructor.name).toBe('BingSearchAdapter')
+    expect(createAdapter().constructor.name).toBe('ExaSearchAdapter')
   })
 })

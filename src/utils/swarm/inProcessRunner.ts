@@ -85,7 +85,7 @@ import {
 } from '../permissions/PermissionUpdate.js'
 import type { PermissionUpdate } from '../permissions/PermissionUpdateSchema.js'
 import { hasPermissionsToUseTool } from '../permissions/permissions.js'
-import { emitTaskTerminatedSdk } from '../sdkEventQueue.js'
+import { emitTaskTerminatedSdk } from '../protocolEventQueue.js'
 import { sleep } from '../sleep.js'
 import { jsonStringify } from '../slowOperations.js'
 import { asSystemPrompt } from '../systemPromptType.js'
@@ -112,6 +112,7 @@ import {
   createPermissionRequest,
   sendPermissionRequestViaMailbox,
 } from './permissionSync.js'
+import { removeMemberByAgentId, setMemberActive } from './teamHelpers.js'
 import { TEAMMATE_SYSTEM_PROMPT_ADDENDUM } from './teammatePromptAddendum.js'
 
 type SetAppStateFn = (updater: (prev: AppState) => AppState) => void
@@ -1176,6 +1177,7 @@ export async function runInProcessTeammate(
             task => ({ ...task, status: 'running', isIdle: false }),
             setAppState,
           )
+          await setMemberActive(identity.teamName, identity.agentName, true)
 
           // Run the normal agent loop - same runAgent() used by AgentTool/subagents.
           // This calls query() internally, so we share the core API infrastructure.
@@ -1342,6 +1344,7 @@ export async function runInProcessTeammate(
         },
         setAppState,
       )
+      await setMemberActive(identity.teamName, identity.agentName, false)
 
       // Note: We do NOT automatically send the teammate's response to the leader.
       // Teammates should use the Teammate tool to communicate with the leader.
@@ -1472,6 +1475,7 @@ export async function runInProcessTeammate(
     void evictTaskOutput(taskId)
     // Eagerly evict task from AppState since it's been consumed
     evictTerminalTask(taskId, setAppState)
+    removeMemberByAgentId(identity.teamName, identity.agentId)
     // notified:true pre-set → no XML notification → print.ts won't emit
     // the SDK task_notification. Close the task_started bookend directly.
     if (!alreadyTerminal) {
@@ -1524,6 +1528,7 @@ export async function runInProcessTeammate(
     void evictTaskOutput(taskId)
     // Eagerly evict task from AppState since it's been consumed
     evictTerminalTask(taskId, setAppState)
+    removeMemberByAgentId(identity.teamName, identity.agentId)
     // notified:true pre-set → no XML notification → close SDK bookend directly.
     if (!alreadyTerminal) {
       emitTaskTerminatedSdk(taskId, 'failed', {

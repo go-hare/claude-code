@@ -97,7 +97,7 @@ export { DISABLE_KITTY_KEYBOARD, DISABLE_MODIFY_OTHER_KEYS } from './core/termio
 export { SHOW_CURSOR, DBP, DFE, DISABLE_MOUSE_TRACKING, EXIT_ALT_SCREEN, HIDE_CURSOR, ENTER_ALT_SCREEN, ENABLE_MOUSE_TRACKING } from './core/termio/dec.js'
 export { default as instances } from './core/instances.js'
 export { default as renderBorder, type BorderTextOptions } from './core/render-border.js'
-export { isSynchronizedOutputSupported, isXtermJs, hasCursorUpViewportYankBug, writeDiffToTerminal } from './core/terminal.js'
+export { isCursorIntegratedTerminal, isSynchronizedOutputSupported, isXtermJs, hasCursorUpViewportYankBug, writeDiffToTerminal } from './core/terminal.js'
 export { colorize, applyColor, applyTextStyles, type ColorType } from './core/colorize.js'
 export { wrapAnsi } from './core/wrapAnsi.js'
 export { default as styles } from './core/styles.js'

@@ -245,6 +245,15 @@ type InputSchema = ReturnType<typeof inputSchema>
 
 export type Input = z.infer<InputSchema>
 
+export function normalizePagesInput(
+  pages: string | undefined,
+): string | undefined {
+  const normalizedPages = pages?.trim()
+  return normalizedPages && normalizedPages.length > 0
+    ? normalizedPages
+    : undefined
+}
+
 const outputSchema = lazySchema(() => {
   // Define the media types supported for images
   const imageMediaTypes = z.enum([
@@ -416,13 +425,14 @@ export const FileReadTool = buildTool({
   },
   renderToolUseErrorMessage,
   async validateInput({ file_path, pages }, toolUseContext: ToolUseContext) {
+    const normalizedPages = normalizePagesInput(pages)
     // Validate pages parameter (pure string parsing, no I/O)
-    if (pages !== undefined) {
-      const parsed = parsePDFPageRange(pages)
+    if (normalizedPages !== undefined) {
+      const parsed = parsePDFPageRange(normalizedPages)
       if (!parsed) {
         return {
           result: false,
-          message: `Invalid pages parameter: "${pages}". Use formats like "1-5", "3", or "10-20". Pages are 1-indexed.`,
+          message: `Invalid pages parameter: "${normalizedPages}". Use formats like "1-5", "3", or "10-20". Pages are 1-indexed.`,
           errorCode: 7,
         }
       }
@@ -433,7 +443,7 @@ export const FileReadTool = buildTool({
       if (rangeSize > PDF_MAX_PAGES_PER_READ) {
         return {
           result: false,
-          message: `Page range "${pages}" exceeds maximum of ${PDF_MAX_PAGES_PER_READ} pages per request. Please use a smaller range.`,
+          message: `Page range "${normalizedPages}" exceeds maximum of ${PDF_MAX_PAGES_PER_READ} pages per request. Please use a smaller range.`,
           errorCode: 8,
         }
       }
@@ -499,6 +509,7 @@ export const FileReadTool = buildTool({
     _canUseTool?,
     parentMessage?,
   ) {
+    pages = normalizePagesInput(pages)
     const { readFileState, fileReadingLimits } = context
 
     const defaults = getDefaultFileReadingLimits()

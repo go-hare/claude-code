@@ -21,16 +21,20 @@ const activeConnections = new Set<WSContext>();
 
 // Server-side keepalive interval (configurable via RCS_WS_KEEPALIVE_INTERVAL).
 // Sends data frames to keep reverse proxies from closing idle connections.
-const SERVER_KEEPALIVE_INTERVAL_MS = (config.wsKeepaliveInterval || 20) * 1000;
+function getServerKeepaliveIntervalMs(): number {
+  return (config.wsKeepaliveInterval || 20) * 1000;
+}
 
 // If no client data received within this threshold, the connection is
 // considered dead. Set to 3x keepalive to tolerate one missed interval.
-const CLIENT_ACTIVITY_TIMEOUT_MS = SERVER_KEEPALIVE_INTERVAL_MS * 3;
+function getClientActivityTimeoutMs(): number {
+  return getServerKeepaliveIntervalMs() * 3;
+}
 
 /**
- * Convert internal EventBus event -> SDK message for bridge client.
+ * Convert internal EventBus event -> protocol message for bridge client.
  */
-function toSDKMessage(event: SessionEvent): string {
+function toProtocolMessage(event: SessionEvent): string {
   // NDJSON format: each message MUST end with \n so the child process's
   // line-based parser can split messages correctly.
   return JSON.stringify(toClientPayload(event)) + "\n";
@@ -39,7 +43,8 @@ function toSDKMessage(event: SessionEvent): string {
 /** Called from onOpen — subscribes to event bus, forwards outbound events to bridge WS */
 export function handleWebSocketOpen(ws: WSContext, sessionId: string) {
   const openTime = Date.now();
-  const lastClientActivity = Date.now();
+  const serverKeepaliveIntervalMs = getServerKeepaliveIntervalMs();
+  const clientActivityTimeoutMs = getClientActivityTimeoutMs();
   log(`[RC-DEBUG] [WS] Open session=${sessionId}`);
   activeConnections.add(ws);
 
@@ -62,7 +67,7 @@ export function handleWebSocketOpen(ws: WSContext, sessionId: string) {
     for (const event of missed) {
       if (ws.readyState !== 1) break;
       try {
-        ws.send(toSDKMessage(event));
+        ws.send(toProtocolMessage(event));
       } catch {
         // ignore send errors during replay
       }
@@ -73,9 +78,9 @@ export function handleWebSocketOpen(ws: WSContext, sessionId: string) {
     if (ws.readyState !== 1) return;
     if (event.direction !== "outbound") return;
     try {
-      const sdkMsg = toSDKMessage(event);
-      log(`[RC-DEBUG] [WS] -> bridge (outbound): type=${event.type} len=${sdkMsg.length} msg=${sdkMsg.slice(0, 300)}`);
-      ws.send(sdkMsg);
+      const protocolMsg = toProtocolMessage(event);
+      log(`[RC-DEBUG] [WS] -> bridge (outbound): type=${event.type} len=${protocolMsg.length} msg=${protocolMsg.slice(0, 300)}`);
+      ws.send(protocolMsg);
     } catch (err) {
       logError("[RC-DEBUG] [WS] send error:", err);
     }
@@ -86,9 +91,14 @@ export function handleWebSocketOpen(ws: WSContext, sessionId: string) {
       clearInterval(keepalive);
       return;
     }
+    const entry = cleanupBySession.get(sessionId);
+    if (!entry || entry.ws !== ws) {
+      clearInterval(keepalive);
+      return;
+    }
     // Check if client is still alive — close if no data received for too long
-    const silenceMs = Date.now() - lastClientActivity;
-    if (silenceMs > CLIENT_ACTIVITY_TIMEOUT_MS) {
+    const silenceMs = Date.now() - entry.lastClientActivity;
+    if (silenceMs > clientActivityTimeoutMs) {
       log(`[WS] Client inactive for ${Math.round(silenceMs / 1000)}s on session=${sessionId}, closing dead connection`);
       try {
         ws.close(1000, "client inactive");
@@ -102,9 +112,15 @@ export function handleWebSocketOpen(ws: WSContext, sessionId: string) {
     } catch {
       clearInterval(keepalive);
     }
-  }, SERVER_KEEPALIVE_INTERVAL_MS);
+  }, serverKeepaliveIntervalMs);
 
-  cleanupBySession.set(sessionId, { unsub, keepalive, ws, openTime, lastClientActivity });
+  cleanupBySession.set(sessionId, {
+    unsub,
+    keepalive,
+    ws,
+    openTime,
+    lastClientActivity: openTime,
+  });
 }
 
 /**
@@ -135,11 +151,13 @@ export function handleWebSocketClose(ws: WSContext, sessionId: string, code?: nu
 
   log(`[WS] Close session=${sessionId} code=${code ?? "none"} reason=${reason || "(none)"} duration=${duration}s`);
 
-  if (entry) {
-    entry.unsub();
-    clearInterval(entry.keepalive);
-    cleanupBySession.delete(sessionId);
+  if (!entry || entry.ws !== ws) {
+    return;
   }
+
+  entry.unsub();
+  clearInterval(entry.keepalive);
+  cleanupBySession.delete(sessionId);
 }
 
 /**
@@ -168,7 +186,7 @@ function deriveEventType(msg: Record<string, unknown>): string {
 }
 
 /**
- * Parse a single SDK message from bridge -> publish to EventBus as inbound.
+ * Parse a single protocol message from bridge -> publish to EventBus as inbound.
  */
 export function ingestBridgeMessage(sessionId: string, msg: Record<string, unknown>) {
   if (msg.type === "keep_alive") return;

@@ -13,6 +13,19 @@ function makeEvent(overrides: Partial<SessionEvent> & Pick<SessionEvent, "type" 
   };
 }
 
+function createAgentCoreEvent(sequence = 1) {
+  return {
+    id: `agent-event-${sequence}`,
+    sequence,
+    timestamp: "2026-05-10T00:00:00.000Z",
+    sessionId: "session-1",
+    turnId: "turn-1",
+    type: "message.delta",
+    messageId: "message-1",
+    text: "hello",
+  };
+}
+
 // =============================================================================
 // user / user_message
 // =============================================================================
@@ -252,5 +265,41 @@ describe("toClientPayload — default types", () => {
     expect(result.uuid).toBe("u-1");
     expect(result.session_id).toBe("sess-1");
     expect(result.message).toEqual({ uuid: "u-1", content: "response text" });
+  });
+});
+
+// =============================================================================
+// agent_core_event
+// =============================================================================
+
+describe("toClientPayload — Agent Core events", () => {
+  test("preserves first-class event payloads", () => {
+    const agentEvent = createAgentCoreEvent();
+    const event = makeEvent({
+      type: "agent_core_event",
+      sessionId: "sess-runtime",
+      payload: { uuid: "wire-message-1", event: agentEvent },
+    });
+
+    const result = toClientPayload(event);
+    expect(result.type).toBe("agent_core_event");
+    expect(result.uuid).toBe("wire-message-1");
+    expect(result.session_id).toBe("sess-runtime");
+    expect(result.event).toEqual(agentEvent);
+    expect(result.message).toBeUndefined();
+  });
+
+  test("wraps raw event payloads for worker transports", () => {
+    const agentEvent = createAgentCoreEvent(2);
+    const event = makeEvent({
+      type: "agent_core_event",
+      sessionId: "sess-runtime",
+      payload: { raw: agentEvent },
+    });
+
+    const result = toClientPayload(event);
+    expect(result.type).toBe("agent_core_event");
+    expect(result.event).toEqual(agentEvent);
+    expect(result.message).toBeUndefined();
   });
 });

@@ -7,9 +7,6 @@ export async function startManager(port: number): Promise<void> {
   const manager = new ProcessManager();
   const app = createApp(manager);
 
-  // Health check
-  app.get("/health", (c) => c.json({ status: "ok" }));
-
   let shuttingDown = false;
   const shutdown = async () => {
     if (shuttingDown) return;

@@ -1,16 +1,16 @@
 {
-  "name": "@go-hare/hare-code",
+  "name": "claude-code",
   "version": "1.7.3",
   "description": "Reverse-engineered Anthropic Claude Code CLI — interactive AI coding assistant in the terminal",
   "type": "module",
   "author": "go-hare",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/go-hare/hare-code.git"
+    "url": "git+https://github.com/go-hare/claude-code.git"
   },
-  "homepage": "https://github.com/go-hare/hare-code#readme",
+  "homepage": "https://github.com/go-hare/claude-code#readme",
   "bugs": {
-    "url": "https://github.com/go-hare/hare-code/issues"
+    "url": "https://github.com/go-hare/claude-code/issues"
   },
   "keywords": [
     "claude",
@@ -25,8 +25,8 @@
     "bun": ">=1.2.0"
   },
   "bin": {
-    "hare": "dist/cli-node.js",
-    "hare-bun": "dist/cli-bun.js"
+    "claude": "dist/cli-node.js",
+    "claude-bun": "dist/cli-bun.js"
   },
   "exports": {
     "./core": {
@@ -62,6 +62,11 @@
     "format": "biome format --write src/",
     "prepare": "node scripts/prepare.cjs",
     "test": "bun test",
+    "test:production": "bun run scripts/production-test.ts",
+    "test:production:offline": "bun run scripts/production-test.ts --offline",
+    "test:production:verbose": "bun run scripts/production-test.ts --verbose",
+    "test:production:bun": "bun run scripts/production-test.ts --bun",
+    "check:bundle": "bun run scripts/check-bundle-integrity.ts",
     "check:unused": "knip-bun",
     "health": "bun run scripts/health-check.ts",
     "postinstall": "node scripts/run-parallel.mjs scripts/postinstall.cjs scripts/setup-chrome-mcp.mjs",
@@ -209,5 +214,8 @@
     "xss": "^1.0.15",
     "yaml": "^2.8.3",
     "zod": "^4.3.6"
+  },
+  "optionalDependencies": {
+    "doubaoime-asr": "^0.1.0"
   }
 }

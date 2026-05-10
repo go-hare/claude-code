@@ -87,6 +87,7 @@ export const EnterPlanModeTool: Tool<InputSchema, Output> = buildTool({
     // 'auto' — see permissionSetup.ts for the full lifecycle.
     context.setAppState(prev => ({
       ...prev,
+      pendingPlanVerification: undefined,
       toolPermissionContext: applyPermissionUpdate(
         prepareContextForPlanMode(prev.toolPermissionContext),
         { type: 'setMode', mode: 'plan', destination: 'session' },

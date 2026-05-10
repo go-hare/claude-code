@@ -420,6 +420,57 @@ export function initTaskOutput(taskId: string): Promise<string> {
   )
 }
 
+export function writeTaskOutputSnapshot(
+  taskId: string,
+  content: string,
+): Promise<string> {
+  return track(
+    (async () => {
+      await ensureOutputDir()
+      const outputPath = getTaskOutputPath(taskId)
+      let fh: FileHandle | null = null
+      try {
+        fh = await open(
+          outputPath,
+          process.platform === 'win32'
+            ? 'w'
+            : fsConstants.O_WRONLY |
+                fsConstants.O_CREAT |
+                fsConstants.O_TRUNC |
+                O_NOFOLLOW,
+        )
+      } catch (error) {
+        const code = getErrnoCode(error)
+        if (code !== 'ELOOP' && code !== 'ENOENT') {
+          throw error
+        }
+        try {
+          await unlink(outputPath)
+        } catch (unlinkError) {
+          if (getErrnoCode(unlinkError) !== 'ENOENT') {
+            throw unlinkError
+          }
+        }
+        fh = await open(
+          outputPath,
+          process.platform === 'win32'
+            ? 'wx'
+            : fsConstants.O_WRONLY |
+                fsConstants.O_CREAT |
+                fsConstants.O_EXCL |
+                O_NOFOLLOW,
+        )
+      }
+      try {
+        await fh.writeFile(content)
+      } finally {
+        await fh.close()
+      }
+      return outputPath
+    })(),
+  )
+}
+
 /**
  * Initialize output file as a symlink to another file (e.g., agent transcript).
  * Tries to create the symlink first; if a file already exists, removes it and retries.

@@ -16,7 +16,7 @@ import {
 import { getEmptyToolPermissionContext } from '../../Tool.js'
 import { AGENT_COLOR_TO_THEME_COLOR } from '@go-hare/builtin-tools/tools/AgentTool/agentColorManager.js'
 import { logForDebugging } from '../../utils/debug.js'
-import { execFileNoThrow } from '../../utils/execFileNoThrow.js'
+import * as execFileUtils from '../../utils/execFileNoThrow.js'
 import { truncateToWidth } from '../../utils/format.js'
 import { getNextPermissionMode } from '../../utils/permissions/getNextPermissionMode.js'
 import {
@@ -26,32 +26,16 @@ import {
   permissionModeSymbol,
 } from '../../utils/permissions/PermissionMode.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
-import {
-  IT2_COMMAND,
-  isInsideTmuxSync,
-} from '../../utils/swarm/backends/detection.js'
-import {
-  ensureBackendsRegistered,
-  getBackendByType,
-  getCachedBackend,
-} from '../../utils/swarm/backends/registry.js'
-import type { PaneBackendType } from '../../utils/swarm/backends/types.js'
+import * as backendDetection from '../../utils/swarm/backends/detection.js'
+import * as backendRegistry from '../../utils/swarm/backends/registry.js'
+import { isPaneBackend, type PaneBackendType } from '../../utils/swarm/backends/types.js'
 import {
   getSwarmSocketName,
   TMUX_COMMAND,
 } from '../../utils/swarm/constants.js'
-import {
-  addHiddenPaneId,
-  removeHiddenPaneId,
-  removeMemberFromTeam,
-  setMemberMode,
-  setMultipleMemberModes,
-} from '../../utils/swarm/teamHelpers.js'
-import {
-  listTasks,
-  type Task,
-  unassignTeammateTasks,
-} from '../../utils/tasks.js'
+import * as teamHelpers from '../../utils/swarm/teamHelpers.js'
+import type { Task } from '../../utils/tasks.js'
+import * as tasks from '../../utils/tasks.js'
 import {
   getTeammateStatuses,
   type TeammateStatus,
@@ -59,9 +43,9 @@ import {
 } from '../../utils/teamDiscovery.js'
 import {
   createModeSetRequestMessage,
-  sendShutdownRequestToMailbox,
   writeToMailbox,
 } from '../../utils/teammateMailbox.js'
+import * as teammateLifecycle from '../../utils/swarm/teammateLifecycle.js'
 import { Dialog } from '@anthropic/ink'
 import ThemedText from '../design-system/ThemedText.js'
 
@@ -83,6 +67,7 @@ export function TeamsDialog({ initialTeams, onDone }: Props): React.ReactNode {
 
   // initialTeams is derived from teamContext in PromptInput (no filesystem I/O)
   const setAppState = useSetAppState()
+  const tasks = useAppState(s => s.tasks)
 
   // Initialize dialogLevel with first team name if available
   const firstTeamName = initialTeams?.[0]?.name ?? ''
@@ -184,12 +169,35 @@ export function TeamsDialog({ initialTeams, onDone }: Props): React.ReactNode {
           memberName: teammateStatuses[selectedIndex].name,
         })
       } else if (dialogLevel.type === 'teammateDetail' && currentTeammate) {
-        // View output - switch to tmux pane
+        // View output - switch to teammate pane, or surface a notice if unsupported
         void viewTeammateOutput(
           currentTeammate.tmuxPaneId,
-          currentTeammate.backendType,
-        )
-        onDone()
+          currentTeammate.backendType && isPaneBackend(currentTeammate.backendType)
+            ? currentTeammate.backendType
+            : undefined,
+        ).then(notice => {
+          if (notice) {
+            setAppState(prev => ({
+              ...prev,
+              inbox: {
+                messages: [
+                  ...prev.inbox.messages,
+                  {
+                    id: randomUUID(),
+                    from: 'system',
+                    text: jsonStringify({
+                      type: 'teammate_terminated',
+                      message: notice,
+                    }),
+                    timestamp: new Date().toISOString(),
+                    status: 'pending' as const,
+                  },
+                ],
+              },
+            }))
+          }
+          onDone()
+        })
       }
       return
     }
@@ -201,12 +209,12 @@ export function TeamsDialog({ initialTeams, onDone }: Props): React.ReactNode {
         teammateStatuses[selectedIndex]
       ) {
         void killTeammate(
-          teammateStatuses[selectedIndex].tmuxPaneId,
-          teammateStatuses[selectedIndex].backendType,
+          teammateStatuses[selectedIndex],
           dialogLevel.teamName,
-          teammateStatuses[selectedIndex].agentId,
-          teammateStatuses[selectedIndex].name,
-          setAppState,
+          {
+            getAppState: () => ({ tasks }),
+            setAppState,
+          },
         ).then(() => {
           setRefreshKey(k => k + 1)
           // Adjust selection if needed
@@ -216,12 +224,12 @@ export function TeamsDialog({ initialTeams, onDone }: Props): React.ReactNode {
         })
       } else if (dialogLevel.type === 'teammateDetail' && currentTeammate) {
         void killTeammate(
-          currentTeammate.tmuxPaneId,
-          currentTeammate.backendType,
+          currentTeammate,
           dialogLevel.teamName,
-          currentTeammate.agentId,
-          currentTeammate.name,
-          setAppState,
+          {
+            getAppState: () => ({ tasks }),
+            setAppState,
+          },
         )
         goBackToList()
       }
@@ -235,15 +243,23 @@ export function TeamsDialog({ initialTeams, onDone }: Props): React.ReactNode {
         teammateStatuses[selectedIndex]
       ) {
         const teammate = teammateStatuses[selectedIndex]
-        void sendShutdownRequestToMailbox(
-          teammate.name,
+        void teammateLifecycle.requestTeammateShutdown(
           dialogLevel.teamName,
+          teammate,
+          {
+            getAppState: () => ({ tasks }),
+            setAppState,
+          },
           'Graceful shutdown requested by team lead',
         )
       } else if (dialogLevel.type === 'teammateDetail' && currentTeammate) {
-        void sendShutdownRequestToMailbox(
-          currentTeammate.name,
+        void teammateLifecycle.requestTeammateShutdown(
           dialogLevel.teamName,
+          currentTeammate,
+          {
+            getAppState: () => ({ tasks }),
+            setAppState,
+          },
           'Graceful shutdown requested by team lead',
         )
         goBackToList()
@@ -253,7 +269,7 @@ export function TeamsDialog({ initialTeams, onDone }: Props): React.ReactNode {
 
     // Handle 'h' to hide/show individual teammate (only for backends that support it)
     if (input === 'h') {
-      const backend = getCachedBackend()
+      const backend = backendRegistry.getCachedBackend()
       const teammate =
         dialogLevel.type === 'teammateList'
           ? teammateStatuses[selectedIndex]
@@ -277,7 +293,7 @@ export function TeamsDialog({ initialTeams, onDone }: Props): React.ReactNode {
 
     // Handle 'H' to hide/show all teammates (only for backends that support it)
     if (input === 'H' && dialogLevel.type === 'teammateList') {
-      const backend = getCachedBackend()
+      const backend = backendRegistry.getCachedBackend()
       if (backend?.supportsHideShow && teammateStatuses.length > 0) {
         // If any are visible, hide all. Otherwise, show all.
         const anyVisible = teammateStatuses.some(t => !t.isHidden)
@@ -302,12 +318,12 @@ export function TeamsDialog({ initialTeams, onDone }: Props): React.ReactNode {
         void Promise.all(
           idleTeammates.map(t =>
             killTeammate(
-              t.tmuxPaneId,
-              t.backendType,
+              t,
               dialogLevel.teamName,
-              t.agentId,
-              t.name,
-              setAppState,
+              {
+                getAppState: () => ({ tasks }),
+                setAppState,
+              },
             ),
           ),
         ).then(() => {
@@ -376,7 +392,7 @@ function TeamDetailView({
 }: TeamDetailViewProps): React.ReactNode {
   const subtitle = `${teammates.length} ${teammates.length === 1 ? 'teammate' : 'teammates'}`
   // Check if the backend supports hide/show
-  const supportsHideShow = getCachedBackend()?.supportsHideShow ?? false
+  const supportsHideShow = backendRegistry.getCachedBackend()?.supportsHideShow ?? false
   // Get the display text for the cycle mode shortcut
   const cycleModeShortcut = useShortcutDisplay(
     'confirm:cycleMode',
@@ -480,7 +496,7 @@ function TeammateDetailView({
   const [teammateTasks, setTeammateTasks] = useState<Task[]>([])
   useEffect(() => {
     let cancelled = false
-    void listTasks(teamName).then(allTasks => {
+    void tasks.listTasks(teamName).then(allTasks => {
       if (cancelled) return
       // Filter tasks owned by this teammate (by agentId or name)
       setTeammateTasks(
@@ -577,7 +593,8 @@ function TeammateDetailView({
       <Box marginLeft={1}>
         <Text dimColor>
           {figures.arrowLeft} back · Esc close · k kill · s shutdown
-          {getCachedBackend()?.supportsHideShow && ' · h hide/show'}
+          {backendRegistry.getCachedBackend()?.supportsHideShow &&
+            ' · h hide/show'}
           {' · '}
           {cycleModeShortcut} cycle mode
         </Text>
@@ -586,51 +603,38 @@ function TeammateDetailView({
   )
 }
 
-async function killTeammate(
-  paneId: string,
-  backendType: PaneBackendType | undefined,
+export async function killTeammate(
+  teammate: Pick<
+    TeammateStatus,
+    'agentId' | 'backendType' | 'name' | 'tmuxPaneId'
+  >,
   teamName: string,
-  teammateId: string,
-  teammateName: string,
-  setAppState: (f: (prev: AppState) => AppState) => void,
+  context: {
+    getAppState(): Pick<AppState, 'tasks'>
+    setAppState: (f: (prev: AppState) => AppState) => void
+  },
 ): Promise<void> {
-  // Kill the pane using the backend that created it (handles -s / -L flags correctly).
-  // Wrapped in try/catch so cleanup (removeMemberFromTeam, unassignTeammateTasks,
-  // setAppState) always runs — matches useInboxPoller.ts error isolation.
-  if (backendType) {
-    try {
-      // Use ensureBackendsRegistered (not detectAndGetBackend) — this process may
-      // be a teammate that never ran detection, but we only need class imports
-      // here, not subprocess probes that could throw in a different environment.
-      await ensureBackendsRegistered()
-      await getBackendByType(backendType).killPane(paneId, !isInsideTmuxSync())
-    } catch (error) {
-      logForDebugging(`[TeamsDialog] Failed to kill pane ${paneId}: ${error}`)
-    }
-  } else {
-    // backendType undefined: old team files predating this field, or in-process.
-    // Old tmux-file case is a migration gap — the pane is orphaned. In-process
-    // teammates have no pane to kill, so this is correct for them.
-    logForDebugging(
-      `[TeamsDialog] Skipping pane kill for ${paneId}: no backendType recorded`,
-    )
-  }
+  await teammateLifecycle.terminateTeammate(teamName, teammate, context)
   // Remove from team config file
-  removeMemberFromTeam(teamName, paneId)
+  removeTerminatedTeammateFromTeamConfig(
+    teamName,
+    teammate.tmuxPaneId,
+    teammate.agentId,
+  )
 
   // Unassign tasks and build notification message
-  const { notificationMessage } = await unassignTeammateTasks(
+  const { notificationMessage } = await tasks.unassignTeammateTasks(
     teamName,
-    teammateId,
-    teammateName,
+    teammate.agentId,
+    teammate.name,
     'terminated',
   )
 
   // Update AppState to keep status line in sync and notify the lead
-  setAppState(prev => {
+  context.setAppState(prev => {
     if (!prev.teamContext?.teammates) return prev
-    if (!(teammateId in prev.teamContext.teammates)) return prev
-    const { [teammateId]: _, ...remainingTeammates } =
+    if (!(teammate.agentId in prev.teamContext.teammates)) return prev
+    const { [teammate.agentId]: _, ...remainingTeammates } =
       prev.teamContext.teammates
     return {
       ...prev,
@@ -655,25 +659,50 @@ async function killTeammate(
       },
     }
   })
-  logForDebugging(`[TeamsDialog] Removed ${teammateId} from teamContext`)
+  logForDebugging(`[TeamsDialog] Removed ${teammate.agentId} from teamContext`)
 }
 
-async function viewTeammateOutput(
+export function removeTerminatedTeammateFromTeamConfig(
+  teamName: string,
+  paneId: string,
+  teammateId: string,
+): boolean {
+  if (paneId === 'in-process') {
+    return teamHelpers.removeMemberByAgentId(teamName, teammateId)
+  }
+  return teamHelpers.removeMemberFromTeam(teamName, paneId)
+}
+
+export async function viewTeammateOutput(
   paneId: string,
   backendType: PaneBackendType | undefined,
-): Promise<void> {
+): Promise<string | null> {
   if (backendType === 'iterm2') {
     // -s is required to target a specific session (ITermBackend.ts:216-217)
-    await execFileNoThrow(IT2_COMMAND, ['session', 'focus', '-s', paneId])
-  } else {
-    // External-tmux teammates live on the swarm socket — without -L, this
-    // targets the default server and silently no-ops. Mirrors runTmuxInSwarm
-    // in TmuxBackend.ts:85-89.
-    const args = isInsideTmuxSync()
-      ? ['select-pane', '-t', paneId]
-      : ['-L', getSwarmSocketName(), 'select-pane', '-t', paneId]
-    await execFileNoThrow(TMUX_COMMAND, args)
+    await execFileUtils.execFileNoThrow(backendDetection.IT2_COMMAND, [
+      'session',
+      'focus',
+      '-s',
+      paneId,
+    ])
+    return null
   }
+
+  if (backendType === 'windows-terminal') {
+    logForDebugging(
+      `[TeamsDialog] viewTeammateOutput: Windows Terminal pane ${paneId} — manual tab switch required`,
+    )
+    return 'Windows Terminal cannot focus teammate output automatically yet. Switch to the teammate tab manually to view its output.'
+  }
+
+  // External-tmux teammates live on the swarm socket — without -L, this
+  // targets the default server and silently no-ops. Mirrors runTmuxInSwarm
+  // in TmuxBackend.ts:85-89.
+  const args = backendDetection.isInsideTmuxSync()
+    ? ['select-pane', '-t', paneId]
+    : ['-L', getSwarmSocketName(), 'select-pane', '-t', paneId]
+  await execFileUtils.execFileNoThrow(TMUX_COMMAND, args)
+  return null
 }
 
 /**
@@ -694,20 +723,55 @@ async function toggleTeammateVisibility(
  * Hide a teammate pane using the backend abstraction.
  * Only available for ant users (gated for dead code elimination in external builds)
  */
-async function hideTeammate(
+export async function hideTeammate(
   teammate: TeammateStatus,
   teamName: string,
 ): Promise<void> {
+  if (!teammate.backendType || !isPaneBackend(teammate.backendType)) {
+    return
+  }
+
+  await backendRegistry.ensureBackendsRegistered()
+  const hidden = await backendRegistry.getBackendByType(
+    teammate.backendType,
+  ).hidePane(
+    teammate.tmuxPaneId,
+    !backendDetection.isInsideTmuxSync(),
+  )
+  if (hidden) {
+    teamHelpers.addHiddenPaneId(teamName, teammate.tmuxPaneId)
+    logForDebugging(
+      `[TeamsDialog] Hid teammate ${teammate.name} (${teammate.tmuxPaneId})`,
+    )
+  }
 }
 
 /**
  * Show a previously hidden teammate pane using the backend abstraction.
  * Only available for ant users (gated for dead code elimination in external builds)
  */
-async function showTeammate(
+export async function showTeammate(
   teammate: TeammateStatus,
   teamName: string,
 ): Promise<void> {
+  if (!teammate.backendType || !isPaneBackend(teammate.backendType)) {
+    return
+  }
+
+  await backendRegistry.ensureBackendsRegistered()
+  const shown = await backendRegistry.getBackendByType(
+    teammate.backendType,
+  ).showPane(
+    teammate.tmuxPaneId,
+    teammate.tmuxPaneId,
+    !backendDetection.isInsideTmuxSync(),
+  )
+  if (shown) {
+    teamHelpers.removeHiddenPaneId(teamName, teammate.tmuxPaneId)
+    logForDebugging(
+      `[TeamsDialog] Showed teammate ${teammate.name} (${teammate.tmuxPaneId})`,
+    )
+  }
 }
 
 /**
@@ -720,7 +784,7 @@ function sendModeChangeToTeammate(
   targetMode: PermissionMode,
 ): void {
   // Update config.json directly so UI shows the change immediately
-  setMemberMode(teamName, teammateName, targetMode)
+  teamHelpers.setMemberMode(teamName, teammateName, targetMode)
 
   // Also send message so teammate updates their local permission context
   const message = createModeSetRequestMessage({
@@ -793,7 +857,7 @@ function cycleAllTeammateModes(
     memberName: t.name,
     mode: targetMode,
   }))
-  setMultipleMemberModes(teamName, modeUpdates)
+  teamHelpers.setMultipleMemberModes(teamName, modeUpdates)
 
   // Send mailbox messages to each teammate
   for (const teammate of teammates) {

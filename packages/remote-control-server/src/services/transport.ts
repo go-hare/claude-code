@@ -34,6 +34,40 @@ function extractContent(payload: unknown): string {
   return "";
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function isAgentCoreEvent(value: unknown): value is Record<string, unknown> {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.sequence === "number" &&
+    typeof value.timestamp === "string" &&
+    typeof value.type === "string"
+  );
+}
+
+function extractAgentCoreEvent(payload: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (isAgentCoreEvent(payload.event)) return payload.event;
+  if (isAgentCoreEvent(payload)) return payload;
+
+  const container: Record<string, unknown> = payload;
+  const raw = container.raw;
+  if (isAgentCoreEvent(raw)) return raw;
+  if (isRecord(raw) && isAgentCoreEvent(raw.event)) {
+    return raw.event;
+  }
+
+  const message = container.message;
+  if (isAgentCoreEvent(message)) return message;
+  if (isRecord(message) && isAgentCoreEvent(message.event)) {
+    return message.event;
+  }
+
+  return undefined;
+}
+
 /**
  * Normalize event payload into a flat structure with guaranteed `content` string.
  * Preserves original payload in `raw` field and keeps tool-specific fields.
@@ -70,6 +104,11 @@ export function normalizePayload(type: string, payload: unknown): Record<string,
 
   // Preserve message field for backward compat
   if (p.message) normalized.message = p.message;
+
+  if (type === "agent_core_event") {
+    const agentEvent = extractAgentCoreEvent(p);
+    if (agentEvent) normalized.event = agentEvent;
+  }
 
   if (type === "task_state") {
     if (typeof p.task_list_id === "string") normalized.task_list_id = p.task_list_id;

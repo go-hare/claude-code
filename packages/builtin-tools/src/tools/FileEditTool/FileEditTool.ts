@@ -5,7 +5,7 @@ import { getFeatureValue_CACHED_MAY_BE_STALE } from 'src/services/analytics/grow
 import { diagnosticTracker } from 'src/services/diagnosticTracking.js'
 import { clearDeliveredDiagnosticsForFile } from 'src/services/lsp/LSPDiagnosticRegistry.js'
 import { getLspServerManager } from 'src/services/lsp/manager.js'
-import { notifyVscodeFileUpdated } from 'src/services/mcp/vscodeSdkMcp.js'
+import { notifyVscodeFileUpdated } from 'src/services/mcp/vscodeProtocolMcp.js'
 import { checkTeamMemSecrets } from 'src/services/teamMemorySync/teamMemSecretGuard.js'
 import {
   activateConditionalSkillsForPaths,
@@ -225,7 +225,10 @@ export const FileEditTool = buildTool({
     if (fileContent === null) {
       // Empty old_string on nonexistent file means new file creation — valid
       if (old_string === '') {
-        return { result: true }
+        return validateCoordinatorWriteAccess({
+          filePath: fullFilePath,
+          sourceTool: 'FileEditTool',
+        })
       }
       // Try to find a similar file with a different extension
       const similarFilename = findSimilarFile(fullFilePath)
@@ -259,9 +262,10 @@ export const FileEditTool = buildTool({
       }
 
       // Empty file with empty old_string is valid - we're replacing empty with content
-      return {
-        result: true,
-      }
+      return validateCoordinatorWriteAccess({
+        filePath: fullFilePath,
+        sourceTool: 'FileEditTool',
+      })
     }
 
     if (fullFilePath.endsWith('.ipynb')) {
@@ -274,18 +278,6 @@ export const FileEditTool = buildTool({
     }
 
     const readTimestamp = toolUseContext.readFileState.get(fullFilePath)
-    if (!readTimestamp || readTimestamp.isPartialView) {
-      return {
-        result: false,
-        behavior: 'ask',
-        message:
-          'File has not been read yet. Read it first before writing to it.',
-        meta: {
-          isFilePathAbsolute: String(isAbsolute(file_path)),
-        },
-        errorCode: 6,
-      }
-    }
 
     // Check if file exists and get its last modified time
     if (readTimestamp) {

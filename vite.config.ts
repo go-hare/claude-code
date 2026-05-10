@@ -41,6 +41,11 @@ export default defineConfig({
   ssr: {
     target: "node",
     noExternal: true,
+    // Packages with runtime require.resolve() or WASM binaries can't be
+    // inlined into the bundle — they must be resolved from node_modules
+    // at runtime. doubaoime-asr uses opus-encdec which resolves its WASM
+    // loader dynamically after build.
+    external: ["doubaoime-asr", "opus-encdec"],
   },
 
   build: {
@@ -59,9 +64,9 @@ export default defineConfig({
 
       output: {
         format: "es",
-        dir: "dist",
+        // Single-file build: no code splitting, all dynamic imports inlined
+        codeSplitting: false,
         entryFileNames: "cli.js",
-        chunkFileNames: "chunks/[name]-[hash].js",
       },
 
       plugins: [
@@ -69,6 +74,40 @@ export default defineConfig({
         featureFlagsPlugin(),
         importMetaRequirePlugin(),
       ],
+
+      onwarn(warning, defaultHandler) {
+        const acknowledgedDynamicImportWarnings = [
+          "src/utils/sandbox/sandbox-adapter.ts",
+          "packages/builtin-tools/src/tools/ToolSearchTool/prompt.ts",
+          "src/utils/claudemd.ts",
+          "src/services/SessionMemory/sessionMemoryUtils.ts",
+          "src/commands/logout/logout.tsx",
+          "src/utils/sessionStorage.ts",
+          "src/utils/swarm/backends/registry.ts",
+          "src/utils/toolSearch.ts",
+          "src/utils/hooks.ts",
+          "src/services/skillLearning/sessionObserver.ts",
+          "src/utils/settings/changeDetector.ts",
+        ];
+
+        if (
+          warning.code === "EVAL" &&
+          warning.id?.includes("@protobufjs+inquire")
+        ) {
+          return;
+        }
+
+        if (
+          warning.code === "INEFFECTIVE_DYNAMIC_IMPORT" &&
+          acknowledgedDynamicImportWarnings.some((id) =>
+            warning.message?.includes(id),
+          )
+        ) {
+          return;
+        }
+
+        defaultHandler(warning);
+      },
     },
 
     cssCodeSplit: false,

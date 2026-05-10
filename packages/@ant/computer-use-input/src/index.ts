@@ -1,42 +1,70 @@
-/**
- * @ant/computer-use-input — macOS keyboard & mouse simulation (enigo)
- *
- * This package wraps the macOS-only native enigo .node module.
- * For Windows/Linux, use src/utils/computerUse/platforms/ instead.
- */
+import { existsSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import type { FrontmostAppInfo, InputBackend } from './types.js'
 
-export interface FrontmostAppInfo {
-  bundleId: string
-  appName: string
-}
+const nodeRequire = createRequire(import.meta.url)
 
-export interface InputBackend {
-  moveMouse(x: number, y: number, animated: boolean): Promise<void>
-  key(key: string, action: 'press' | 'release'): Promise<void>
-  keys(parts: string[]): Promise<void>
-  mouseLocation(): Promise<{ x: number; y: number }>
-  mouseButton(button: 'left' | 'right' | 'middle', action: 'click' | 'press' | 'release', count?: number): Promise<void>
-  mouseScroll(amount: number, direction: 'vertical' | 'horizontal'): Promise<void>
-  typeText(text: string): Promise<void>
-  getFrontmostAppInfo(): FrontmostAppInfo | null
-}
+type NativeInputBackend = InputBackend
 
-function loadBackend(): InputBackend | null {
-  try {
-    if (process.platform === 'darwin') {
-      return require('./backends/darwin.js') as InputBackend
-    } else if (process.platform === 'win32') {
-      return require('./backends/win32.js') as InputBackend
-    } else if (process.platform === 'linux') {
-      return require('./backends/linux.js') as InputBackend
-    }
-  } catch {
+let cachedBackend: NativeInputBackend | null = null
+let loadAttempted = false
+
+function loadNativeBackend(): NativeInputBackend | null {
+  if (loadAttempted) {
+    return cachedBackend
+  }
+  loadAttempted = true
+
+  if (process.platform !== 'darwin') {
     return null
   }
+
+  const platformDir = `${process.arch}-darwin`
+  const explicitPath = process.env.COMPUTER_USE_INPUT_NODE_PATH
+  const sourceDir = dirname(fileURLToPath(import.meta.url))
+  const candidates = explicitPath
+    ? [explicitPath]
+    : [
+        `./vendor/computer-use-input/${platformDir}/computer-use-input.node`,
+        `../vendor/computer-use-input/${platformDir}/computer-use-input.node`,
+        join(
+          sourceDir,
+          '..',
+          '..',
+          '..',
+          '..',
+          'vendor',
+          'computer-use-input',
+          platformDir,
+          'computer-use-input.node',
+        ),
+        join(
+          process.cwd(),
+          'vendor',
+          'computer-use-input',
+          platformDir,
+          'computer-use-input.node',
+        ),
+      ]
+
+  for (const candidate of candidates) {
+    try {
+      if (!explicitPath && candidate.startsWith('/') && !existsSync(candidate)) {
+        continue
+      }
+      cachedBackend = nodeRequire(candidate) as NativeInputBackend
+      return cachedBackend
+    } catch {
+      // Try the next source/bundled/package layout.
+    }
+  }
+
   return null
 }
 
-const backend = loadBackend()
+const backend = loadNativeBackend()
 
 export const isSupported = backend !== null
 export const moveMouse = backend?.moveMouse
@@ -46,7 +74,8 @@ export const mouseLocation = backend?.mouseLocation
 export const mouseButton = backend?.mouseButton
 export const mouseScroll = backend?.mouseScroll
 export const typeText = backend?.typeText
-export const getFrontmostAppInfo = backend?.getFrontmostAppInfo ?? (() => null)
+export const getFrontmostAppInfo =
+  backend?.getFrontmostAppInfo ?? (() => null)
 
 export class ComputerUseInputAPI {
   declare moveMouse: InputBackend['moveMouse']
@@ -60,5 +89,12 @@ export class ComputerUseInputAPI {
   declare isSupported: true
 }
 
-interface ComputerUseInputUnsupported { isSupported: false }
-export type ComputerUseInput = ComputerUseInputAPI | ComputerUseInputUnsupported
+interface ComputerUseInputUnsupported {
+  isSupported: false
+}
+
+export type ComputerUseInput =
+  | ComputerUseInputAPI
+  | ComputerUseInputUnsupported
+
+export type { FrontmostAppInfo, InputBackend }

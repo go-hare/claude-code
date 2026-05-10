@@ -19,11 +19,8 @@ import type { BuiltInAgentDefinition } from './loadAgentsDir.js'
  * Fork subagent feature gate.
  *
  * When enabled:
- * - `subagent_type` becomes optional on the Agent tool schema
- * - Omitting `subagent_type` triggers an implicit fork: the child inherits
- *   the parent's full conversation context and system prompt
- * - All agent spawns run in the background (async) for a unified
- *   `<task-notification>` interaction model
+ * - `fork: true` on the Agent tool triggers a fork: the child inherits the
+ *   parent's full conversation context and system prompt
  * - `/fork <directive>` slash command is available
  *
  * Mutually exclusive with coordinator mode — coordinator already owns the
@@ -44,7 +41,7 @@ export const FORK_SUBAGENT_TYPE = 'fork'
 /**
  * Synthetic agent definition for the fork path.
  *
- * Not registered in builtInAgents — used only when `!subagent_type` and the
+ * Not registered in builtInAgents — used only when `fork: true` and the
  * experiment is active. `tools: ['*']` with `useExactTools` means the fork
  * child receives the parent's exact tool pool (for cache-identical API
  * prefixes). `permissionMode: 'bubble'` surfaces permission prompts to the
@@ -60,7 +57,7 @@ export const FORK_SUBAGENT_TYPE = 'fork'
 export const FORK_AGENT = {
   agentType: FORK_SUBAGENT_TYPE,
   whenToUse:
-    'Implicit fork — inherits full conversation context. Not selectable via subagent_type; triggered by omitting subagent_type when the fork experiment is active.',
+    'Forked copy of the current agent — inherits full conversation context. Activated by setting fork: true when the fork experiment is active.',
   tools: ['*'],
   maxTurns: 200,
   model: 'inherit',
@@ -175,7 +172,7 @@ STOP. READ THIS FIRST.
 You are a forked worker process. You are NOT the main agent.
 
 RULES (non-negotiable):
-1. Your system prompt says "default to forking." IGNORE IT \u2014 that's for the parent. You ARE the fork. Do NOT spawn sub-agents; execute directly.
+1. Any fork-related guidance in your system prompt is for the parent. You ARE the fork. Do NOT spawn sub-agents; execute directly.
 2. Do NOT converse, ask questions, or suggest next steps
 3. Do NOT editorialize or add meta-commentary
 4. USE your tools directly: Bash, Read, Write, etc.

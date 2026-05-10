@@ -12,6 +12,7 @@ import type { z } from 'zod/v4'
 import type { Command } from './commands.js'
 import type { CanUseToolFn } from './hooks/useCanUseTool.js'
 import type { ThinkingConfig } from './utils/thinking.js'
+import type { ActiveTaskExecutionContext } from './utils/tasks.js'
 
 export type ToolInputJSONSchema = {
   [x: string]: unknown
@@ -61,6 +62,7 @@ import type { FileStateCache } from './utils/fileStateCache.js'
 import type { DenialTrackingState } from './utils/permissions/denialTracking.js'
 import type { SystemPrompt } from './utils/systemPromptType.js'
 import type { ContentReplacementState } from './utils/toolResultStorage.js'
+import type { RuntimeCapabilityPlane } from './runtime/contracts/capability.js'
 
 // Re-export progress types for backwards compatibility
 export type {
@@ -128,6 +130,8 @@ export type ToolPermissionContext = DeepImmutable<{
   alwaysAllowRules: ToolPermissionRulesBySource
   alwaysDenyRules: ToolPermissionRulesBySource
   alwaysAskRules: ToolPermissionRulesBySource
+  /** CLI deny rules that should still apply inside spawned agents. Excludes synthetic --tools base-tool denies. */
+  spawnedAgentCliArgDenyRules?: string[]
   isBypassPermissionsModeAvailable: boolean
   isAutoModeAvailable?: boolean
   strippedDangerousRules?: ToolPermissionRulesBySource
@@ -180,6 +184,7 @@ export type ToolUseContext = {
     refreshTools?: () => Tools
   }
   abortController: AbortController
+  activeTaskExecutionContext?: ActiveTaskExecutionContext
   readFileState: FileStateCache
   getAppState(): AppState
   setAppState(f: (prev: AppState) => AppState): void
@@ -246,6 +251,7 @@ export type ToolUseContext = {
   setConversationId?: (id: UUID) => void
   agentId?: AgentId // Only set for subagents; use getSessionId() for session ID. Hooks use this to distinguish subagent calls.
   agentType?: string // Subagent type name. For the main thread's --agent type, hooks fall back to getMainThreadAgentType().
+  capabilityPlane?: RuntimeCapabilityPlane
   /** When true, canUseTool must always be called even when hooks auto-approve.
    *  Used by speculation for overlay file path rewriting. */
   requireCanUseTool?: boolean

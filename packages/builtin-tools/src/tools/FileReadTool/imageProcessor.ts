@@ -1,5 +1,4 @@
 import type { Buffer } from 'buffer'
-import { isInBundledMode } from 'src/utils/bundledMode.js'
 
 export type SharpInstance = {
   metadata(): Promise<{ width: number; height: number; format: string }>
@@ -32,63 +31,18 @@ type SharpCreatorOptions = {
 type SharpCreator = (options: SharpCreatorOptions) => SharpInstance
 
 let imageProcessorModule: { default: SharpFunction } | null = null
-let imageCreatorModule: { default: SharpCreator } | null = null
 
 export async function getImageProcessor(): Promise<SharpFunction> {
   if (imageProcessorModule) {
     return imageProcessorModule.default
   }
 
-  if (isInBundledMode()) {
-    // Try to load the native image processor first
-    try {
-      // Use the native image processor module
-      const imageProcessor = await import('image-processor-napi')
-      const sharpFn = (imageProcessor.sharp ?? imageProcessor.default) as SharpFunction
-      imageProcessorModule = { default: sharpFn }
-      return sharpFn
-    } catch {
-      // Fall back to sharp if native module is not available
-      // biome-ignore lint/suspicious/noConsole: intentional warning
-      console.warn(
-        'Native image processor not available, falling back to sharp',
-      )
-    }
-  }
-
-  // Use sharp for non-bundled builds or as fallback.
-  // Single structural cast: our SharpFunction is a subset of sharp's actual type surface.
-  const imported = (await import(
-    'sharp'
-  )) as unknown as MaybeDefault<SharpFunction>
-  const sharp = unwrapDefault(imported)
-  imageProcessorModule = { default: sharp }
-  return sharp
+  const imageProcessor = await import('image-processor-napi')
+  const sharpFn = (imageProcessor.sharp ?? imageProcessor.default) as SharpFunction
+  imageProcessorModule = { default: sharpFn }
+  return sharpFn
 }
 
-/**
- * Get image creator for generating new images from scratch.
- * Note: image-processor-napi doesn't support image creation,
- * so this always uses sharp directly.
- */
 export async function getImageCreator(): Promise<SharpCreator> {
-  if (imageCreatorModule) {
-    return imageCreatorModule.default
-  }
-
-  const imported = (await import(
-    'sharp'
-  )) as unknown as MaybeDefault<SharpCreator>
-  const sharp = unwrapDefault(imported)
-  imageCreatorModule = { default: sharp }
-  return sharp
-}
-
-// Dynamic import shape varies by module interop mode — ESM yields { default: fn }, CJS yields fn directly.
-type MaybeDefault<T> = T | { default: T }
-
-function unwrapDefault<T extends (...args: never[]) => unknown>(
-  mod: MaybeDefault<T>,
-): T {
-  return typeof mod === 'function' ? mod : mod.default
+  throw new Error('Native image processor does not support image creation')
 }

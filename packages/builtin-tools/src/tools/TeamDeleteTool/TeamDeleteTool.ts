@@ -1,5 +1,4 @@
 import { z } from 'zod/v4'
-import { logEvent } from 'src/services/analytics/index.js'
 import type { AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS } from 'src/services/analytics/metadata.js'
 import type { Tool } from 'src/Tool.js'
 import { buildTool, type ToolDef } from 'src/Tool.js'
@@ -9,17 +8,114 @@ import { jsonStringify } from 'src/utils/slowOperations.js'
 import { TEAM_LEAD_NAME } from 'src/utils/swarm/constants.js'
 import {
   cleanupTeamDirectories,
+  clearLeaderTeamName,
+  clearTeammateColors,
+  killInProcessTeammate,
+  logEvent,
   readTeamFile,
+  requestTeammateShutdown,
+  sleep,
+  terminateTeammate,
   unregisterTeamForSessionCleanup,
-} from 'src/utils/swarm/teamHelpers.js'
-import { clearTeammateColors } from 'src/utils/swarm/teammateLayoutManager.js'
-import { clearLeaderTeamName } from 'src/utils/tasks.js'
+} from './teamDeleteDeps.js'
 import { TEAM_DELETE_TOOL_NAME } from './constants.js'
 import { getPrompt } from './prompt.js'
 import { renderToolResultMessage, renderToolUseMessage } from './UI.js'
 
-const inputSchema = lazySchema(() => z.strictObject({}))
+const inputSchema = lazySchema(() =>
+  z.strictObject({
+    wait_ms: z
+      .number()
+      .min(0)
+      .max(30_000)
+      .optional()
+      .describe(
+        'Optional time to wait for active teammates to acknowledge shutdown before cleanup.',
+      ),
+  }),
+)
 type InputSchema = ReturnType<typeof inputSchema>
+
+type TeamDeleteContext = Parameters<typeof terminateTeammate>[2]
+type TeamMember = NonNullable<ReturnType<typeof readTeamFile>>['members'][number]
+type RunningTeammateTask = {
+  id: string
+  executionBackend?: string
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null
+    ? (value as Record<string, unknown>)
+    : undefined
+}
+
+function getRunningTeammateTask(
+  agentId: string,
+  context: TeamDeleteContext,
+): RunningTeammateTask | undefined {
+  const tasks = context.getAppState().tasks ?? {}
+  for (const taskValue of Object.values(tasks)) {
+    const task = asRecord(taskValue)
+    const identity = asRecord(task?.identity)
+    if (
+      task?.type === 'in_process_teammate' &&
+      task.status === 'running' &&
+      identity?.agentId === agentId &&
+      typeof task.id === 'string'
+    ) {
+      return {
+        id: task.id,
+        executionBackend:
+          typeof task.executionBackend === 'string'
+            ? task.executionBackend
+            : undefined,
+      }
+    }
+  }
+  return undefined
+}
+
+async function terminateInactiveTeammates(
+  teamName: string,
+  context: TeamDeleteContext,
+): Promise<string[]> {
+  const teamFile = readTeamFile(teamName)
+  if (!teamFile) return []
+
+  const failed: string[] = []
+  const members = teamFile.members.filter(m => m.name !== TEAM_LEAD_NAME)
+  for (const member of members) {
+    const terminated = await terminateInactiveTeammate(teamName, member, context)
+    if (!terminated && getRunningTeammateTask(member.agentId, context)) {
+      failed.push(member.name)
+    }
+  }
+  return failed
+}
+
+async function terminateInactiveTeammate(
+  teamName: string,
+  member: TeamMember,
+  context: TeamDeleteContext,
+): Promise<boolean> {
+  try {
+    await terminateTeammate(teamName, member, context)
+  } catch {
+    // Fall through to the AppState check below.
+  }
+
+  const runningTask = getRunningTeammateTask(member.agentId, context)
+  if (!runningTask) return true
+
+  if (
+    runningTask.executionBackend === undefined ||
+    runningTask.executionBackend === 'in-process'
+  ) {
+    return killInProcessTeammate(runningTask.id, context.setAppState)
+  }
+
+  return false
+}
 
 export type Output = {
   success: boolean
@@ -68,7 +164,7 @@ export const TeamDeleteTool: Tool<InputSchema, Output> = buildTool({
     }
   },
 
-  async call(_input, context) {
+  async call(input, context) {
     const { setAppState, getAppState } = context
     const appState = getAppState()
     const teamName = appState.teamContext?.teamName
@@ -87,17 +183,88 @@ export const TeamDeleteTool: Tool<InputSchema, Output> = buildTool({
         const activeMembers = nonLeadMembers.filter(m => m.isActive !== false)
 
         if (activeMembers.length > 0) {
-          const memberNames = activeMembers.map(m => m.name).join(', ')
-          return {
-            data: {
-              success: false,
-              message: `Cannot cleanup team with ${activeMembers.length} active member(s): ${memberNames}. Use requestShutdown to gracefully terminate teammates first.`,
-              team_name: teamName,
-            },
+          const requested: string[] = []
+          for (const member of activeMembers) {
+            const sent = await requestTeammateShutdown(
+              teamName,
+              member,
+              context,
+              'Team cleanup requested by team lead',
+            )
+            if (sent) {
+              requested.push(member.name)
+            }
+          }
+
+          const waitMs = input.wait_ms ?? 0
+          if (waitMs > 0 && requested.length > 0) {
+            const deadline = Date.now() + waitMs
+            while (Date.now() < deadline) {
+              await sleep(Math.min(250, Math.max(0, deadline - Date.now())))
+              const refreshed = readTeamFile(teamName)
+              const stillActive =
+                refreshed?.members.filter(
+                  m => m.name !== TEAM_LEAD_NAME && m.isActive !== false,
+                ) ?? []
+              if (stillActive.length === 0) {
+                break
+              }
+            }
+
+            const refreshed = readTeamFile(teamName)
+            const stillActive =
+              refreshed?.members.filter(
+                m => m.name !== TEAM_LEAD_NAME && m.isActive !== false,
+              ) ?? []
+            if (stillActive.length === 0) {
+              // Fall through to cleanup with the refreshed team file state.
+            } else {
+              const memberNames = stillActive.map(m => m.name).join(', ')
+              return {
+                data: {
+                  success: false,
+                  message: `Shutdown requested for active teammate(s): ${requested.join(', ')}. Cleanup is still blocked after waiting ${waitMs}ms: ${memberNames}.`,
+                  team_name: teamName,
+                },
+              }
+            }
+          }
+          const latestTeamFile = readTeamFile(teamName)
+          const latestActiveMembers =
+            latestTeamFile?.members.filter(
+              m => m.name !== TEAM_LEAD_NAME && m.isActive !== false,
+            ) ?? []
+          if (latestActiveMembers.length === 0) {
+            // Continue to cleanup below.
+          } else {
+            const memberNames = latestActiveMembers.map(m => m.name).join(', ')
+            return {
+              data: {
+                success: false,
+                message:
+                  requested.length > 0
+                    ? `Shutdown requested for active teammate(s): ${requested.join(', ')}. Cleanup is blocked until they exit: ${memberNames}.`
+                    : `Cannot cleanup team with ${latestActiveMembers.length} active member(s): ${memberNames}. Use requestShutdown to gracefully terminate teammates first.`,
+                team_name: teamName,
+              },
+            }
           }
         }
       }
 
+      const failedInactiveTerminations = await terminateInactiveTeammates(
+        teamName,
+        context,
+      )
+      if (failedInactiveTerminations.length > 0) {
+        return {
+          data: {
+            success: false,
+            message: `Cleanup is still blocked by running teammate(s): ${failedInactiveTerminations.join(', ')}.`,
+            team_name: teamName,
+          },
+        }
+      }
       await cleanupTeamDirectories(teamName)
       // Already cleaned — don't try again on gracefulShutdown.
       unregisterTeamForSessionCleanup(teamName)

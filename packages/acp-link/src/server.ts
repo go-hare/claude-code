@@ -10,6 +10,10 @@ import type { WebSocket as RawWebSocket } from "ws";
 import { createLogger } from "./logger.js";
 import { getOrCreateCertificate, getLanIPs } from "./cert.js";
 import { RcsUpstreamClient, type RcsUpstreamConfig } from "./rcs-upstream.js";
+import { decodeJsonWsMessage, WsPayloadTooLargeError } from "./ws-message.js";
+import { authTokensEqual, extractWebSocketAuthToken } from "./ws-auth.js";
+
+export { MAX_CLIENT_WS_PAYLOAD_BYTES } from "./ws-message.js";
 
 export interface ServerConfig {
   port: number;
@@ -700,9 +704,11 @@ export async function startServer(config: ServerConfig): Promise<void> {
     "/ws",
     upgradeWebSocket((c) => {
       if (AUTH_TOKEN) {
-        const url = new URL(c.req.url);
-        const providedToken = url.searchParams.get("token");
-        if (providedToken !== AUTH_TOKEN) {
+        const providedToken = extractWebSocketAuthToken({
+          authorization: c.req.header("Authorization"),
+          protocol: c.req.header("Sec-WebSocket-Protocol"),
+        });
+        if (!authTokensEqual(providedToken, AUTH_TOKEN)) {
           logWs.warn("connection rejected: invalid token");
           return {
             onOpen(_event, ws) {
@@ -734,53 +740,63 @@ export async function startServer(config: ServerConfig): Promise<void> {
             state.isAlive = true;
           });
         },
-      async onMessage(event, ws) {
-        try {
-          const data = JSON.parse(event.data.toString());
-          logWs.debug({ type: data.type }, "received");
+        async onMessage(event, ws) {
+          try {
+            const data = decodeJsonWsMessage(event.data);
+            logWs.debug({ type: data.type }, "received");
 
-          switch (data.type) {
-            case "connect":
-              await handleConnect(ws);
-              break;
-            case "disconnect":
-              handleDisconnect(ws);
-              break;
-            case "new_session":
-              await handleNewSession(ws, (data.payload as { cwd?: string; permissionMode?: string }) || {});
-              break;
-            case "prompt":
-              await handlePrompt(ws, data.payload as { content: ContentBlock[] });
-              break;
-            case "permission_response":
-              handlePermissionResponse(ws, data.payload);
-              break;
-            case "cancel":
-              await handleCancel(ws);
-              break;
-            case "set_session_model":
-              await handleSetSessionModel(ws, data.payload as { modelId: string });
-              break;
-            case "list_sessions":
-              await handleListSessions(ws, (data.payload as { cwd?: string; cursor?: string }) || {});
-              break;
-            case "load_session":
-              await handleLoadSession(ws, data.payload as { sessionId: string; cwd?: string });
-              break;
-            case "resume_session":
-              await handleResumeSession(ws, data.payload as { sessionId: string; cwd?: string });
-              break;
-            case "ping":
-              send(ws, "pong");
-              break;
-            default:
-              send(ws, "error", { message: `Unknown message type: ${data.type}` });
+            switch (data.type) {
+              case "connect":
+                await handleConnect(ws);
+                break;
+              case "disconnect":
+                handleDisconnect(ws);
+                break;
+              case "new_session":
+                await handleNewSession(ws, (data.payload as { cwd?: string; permissionMode?: string }) || {});
+                break;
+              case "prompt":
+                await handlePrompt(ws, data.payload as { content: ContentBlock[] });
+                break;
+              case "permission_response":
+                handlePermissionResponse(ws, data.payload as {
+                  requestId: string;
+                  outcome:
+                    | { outcome: "cancelled" }
+                    | { outcome: "selected"; optionId: string };
+                });
+                break;
+              case "cancel":
+                await handleCancel(ws);
+                break;
+              case "set_session_model":
+                await handleSetSessionModel(ws, data.payload as { modelId: string });
+                break;
+              case "list_sessions":
+                await handleListSessions(ws, (data.payload as { cwd?: string; cursor?: string }) || {});
+                break;
+              case "load_session":
+                await handleLoadSession(ws, data.payload as { sessionId: string; cwd?: string });
+                break;
+              case "resume_session":
+                await handleResumeSession(ws, data.payload as { sessionId: string; cwd?: string });
+                break;
+              case "ping":
+                send(ws, "pong");
+                break;
+              default:
+                send(ws, "error", { message: `Unknown message type: ${data.type}` });
+            }
+          } catch (error) {
+            if (error instanceof WsPayloadTooLargeError) {
+              logWs.warn({ error: error.message }, "message too large");
+              ws.close(1009, "message too large");
+              return;
+            }
+            logWs.error({ error: (error as Error).message }, "message error");
+            send(ws, "error", { message: `Error: ${(error as Error).message}` });
           }
-        } catch (error) {
-          logWs.error({ error: (error as Error).message }, "message error");
-          send(ws, "error", { message: `Error: ${(error as Error).message}` });
-        }
-      },
+        },
       onClose(_event, ws) {
         logWs.info("client disconnected");
         const state = clients.get(ws);

@@ -11,7 +11,7 @@ import { mkdir, readFile, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { z } from 'zod/v4'
 import { TEAMMATE_MESSAGE_TAG } from '../constants/xml.js'
-import { PermissionModeSchema } from '../entrypoints/sdk/coreSchemas.js'
+import { permissionModeSchema } from './permissions/PermissionMode.js'
 import { SEND_MESSAGE_TOOL_NAME } from '@go-hare/builtin-tools/tools/SendMessageTool/constants.js'
 import type { Message } from '../types/message.js'
 import { generateRequestId } from './agentId.js'
@@ -706,7 +706,7 @@ export const PlanApprovalResponseMessageSchema = lazySchema(() =>
     approved: z.boolean(),
     feedback: z.string().optional(),
     timestamp: z.string(),
-    permissionMode: PermissionModeSchema().optional(),
+    permissionMode: permissionModeSchema().optional(),
   }),
 )
 
@@ -1014,12 +1014,12 @@ export function isTeamPermissionUpdate(
 
 /**
  * Mode set request message sent from leader to teammate via mailbox
- * Uses SDK PermissionModeSchema for validated mode values
+ * Uses the shared permission mode schema for validated mode values.
  */
 export const ModeSetRequestMessageSchema = lazySchema(() =>
   z.object({
     type: z.literal('mode_set_request'),
-    mode: PermissionModeSchema(),
+    mode: permissionModeSchema(),
     from: z.string(),
   }),
 )

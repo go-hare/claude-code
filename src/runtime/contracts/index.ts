@@ -1,3 +1,4 @@
+export * from './capability.js'
 export * from './command.js'
 export * from './execution.js'
 export * from './host.js'

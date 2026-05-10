@@ -1,10 +1,10 @@
 import { queryHaiku } from '../services/api/claude.js'
 import { logForDebugging } from '../utils/debug.js'
 import { errorMessage } from '../utils/errors.js'
-import { safeParseJSON } from '../utils/json.js'
 import { getContentText } from '../utils/messages.js'
 import { asSystemPrompt } from '../utils/systemPromptType.js'
 import { roll, rollWithSeed } from './companion.js'
+import { parseStructuredJSONObject } from './structuredResponse.js'
 import type { StoredCompanion } from './types.js'
 
 const NAME_PREFIXES = [
@@ -164,7 +164,7 @@ export async function generateStoredCompanion(
       },
     })
 
-    const response = safeParseJSON(
+    const response = parseStructuredJSONObject(
       result.message.content
         ? (getContentText(result.message.content) ?? '')
         : '',

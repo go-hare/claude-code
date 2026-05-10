@@ -1,5 +1,16 @@
 # Agent Core Execution Plan
 
+## 最高优先级事实
+
+`core-clean` 是从 `main` 的 `3c7b8dc3` 切出后，重新建设 Agent Core 的
+分支。当前执行主线是 Agent Core，不是旧 kernel / kernel façade 的延续。
+
+因此后续需要从 `main` 回补功能时，比较基线必须是 `3c7b8dc3`：
+
+- 找出 `main` 在 `3c7b8dc3` 之后新增或修复的非 kernel 代码和功能。
+- 过滤掉旧 kernel 路线相关改动。
+- 只把仍适用于 Agent Core 主线的功能迁回 `core-clean`。
+
 ## 目标
 
 本文定义在当前 `core-clean` 分支上建设完整 Agent Core 的执行方案。
@@ -105,7 +116,7 @@ src/core/
 说明：
 
 - `src/core` 是主链，不是 package。
-- 未来需要发布时，通过主包 subpath export 暴露，例如 `@go-hare/hare-code/core`。
+- 未来需要发布时，通过主包 subpath export 暴露，例如 `claude-code/core`。
 - `packages/*` 继续保留 channel、standalone server、native capability、MCP bridge 等独立模块，不承载 Agent Core。
 
 ## Ownership 切分

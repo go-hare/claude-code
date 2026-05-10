@@ -2,6 +2,19 @@ import { describe, test, expect } from "bun:test";
 
 const { normalizePayload } = await import("../services/transport");
 
+function createAgentCoreEvent(sequence = 1) {
+  return {
+    id: `agent-event-${sequence}`,
+    sequence,
+    timestamp: "2026-05-10T00:00:00.000Z",
+    sessionId: "session-1",
+    turnId: "turn-1",
+    type: "message.delta",
+    messageId: "message-1",
+    text: "hello",
+  };
+}
+
 // extractContent is not exported; we test it via normalizePayload's content field
 
 // =============================================================================
@@ -155,6 +168,33 @@ describe("normalizePayload — field preservation", () => {
     const msg = { role: "user", content: "hi" };
     const result = normalizePayload("assistant", { message: msg });
     expect(result.message).toEqual(msg);
+  });
+
+  test("preserves Agent Core event as first-class payload field", () => {
+    const event = createAgentCoreEvent();
+    const result = normalizePayload("agent_core_event", {
+      type: "agent_core_event",
+      uuid: "wire-message-1",
+      event,
+    });
+
+    expect(result.content).toBe("");
+    expect(result.uuid).toBe("wire-message-1");
+    expect(result.event).toEqual(event);
+  });
+
+  test("wraps bare Agent Core event payloads", () => {
+    const event = createAgentCoreEvent(2);
+    const result = normalizePayload("agent_core_event", event);
+
+    expect(result.event).toEqual(event);
+  });
+
+  test("preserves Agent Core events stored under raw worker payloads", () => {
+    const event = createAgentCoreEvent(3);
+    const result = normalizePayload("agent_core_event", { raw: event });
+
+    expect(result.event).toEqual(event);
   });
 });
 

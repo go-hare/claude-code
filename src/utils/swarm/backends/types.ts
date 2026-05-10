@@ -4,20 +4,22 @@ import type { AgentColorName } from '@go-hare/builtin-tools/tools/AgentTool/agen
  * Types of backends available for teammate execution.
  * - 'tmux': Uses tmux for pane management (works in tmux or standalone)
  * - 'iterm2': Uses iTerm2 native split panes via the it2 CLI
+ * - 'windows-terminal': Uses Windows Terminal panes/tabs via wt.exe
  * - 'in-process': Runs teammate in the same Node.js process with isolated context
  */
-export type BackendType = 'tmux' | 'iterm2' | 'in-process'
+export type BackendType = 'tmux' | 'iterm2' | 'windows-terminal' | 'in-process'
 
 /**
  * Subset of BackendType for pane-based backends only.
  * Used in messages and types that specifically deal with terminal panes.
  */
-export type PaneBackendType = 'tmux' | 'iterm2'
+export type PaneBackendType = 'tmux' | 'iterm2' | 'windows-terminal'
 
 /**
  * Opaque identifier for a pane managed by a backend.
  * For tmux, this is the tmux pane ID (e.g., "%1").
  * For iTerm2, this is the session ID returned by it2.
+ * For Windows Terminal, this is an internal id mapped to the spawned shell PID.
  */
 export type PaneId = string
 
@@ -38,7 +40,7 @@ export type CreatePaneResult = {
  */
 export type PaneBackend = {
   /** The type identifier for this backend */
-  readonly type: BackendType
+  readonly type: PaneBackendType
 
   /** Human-readable display name for this backend */
   readonly displayName: string
@@ -72,6 +74,15 @@ export type PaneBackend = {
     name: string,
     color: AgentColorName,
   ): Promise<CreatePaneResult>
+
+  /**
+   * Creates a separate terminal window/tab for a teammate when supported.
+   * This preserves the legacy `use_splitpane: false` behavior.
+   */
+  createTeammateWindowInSwarmView?(
+    name: string,
+    color: AgentColorName,
+  ): Promise<CreatePaneResult & { windowName: string }>
 
   /**
    * Sends a command to execute in a specific pane.
@@ -180,132 +191,14 @@ export type BackendDetectionResult = {
 }
 
 // =============================================================================
-// In-Process Teammate Types
-// =============================================================================
-
-/**
- * Identity fields for a teammate.
- * This is a subset shared with TeammateContext (Task #4) to avoid circular deps.
- * lifecycle-specialist defines the full TeammateContext with additional fields.
- */
-export type TeammateIdentity = {
-  /** Agent name (e.g., "researcher", "tester") */
-  name: string
-  /** Team name this teammate belongs to */
-  teamName: string
-  /** Assigned color for UI differentiation */
-  color?: AgentColorName
-  /** Whether plan mode approval is required before implementation */
-  planModeRequired?: boolean
-}
-
-/**
- * Configuration for spawning a teammate (any execution mode).
- */
-export type TeammateSpawnConfig = TeammateIdentity & {
-  /** Initial prompt to send to the teammate */
-  prompt: string
-  /** Working directory for the teammate */
-  cwd: string
-  /** Model to use for this teammate */
-  model?: string
-  /** System prompt for this teammate (resolved from workflow config) */
-  systemPrompt?: string
-  /** How to apply the system prompt: 'replace' or 'append' to default */
-  systemPromptMode?: 'default' | 'replace' | 'append'
-  /** Optional git worktree path */
-  worktreePath?: string
-  /** Parent session ID (for context linking) */
-  parentSessionId: string
-  /** Tool permissions to grant this teammate */
-  permissions?: string[]
-  /** Whether this teammate can show permission prompts for unlisted tools.
-   * When false (default), unlisted tools are auto-denied. */
-  allowPermissionPrompts?: boolean
-}
-
-/**
- * Result from spawning a teammate.
- */
-export type TeammateSpawnResult = {
-  /** Whether spawn was successful */
-  success: boolean
-  /** Unique agent ID (format: agentName@teamName) */
-  agentId: string
-  /** Error message if spawn failed */
-  error?: string
-
-  /**
-   * Abort controller for lifecycle management (in-process only).
-   * Leader uses this to cancel/kill the teammate.
-   * For pane-based teammates, use kill() method instead.
-   */
-  abortController?: AbortController
-
-  /**
-   * Task ID in AppState.tasks (in-process only).
-   * Used for UI rendering and progress tracking.
-   * agentId is the logical identifier; taskId is for AppState indexing.
-   */
-  taskId?: string
-
-  /** Pane ID (pane-based only) */
-  paneId?: PaneId
-}
-
-/**
- * Message to send to a teammate.
- */
-export type TeammateMessage = {
-  /** Message content */
-  text: string
-  /** Sender agent ID */
-  from: string
-  /** Sender display color */
-  color?: string
-  /** Message timestamp (ISO string) */
-  timestamp?: string
-  /** 5-10 word summary shown as preview in the UI */
-  summary?: string
-}
-
-/**
- * Common interface for teammate execution backends.
- * Abstracts the differences between pane-based (tmux/iTerm2) and in-process execution.
- *
- * PaneBackend handles low-level pane operations; TeammateExecutor handles
- * high-level teammate lifecycle operations that work across all backends.
- */
-export type TeammateExecutor = {
-  /** Backend type identifier */
-  readonly type: BackendType
-
-  /** Check if this executor is available on the system */
-  isAvailable(): Promise<boolean>
-
-  /** Spawn a new teammate with the given configuration */
-  spawn(config: TeammateSpawnConfig): Promise<TeammateSpawnResult>
-
-  /** Send a message to a teammate */
-  sendMessage(agentId: string, message: TeammateMessage): Promise<void>
-
-  /** Terminate a teammate (graceful shutdown request) */
-  terminate(agentId: string, reason?: string): Promise<boolean>
-
-  /** Force kill a teammate (immediate termination) */
-  kill(agentId: string): Promise<boolean>
-
-  /** Check if a teammate is still active */
-  isActive(agentId: string): Promise<boolean>
-}
-
-// =============================================================================
 // Type Guards
 // =============================================================================
 
 /**
  * Type guard to check if a backend type uses terminal panes.
  */
-export function isPaneBackend(type: BackendType): type is 'tmux' | 'iterm2' {
-  return type === 'tmux' || type === 'iterm2'
+export function isPaneBackend(
+  type: BackendType,
+): type is 'tmux' | 'iterm2' | 'windows-terminal' {
+  return type === 'tmux' || type === 'iterm2' || type === 'windows-terminal'
 }

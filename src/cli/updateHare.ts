@@ -1,8 +1,8 @@
 /**
- * `hare update` — Check and install the latest version of @go-hare/hare-code.
+ * `ccb update` — Check and install the latest version of claude-code-best.
  *
  * Detection strategy:
- *  1. If `bun` is available and the current installation was done via bun → use `bun update -g`
+ *  1. If `bun` is available and the current installation was done via bun → use `bun install -g @latest`
  *  2. Otherwise → use `npm install -g`
  */
 import chalk from 'chalk'
@@ -16,7 +16,7 @@ import { execFileNoThrowWithCwd } from '../utils/execFileNoThrow.js'
 import { gracefulShutdown } from '../utils/gracefulShutdown.js'
 import { writeToStdout } from '../utils/process.js'
 
-const PACKAGE_NAME = '@go-hare/hare-code'
+const PACKAGE_NAME = 'claude-code-best'
 
 function getCurrentVersion(): string {
   // Read version from the nearest package.json (walks up from this file)
@@ -94,7 +94,7 @@ function gte(a: string, b: string): boolean {
   return true
 }
 
-export async function updateHare(): Promise<void> {
+export async function updateCCB(): Promise<void> {
   const currentVersion = getCurrentVersion()
   writeToStdout(`Current version: ${currentVersion}\n`)
 
@@ -117,7 +117,7 @@ export async function updateHare(): Promise<void> {
 
   // Already up to date?
   if (latestVersion === currentVersion || gte(currentVersion, latestVersion)) {
-    writeToStdout(chalk.green(`hare is up to date (${currentVersion})`) + '\n')
+    writeToStdout(chalk.green(`ccb is up to date (${currentVersion})`) + '\n')
     await gracefulShutdown(0)
     return
   }
@@ -129,7 +129,7 @@ export async function updateHare(): Promise<void> {
 
   try {
     if (pkgManager === 'bun') {
-      execSync(`bun update -g ${PACKAGE_NAME}`, {
+      execSync(`bun install -g ${PACKAGE_NAME}@latest`, {
         stdio: 'inherit',
         cwd: homedir(),
         timeout: 120_000,
@@ -153,7 +153,9 @@ export async function updateHare(): Promise<void> {
     process.stderr.write('\n')
     process.stderr.write('Try manually updating with:\n')
     if (pkgManager === 'bun') {
-      process.stderr.write(chalk.bold(`  bun update -g ${PACKAGE_NAME}`) + '\n')
+      process.stderr.write(
+        chalk.bold(`  bun install -g ${PACKAGE_NAME}@latest`) + '\n',
+      )
     } else {
       process.stderr.write(
         chalk.bold(`  npm install -g ${PACKAGE_NAME}@latest`) + '\n',
@@ -164,3 +166,5 @@ export async function updateHare(): Promise<void> {
 
   await gracefulShutdown(0)
 }
+
+export const updateHare = updateCCB

@@ -1,4 +1,5 @@
 import { spawnSync } from 'child_process'
+import { isCursorIntegratedTerminal } from '@anthropic/ink'
 import { getIsInteractive } from '../bootstrap/state.js'
 import { logForDebugging } from './debug.js'
 import { isEnvDefinedFalsy, isEnvTruthy } from './envUtils.js'
@@ -138,7 +139,15 @@ export function isFullscreenEnvEnabled(): boolean {
  * disables alt-screen and virtualized scrollback.
  */
 export function isMouseTrackingEnabled(): boolean {
-  return !isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_MOUSE)
+  if (isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_MOUSE)) return false
+
+  // Cursor's integrated terminal is xterm.js-based and can become sluggish
+  // when fullscreen enables DEC 1003 all-motion mouse tracking while a large
+  // bracketed paste is being processed. Keep alt-screen/virtual scroll, but
+  // avoid feeding hover/mouse-motion traffic back into stdin.
+  if (isCursorIntegratedTerminal()) return false
+
+  return true
 }
 
 /**

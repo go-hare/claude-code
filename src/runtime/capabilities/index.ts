@@ -1,5 +1,7 @@
+export * as agents from './agents/index.js'
 export * as bridge from './bridge/index.js'
 export * as commands from './commands/index.js'
+export * as coordinator from './coordinator/index.js'
 export * as daemon from './daemon/index.js'
 export * as execution from './execution/index.js'
 export * as mcp from './mcp/index.js'

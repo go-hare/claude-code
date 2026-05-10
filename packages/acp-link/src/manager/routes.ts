@@ -11,6 +11,11 @@ function logReq(method: string, path: string, status?: number) {
 export function createApp(manager: ProcessManager): Hono {
   const app = new Hono();
 
+  app.get("/health", (c) => {
+    logReq("GET", "/health", 200);
+    return c.json({ status: "ok" });
+  });
+
   app.get("/", (c) => {
     logReq("GET", "/", 200);
     return c.html(MANAGER_HTML);

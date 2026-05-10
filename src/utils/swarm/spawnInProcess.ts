@@ -28,7 +28,7 @@ import { markAutonomyRunFailed } from '../autonomyRuns.js'
 import { formatAgentId } from '../agentId.js'
 import { registerCleanup } from '../cleanupRegistry.js'
 import { logForDebugging } from '../debug.js'
-import { emitTaskTerminatedSdk } from '../sdkEventQueue.js'
+import { emitTaskTerminatedSdk } from '../protocolEventQueue.js'
 import { evictTaskOutput } from '../task/diskOutput.js'
 import {
   evictTerminalTask,
@@ -166,6 +166,7 @@ export async function spawnInProcessTeammate(
       status: 'running',
       identity,
       prompt,
+      executionBackend: 'in-process',
       model,
       abortController,
       awaitingPlanApproval: false,
@@ -219,7 +220,7 @@ export async function spawnInProcessTeammate(
 /**
  * Kills an in-process teammate by aborting its controller.
  *
- * Note: This is the implementation called by InProcessBackend.kill().
+ * Note: This is the mainline implementation used to abort an in-process teammate.
  *
  * @param taskId - Task ID of the teammate to kill
  * @param setAppState - AppState setter

@@ -1,13 +1,23 @@
 # Hare Code
 
-[![GitHub Stars](https://img.shields.io/github/stars/go-hare/hare-code?style=flat-square&logo=github&color=yellow)](https://github.com/go-hare/hare-code/stargazers)
-[![GitHub Contributors](https://img.shields.io/github/contributors/go-hare/hare-code?style=flat-square&color=green)](https://github.com/go-hare/hare-code/graphs/contributors)
-[![GitHub Issues](https://img.shields.io/github/issues/go-hare/hare-code?style=flat-square&color=orange)](https://github.com/go-hare/hare-code/issues)
-[![GitHub License](https://img.shields.io/github/license/go-hare/hare-code?style=flat-square)](https://github.com/go-hare/hare-code/blob/main/LICENSE)
-[![Last Commit](https://img.shields.io/github/last-commit/go-hare/hare-code?style=flat-square&color=blue)](https://github.com/go-hare/hare-code/commits/main)
+[![GitHub Stars](https://img.shields.io/github/stars/go-hare/claude-code?style=flat-square&logo=github&color=yellow)](https://github.com/go-hare/claude-code/stargazers)
+[![GitHub Contributors](https://img.shields.io/github/contributors/go-hare/claude-code?style=flat-square&color=green)](https://github.com/go-hare/claude-code/graphs/contributors)
+[![GitHub Issues](https://img.shields.io/github/issues/go-hare/claude-code?style=flat-square&color=orange)](https://github.com/go-hare/claude-code/issues)
+[![GitHub License](https://img.shields.io/github/license/go-hare/claude-code?style=flat-square)](https://github.com/go-hare/claude-code/blob/main/LICENSE)
+[![Last Commit](https://img.shields.io/github/last-commit/go-hare/claude-code?style=flat-square&color=blue)](https://github.com/go-hare/claude-code/commits/main)
 [![Bun](https://img.shields.io/badge/runtime-Bun-black?style=flat-square&logo=bun)](https://bun.sh/)
 
 Hare Code 是一个面向终端交互、headless 嵌入、direct-connect、server、bridge 和 daemon 场景的 AI coding runtime。
+
+## 最高优先级事实
+
+当前 `core-clean` 分支是从 `main` 的 `3c7b8dc3` 切出后，重新建设
+Agent Core 的分支。
+
+- 当前主线是 Agent Core，不是旧 kernel。
+- 旧 kernel / kernel façade 路线不再作为当前架构或执行依据。
+- 后续同步 `main` 时，优先找 `3c7b8dc3` 之后非 kernel 的代码和功能，
+  再判断是否迁回 Agent Core 主线。
 
 当前项目的目标不是继续围绕 CLI 或旧 kernel façade 做大规模重构，而是：
 
@@ -40,7 +50,7 @@ Hare Code 是一个面向终端交互、headless 嵌入、direct-connect、serve
 当前包级 core 入口：
 
 ```ts
-import { createAgent } from '@go-hare/hare-code/core'
+import { createAgent } from 'claude-code/core'
 ```
 
 仓库内部 bridge / server / daemon / headless 代码直接依赖 `src/runtime/*`
@@ -63,19 +73,19 @@ import { createAgent } from '@go-hare/hare-code/core'
 ### npm 安装
 
 ```bash
-npm install -g @go-hare/hare-code
-hare
+npm install -g claude-code
+claude
 ```
 
 ### 源码仓库安装
 
 ```bash
-git clone https://github.com/go-hare/hare-code.git
-cd hare-code
+git clone https://github.com/go-hare/claude-code.git
+cd claude-code
 bun install
 bun run build
 npm install -g .
-hare
+claude
 ```
 
 当前发布按 npm 包分发，CLI 入口直接使用 `dist/cli-node.js`，不走额外的 release 二进制下载链。
@@ -125,7 +135,7 @@ npm pack --dry-run
 - [examples/kernel-direct-connect.ts](examples/kernel-direct-connect.ts)
 
 说明：仓库内示例为了便于直接在源码树运行，使用本地 `src` 模块导入。
-已安装包的 Agent Core 入口是 `@go-hare/hare-code/core`。
+已安装包的 Agent Core 入口是 `claude-code/core`。
 
 适合外部接入的方向：
 
@@ -139,10 +149,10 @@ npm pack --dry-run
 ## 常用命令
 
 ```bash
-hare
-hare update
-hare --acp
-hare weixin login
+claude
+claude update
+claude --acp
+claude weixin login
 ```
 
 ## 配置目录
@@ -157,7 +167,7 @@ hare weixin login
 ```powershell
 $env:CLAUDE_CONFIG_DIR = "$HOME\\.hare"
 $env:CLAUDE_PROJECT_CONFIG_DIR_NAME = ".hare"
-hare
+claude
 ```
 
 ## 项目结构

@@ -3,6 +3,10 @@ import type { AgentToolResult } from '@go-hare/builtin-tools/tools/AgentTool/age
 import type { AgentDefinition } from '@go-hare/builtin-tools/tools/AgentTool/loadAgentsDir.js'
 import type { Message, MessageOrigin } from '../../types/message.js'
 import type { PermissionMode } from '../../utils/permissions/PermissionMode.js'
+import {
+  isPaneBackend,
+  type BackendType,
+} from '../../utils/swarm/backends/types.js'
 import type { AgentProgress } from '../LocalAgentTask/LocalAgentTask.js'
 
 /**
@@ -34,6 +38,7 @@ export type InProcessTeammateTaskState = TaskStateBase & {
 
   // Execution
   prompt: string
+  executionBackend?: BackendType
   // Optional model override for this teammate
   model?: string
   // Optional: Only set if teammate uses a specific agent definition
@@ -89,6 +94,30 @@ export function isInProcessTeammateTask(
     task !== null &&
     'type' in task &&
     task.type === 'in_process_teammate'
+  )
+}
+
+export function getTeammateExecutionBackend(
+  task: InProcessTeammateTaskState,
+): BackendType {
+  return task.executionBackend ?? 'in-process'
+}
+
+export function isAsyncLocalTeammateTask(
+  task: unknown,
+): task is InProcessTeammateTaskState {
+  return (
+    isInProcessTeammateTask(task) &&
+    getTeammateExecutionBackend(task) === 'in-process'
+  )
+}
+
+export function isPaneTeammateTask(
+  task: unknown,
+): task is InProcessTeammateTaskState {
+  return (
+    isInProcessTeammateTask(task) &&
+    isPaneBackend(getTeammateExecutionBackend(task))
   )
 }
 

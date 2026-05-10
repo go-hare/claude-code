@@ -7,6 +7,7 @@ import {
   getStoredCompanion,
   withStoredCompanionProfile,
 } from '../../buddy/companion.js'
+import { triggerCompanionReaction } from '../../buddy/companionReact.js'
 import { CompanionCard } from '../../buddy/CompanionCard.js'
 import { generateStoredCompanion } from '../../buddy/soul.js'
 import { type Companion, type Species } from '../../buddy/types.js'
@@ -16,57 +17,6 @@ import type {
   LocalJSXCommandContext,
   LocalJSXCommandOnDone,
 } from '../../types/command.js'
-
-const PET_REACTIONS: Record<Species, readonly string[]> = {
-  duck: ['quacks approvingly.', 'does a tiny victory flap.'],
-  goose: ['honk-whispers in approval.', 'stands taller like it fixed the bug.'],
-  blob: ['wobbles with delight.', 'gleams like this was the correct branch.'],
-  cat: [
-    'purrs like it meant to approve the patch.',
-    'pretends not to care, then leans in.',
-  ],
-  dragon: [
-    'rumples its wings and looks pleased.',
-    'lets out a dignified little puff.',
-  ],
-  octopus: [
-    'wiggles all eight opinions at once.',
-    'offers a very supportive squish.',
-  ],
-  owl: [
-    'blinks knowingly.',
-    'tilts its head like it already saw the solution.',
-  ],
-  penguin: [
-    'waddles in a pleased little circle.',
-    'gives a tiny flipper salute.',
-  ],
-  turtle: ['nods with ancient confidence.', 'looks even calmer than usual.'],
-  snail: [
-    'extends with great emotional commitment.',
-    'leaves an approving little shimmer trail.',
-  ],
-  ghost: ['drifts in a happy little loop.', 'glows brighter for a second.'],
-  axolotl: ['fans its gills excitedly.', 'floats closer with obvious trust.'],
-  capybara: [
-    'radiates impossible calm.',
-    'looks at peace with the whole repo.',
-  ],
-  cactus: [
-    'seems softer about it than usual.',
-    'holds very still in a pleased way.',
-  ],
-  robot: [
-    'emits a satisfied chirp.',
-    'displays a tiny heart in its status lights.',
-  ],
-  rabbit: ['does a brisk little hop.', 'twitches with delighted focus.'],
-  mushroom: [
-    'bobs gently with delight.',
-    'looks like it just heard excellent gossip.',
-  ],
-  chonk: ['rumbles with deluxe approval.', 'accepts the petting as tribute.'],
-}
 
 function backfillCompanionProfilesIfNeeded(): void {
   const config = getGlobalConfig()
@@ -174,10 +124,6 @@ function petBuddy(
     return null
   }
 
-  const choices = PET_REACTIONS[companion.species]
-  const index = Math.floor(Date.now() / 1000) % choices.length
-  const reaction = `${companion.name} ${choices[index]}`
-
   saveGlobalConfig(current => ({
     ...current,
     companionMuted: false,
@@ -185,9 +131,15 @@ function petBuddy(
   context.setAppState(prev => ({
     ...prev,
     companionPetAt: Date.now(),
-    companionReaction: reaction,
   }))
-  onDone(reaction, { display: 'system' })
+  triggerCompanionReaction(context.messages ?? [], reaction =>
+    context.setAppState(prev =>
+      prev.companionReaction === reaction
+        ? prev
+        : { ...prev, companionReaction: reaction as string | undefined },
+    ),
+  )
+  onDone(`petted ${companion.name}`, { display: 'system' })
   return null
 }
 

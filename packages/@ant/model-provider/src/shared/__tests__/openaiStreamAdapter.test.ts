@@ -352,6 +352,39 @@ describe('thinking support (reasoning_content)', () => {
     expect(blockStarts[1].content_block.type).toBe('tool_use')
   })
 
+  test('opens thinking block on empty reasoning_content (DeepSeek v4 direct-answer)', async () => {
+    const events = await collectEvents([
+      makeChunk({
+        choices: [{
+          index: 0,
+          delta: { reasoning_content: '' },
+          finish_reason: null,
+        }],
+      }),
+      makeChunk({
+        choices: [{
+          index: 0,
+          delta: { content: 'Direct answer.' },
+          finish_reason: null,
+        }],
+      }),
+      makeChunk({
+        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      }),
+    ])
+
+    const blockStarts = events.filter(e => e.type === 'content_block_start') as any[]
+    expect(blockStarts.length).toBe(2)
+    expect(blockStarts[0].content_block.type).toBe('thinking')
+    expect(blockStarts[0].content_block.thinking).toBe('')
+    expect(blockStarts[1].content_block.type).toBe('text')
+
+    const thinkingDeltas = events.filter(
+      e => e.type === 'content_block_delta' && e.delta.type === 'thinking_delta',
+    )
+    expect(thinkingDeltas.length).toBe(0)
+  })
+
   test('thinking block index is 0, text block index is 1', async () => {
     const events = await collectEvents([
       makeChunk({

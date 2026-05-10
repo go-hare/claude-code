@@ -860,26 +860,32 @@ export function renderGroupedAgentToolUse(
       let color: keyof Theme | undefined
       let descriptionColor: keyof Theme | undefined
       let taskDescription: string | undefined
-      if (isTeammateSpawn && parsedInput.success && parsedInput.data.name) {
-        agentType = `@${parsedInput.data.name}`
-        const subagentType = parsedInput.data.subagent_type
+      const parsedData = parsedInput.success ? parsedInput.data : undefined
+      const parsedRecord = parsedData as Record<string, unknown> | undefined
+      const parsedName =
+        typeof parsedRecord?.name === 'string'
+          ? parsedRecord.name
+          : undefined
+      if (isTeammateSpawn && parsedData && parsedName) {
+        agentType = `@${parsedName}`
+        const subagentType = parsedData.subagent_type
         description = isCustomSubagentType(subagentType)
           ? subagentType
           : undefined
-        taskDescription = parsedInput.data.description
+        taskDescription = parsedData.description
         // Use the custom agent definition's color on the type, not the name
         descriptionColor = isCustomSubagentType(subagentType)
           ? getAgentColor(subagentType)
           : undefined
       } else {
-        agentType = parsedInput.success
-          ? userFacingName(parsedInput.data)
+        agentType = parsedData
+          ? userFacingName(parsedData)
           : 'Agent'
-        description = parsedInput.success
-          ? parsedInput.data.description
+        description = parsedData
+          ? parsedData.description
           : undefined
-        color = parsedInput.success
-          ? userFacingNameBackgroundColor(parsedInput.data)
+        color = parsedData
+          ? userFacingNameBackgroundColor(parsedData)
           : undefined
         taskDescription = undefined
       }
@@ -896,7 +902,7 @@ export function renderGroupedAgentToolUse(
       const isAsync =
         launchedAsAsync || backgroundedMidExecution || isTeammateSpawn
 
-      const name = parsedInput.success ? parsedInput.data.name : undefined
+      const name = parsedName
 
       return {
         id: param.id,

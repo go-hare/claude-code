@@ -66,6 +66,12 @@ export function isProgressReportingAvailable(): boolean {
  * When supported, BSU/ESU sequences prevent visible flicker during redraws.
  */
 export function isSynchronizedOutputSupported(): boolean {
+  // Cursor's integrated terminal advertises itself as TERM_PROGRAM=vscode, but
+  // its xterm.js build can stall around DEC 2026 synchronized output during
+  // large bracketed pastes. Keep the VS Code path intact and only exclude
+  // Cursor-specific environments.
+  if (isCursorIntegratedTerminal()) return false
+
   // tmux parses and proxies every byte but doesn't implement DEC 2026.
   // BSU/ESU pass through to the outer terminal but tmux has already
   // broken atomicity by chunking. Skip to save 16 bytes/frame + parser work.
@@ -126,6 +132,15 @@ export function isSynchronizedOutputSupported(): boolean {
 // and fall back to env-var detection.
 
 let xtversionName: string | undefined
+
+export function isCursorIntegratedTerminal(): boolean {
+  return (
+    !!process.env.CURSOR_TRACE_ID ||
+    process.env.__CFBundleIdentifier === 'com.todesktop.230313mzl4w4u92' ||
+    process.env.VSCODE_GIT_ASKPASS_NODE?.includes('/Cursor') === true ||
+    process.env.VSCODE_GIT_ASKPASS_MAIN?.includes('/Cursor.app/') === true
+  )
+}
 
 /** Record the XTVERSION response. Called once from App.tsx when the reply
  *  arrives on stdin. No-op if already set (defend against re-probe). */
@@ -196,9 +211,9 @@ export function writeDiffToTerminal(
   }
 
   // BSU/ESU wrapping is opt-out to keep main-screen behavior unchanged.
-  // Callers pass skipSyncMarkers=true when the terminal doesn't support
-  // DEC 2026 (e.g. tmux) AND the cost matters (high-frequency alt-screen).
-  const useSync = !skipSyncMarkers
+  // Cursor is excluded here as well as in capability detection because some
+  // main-screen callers intentionally do not pass skipSyncMarkers.
+  const useSync = !skipSyncMarkers && !isCursorIntegratedTerminal()
 
   // Buffer all writes into a single string to avoid multiple write calls
   let buffer = useSync ? BSU : ''

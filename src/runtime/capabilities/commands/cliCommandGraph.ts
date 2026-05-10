@@ -57,6 +57,16 @@ export const cliCommandGraph = [
     },
   ),
   command(
+    'mcp.add',
+    ['mcp', 'add'],
+    'Add an MCP server to Claude Code.',
+    {
+      ownership: 'runtime-capability',
+      reuse: 'reuse-with-isolation',
+      capability: 'mcp',
+    },
+  ),
+  command(
     'mcp.remove',
     ['mcp', 'remove'],
     'Remove an MCP server',
@@ -129,7 +139,7 @@ export const cliCommandGraph = [
   command(
     'ssh',
     ['ssh'],
-    'Run Claude Code on a remote host over SSH. Deploys the binary and tunnels API auth back through your local machine - no remote setup needed.',
+    'Run Claude Code on a remote host over SSH. Deploys the binary and tunnels API auth back through your local machine — no remote setup needed.',
     {
       ownership: 'runtime-capability',
       reuse: 'reuse-with-isolation',
@@ -139,7 +149,7 @@ export const cliCommandGraph = [
   command(
     'open',
     ['open'],
-    'Connect to a Claude Code server (internal - use cc:// URLs)',
+    'Connect to a Claude Code server (internal — use cc:// URLs)',
     {
       ownership: 'runtime-capability',
       reuse: 'reuse-with-isolation',
@@ -378,6 +388,76 @@ export const cliCommandGraph = [
     },
   ),
   command(
+    'autonomy',
+    ['autonomy'],
+    'Inspect and manage automatic autonomy runs and flows',
+    {
+      ownership: 'runtime-capability',
+      reuse: 'reuse-with-isolation',
+      capability: 'workflow',
+    },
+  ),
+  command(
+    'autonomy.status',
+    ['autonomy', 'status'],
+    'Print autonomy run, flow, team, pipe, and remote-control status',
+    {
+      ownership: 'runtime-capability',
+      reuse: 'reuse-with-isolation',
+      capability: 'workflow',
+    },
+  ),
+  command(
+    'autonomy.runs',
+    ['autonomy', 'runs'],
+    'List recent autonomy runs',
+    {
+      ownership: 'runtime-capability',
+      reuse: 'reuse-with-isolation',
+      capability: 'workflow',
+    },
+  ),
+  command(
+    'autonomy.flows',
+    ['autonomy', 'flows'],
+    'List recent autonomy flows',
+    {
+      ownership: 'runtime-capability',
+      reuse: 'reuse-with-isolation',
+      capability: 'workflow',
+    },
+  ),
+  command(
+    'autonomy.flow',
+    ['autonomy', 'flow'],
+    'Inspect or manage a single autonomy flow',
+    {
+      ownership: 'runtime-capability',
+      reuse: 'reuse-with-isolation',
+      capability: 'workflow',
+    },
+  ),
+  command(
+    'autonomy.flow.cancel',
+    ['autonomy', 'flow', 'cancel'],
+    'Cancel a queued, waiting, or running autonomy flow',
+    {
+      ownership: 'runtime-capability',
+      reuse: 'reuse-with-isolation',
+      capability: 'workflow',
+    },
+  ),
+  command(
+    'autonomy.flow.resume',
+    ['autonomy', 'flow', 'resume'],
+    'Resume a waiting autonomy flow and print the prepared prompt',
+    {
+      ownership: 'runtime-capability',
+      reuse: 'reuse-with-isolation',
+      capability: 'workflow',
+    },
+  ),
+  command(
     'remote-control',
     ['remote-control'],
     'Connect your local environment for remote-control sessions via claude.ai/code',
@@ -442,7 +522,7 @@ export const cliCommandGraph = [
   command(
     'update',
     ['update'],
-    'Update hare to the latest version',
+    'Update claude-code-best (ccb) to the latest version',
     {
       ownership: 'product-operation',
       reuse: 'reuse-as-is',

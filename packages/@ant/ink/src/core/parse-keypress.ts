@@ -182,7 +182,10 @@ function splitNumericParams(params: string): number[] {
 export type KeyParseState = {
   mode: 'NORMAL' | 'IN_PASTE'
   incomplete: string
+  // Kept for compatibility with older callers; active paste accumulation uses
+  // pasteChunks to avoid O(n²) string growth when terminals split large pastes.
   pasteBuffer: string
+  pasteChunks?: string[]
   // Internal tokenizer instance
   _tokenizer?: Tokenizer
 }
@@ -226,23 +229,39 @@ export function parseMultipleKeypresses(
   // Convert tokens to parsed keys, handling paste mode
   const keys: ParsedInput[] = []
   let inPaste = prevState.mode === 'IN_PASTE'
-  let pasteBuffer = prevState.pasteBuffer
+  let pasteBuffer = ''
+  let pasteChunks =
+    inPaste
+      ? (prevState.pasteChunks ??
+        (prevState.pasteBuffer ? [prevState.pasteBuffer] : []))
+      : []
+
+  const appendPaste = (value: string): void => {
+    if (value.length > 0) pasteChunks.push(value)
+  }
+
+  const consumePaste = (): string => {
+    if (pasteChunks.length === 0) return pasteBuffer
+    return pasteChunks.length === 1 ? pasteChunks[0]! : pasteChunks.join('')
+  }
 
   for (const token of tokens) {
     if (token.type === 'sequence') {
       if (token.value === PASTE_START) {
         inPaste = true
         pasteBuffer = ''
+        pasteChunks = []
       } else if (token.value === PASTE_END) {
         // Always emit a paste key, even for empty pastes. This allows
         // downstream handlers to detect empty pastes (e.g., for clipboard
         // image handling on macOS). The paste content may be empty string.
-        keys.push(createPasteKey(pasteBuffer))
+        keys.push(createPasteKey(consumePaste()))
         inPaste = false
         pasteBuffer = ''
+        pasteChunks = []
       } else if (inPaste) {
         // Sequences inside paste are treated as literal text
-        pasteBuffer += token.value
+        appendPaste(token.value)
       } else {
         const response = parseTerminalResponse(token.value)
         if (response) {
@@ -258,7 +277,7 @@ export function parseMultipleKeypresses(
       }
     } else if (token.type === 'text') {
       if (inPaste) {
-        pasteBuffer += token.value
+        appendPaste(token.value)
       } else if (
         /^\[<\d+;\d+;\d+[Mm]$/.test(token.value) ||
         /^\[M[\x60-\x7f][\x20-\uffff]{2}$/.test(token.value)
@@ -284,17 +303,19 @@ export function parseMultipleKeypresses(
   }
 
   // If flushing and still in paste mode, emit what we have
-  if (isFlush && inPaste && pasteBuffer) {
-    keys.push(createPasteKey(pasteBuffer))
+  if (isFlush && inPaste && (pasteBuffer || pasteChunks.length > 0)) {
+    keys.push(createPasteKey(consumePaste()))
     inPaste = false
     pasteBuffer = ''
+    pasteChunks = []
   }
 
   // Build new state
   const newState: KeyParseState = {
     mode: inPaste ? 'IN_PASTE' : 'NORMAL',
     incomplete: tokenizer.buffer(),
-    pasteBuffer,
+    pasteBuffer: inPaste ? '' : pasteBuffer,
+    pasteChunks: inPaste ? pasteChunks : undefined,
     _tokenizer: tokenizer,
   }
 

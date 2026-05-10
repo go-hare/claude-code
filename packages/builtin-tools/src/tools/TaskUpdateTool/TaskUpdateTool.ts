@@ -1,7 +1,7 @@
 import { feature } from 'bun:bundle'
 import { z } from 'zod/v4'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from 'src/services/analytics/growthbook.js'
-import { buildTool, type ToolDef } from 'src/Tool.js'
+import { buildTool, type ToolDef, type ToolUseContext } from 'src/Tool.js'
 import { isAgentSwarmsEnabled } from 'src/utils/agentSwarmsEnabled.js'
 import {
   executeTaskCompletedHooks,
@@ -12,6 +12,7 @@ import {
   blockTask,
   deleteTask,
   getTask,
+  getTaskOwnedFiles,
   getTaskListId,
   isTodoV2Enabled,
   listTasks,
@@ -223,6 +224,17 @@ export const TaskUpdateTool = buildTool({
               ? { from: existingTask.status, to: 'deleted' }
               : undefined,
           },
+          contextModifier: deleted
+            ? (ctx: ToolUseContext) => {
+                if (ctx.activeTaskExecutionContext?.taskId !== taskId) {
+                  return ctx
+                }
+                return {
+                  ...ctx,
+                  activeTaskExecutionContext: undefined,
+                }
+              }
+            : undefined,
         }
       }
 
@@ -271,6 +283,42 @@ export const TaskUpdateTool = buildTool({
 
     if (Object.keys(updates).length > 0) {
       await updateTask(taskListId, taskId, updates)
+    }
+
+    const latestMetadata = {
+      ...(existingTask.metadata ?? {}),
+      ...(updates.metadata ?? {}),
+    }
+    const latestTask =
+      Object.keys(updates).length > 0
+        ? { ...existingTask, ...updates, metadata: latestMetadata }
+        : existingTask
+
+    const activeTaskExecutionContext =
+      latestTask.status === 'in_progress'
+        ? {
+            taskListId,
+            taskId,
+            ownedFiles: getTaskOwnedFiles(latestTask),
+          }
+        : undefined
+
+    const updateActiveTaskExecutionContext = (
+      ctx: ToolUseContext,
+    ): ToolUseContext => {
+      if (activeTaskExecutionContext) {
+        return {
+          ...ctx,
+          activeTaskExecutionContext,
+        }
+      }
+      if (ctx.activeTaskExecutionContext?.taskId !== taskId) {
+        return ctx
+      }
+      return {
+        ...ctx,
+        activeTaskExecutionContext: undefined,
+      }
     }
 
     // Notify new owner via mailbox when ownership changes
@@ -359,6 +407,7 @@ export const TaskUpdateTool = buildTool({
             : undefined,
         verificationNudgeNeeded,
       },
+      contextModifier: updateActiveTaskExecutionContext,
     }
   },
   mapToolResultToToolResultBlockParam(content, toolUseID) {
